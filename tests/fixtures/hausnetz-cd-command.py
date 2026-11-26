@@ -114,7 +114,8 @@ elif command == "readlink":
         print(os.readlink(args[0]))
 elif command == "nix":
     if args[0] == "run":
-        event("prepare", args=args)
+        event("prepare", args=args,
+              checker_rev=subprocess.check_output(["git", "-C", args[4], "rev-parse", "HEAD"], text=True).strip())
         assert args[1].endswith("#cd-prepare") and args[2:4] == ["--", "--repo"]
         assert args[5] == "--rev" and args[7] == "--running"
         repo = args[1].split("#")[0]
@@ -144,6 +145,8 @@ elif command == "nix":
     if args[0] == "build":
         if scenario.get("build_fail"):
             raise SystemExit(1)
+        if "--out-link" in args:
+            link(args[args.index("--out-link") + 1], config["new_system"])
         print(config["new_system"])
     elif args[:2] == ["store", "diff-closures"]:
         if scenario.get("closures") is not None:
@@ -156,6 +159,11 @@ elif command == "nix":
                 print("hsb0-hausnetz-ha-token.age: ∅ → ε")
     else:
         raise AssertionError(args)
+elif command == "nix-store":
+    assert args[:1] == ["--add-root"] and args[2:4] == ["--indirect", "--realise"]
+    link(args[1], args[4])
+    event("gc-root", path=args[1], target=args[4])
+    print(args[4])
 elif command == "nix-env":
     assert args[:2] == ["--profile", config["system_profile"]] and args[2] == "--set"
     target = args[3]
@@ -166,7 +174,9 @@ elif command == "nix-env":
 elif command == "switch-to-configuration":
     target = str(Path(sys.argv[0]).parent.parent)
     if args == ["dry-activate"]:
-        event("dry-activate")
+        event("dry-activate", roots={name: str((Path(config["state_dir"]) / name).resolve())
+                                    for name in ("old-system", "new-system")
+                                    if (Path(config["state_dir"]) / name).is_symlink()})
         if scenario.get("activation") is not None:
             print(scenario["activation"])
         else:

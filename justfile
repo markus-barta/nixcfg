@@ -114,7 +114,7 @@ _require-current:
 
 [group('build')]
 test:
-    sudo nixos-rebuild test --flake .#{{ hostname }} -L
+    sudo bash scripts/hsb0-deploy-lock.sh nixos-rebuild test --flake .#{{ hostname }} -L
 
 # Careful: This can use a lot of memory on large flakes
 
@@ -289,7 +289,7 @@ nix-switch:
 [group('build')]
 switch-simple:
     just _require-current
-    nh os switch -H {{ hostname }} .
+    bash scripts/hsb0-deploy-lock.sh nh os switch -H {{ hostname }} .
 
 # Build and switch to the new configuration for the current host (platform-aware)
 [group('build')]
@@ -901,7 +901,7 @@ build-vm host:
 # Rebuild the current host
 [group('build')]
 flake-rebuild-current:
-    nh os switch -H {{ hostname }} .
+    bash scripts/hsb0-deploy-lock.sh nh os switch -H {{ hostname }} .
 
 # Update the flakes
 [group('build')]
@@ -912,6 +912,9 @@ flake-update:
 [confirm("Are you sure you want to clean up the system?")]
 [group('maintenance')]
 cleanup:
+    bash scripts/hsb0-deploy-lock.sh just _cleanup
+
+_cleanup:
     duf
     sudo journalctl --vacuum-time=3d
     docker system prune -f
@@ -936,7 +939,7 @@ list-generations:
 # Rollback to the previous generation
 [group('maintenance')]
 rollback:
-    nh os rollback
+    bash scripts/hsb0-deploy-lock.sh nh os rollback
 
 # Garbage collect the nix store to free up space
 [group('maintenance')]

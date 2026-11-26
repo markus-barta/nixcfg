@@ -344,7 +344,12 @@ def prepare_result(stdout, returncode, expected, nar_hash):
 
 def gate_g2(repo, old, new, nar_hash):
     require(not git(repo, "status", "--porcelain"), "G2_dirty_clone")
-    git(repo, "checkout", "--quiet", "--detach", new)
+    try:
+        git(repo, "merge-base", "--is-ancestor", old, new)
+    except Manual as exc:
+        raise Manual("G2_non_descendant") from exc
+    # The running release supplies the checker; the candidate cannot grade itself.
+    git(repo, "checkout", "--quiet", "--detach", old)
     try:
         result = subprocess.run(["nix", "run", str(repo) + "#cd-prepare", "--",
                                  "--repo", str(repo), "--rev", new, "--running", old],
@@ -360,7 +365,9 @@ def gate_g4(repo, old, new):
 
 
 def gate_closures(text, old, new):
-    require("\x1b" not in text, "G3_escaped_closure_output")
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    require(all(char == "\n" or char.isprintable() for char in text),
+            "G3_escaped_closure_output")
     seen = set()
     for line in text.splitlines():
         if not line.strip() or line == old + " → " + new + ":":

@@ -234,7 +234,7 @@ jobs:
 
       - name: Verify offline hausnetz CD guards and must-fail mutants (OPS-705)
         if: steps.pin.outputs.pin_only != 'true'
-        run: nix-shell -p bash git python3 --run "bash tests/T125-hausnetz-cd.sh"
+        run: nix-shell -p bash git python3 just --run "bash tests/T125-hausnetz-cd.sh"
 
       - name: Verify night-levels retired-host loop (OPS-595)
         if: steps.pin.outputs.pin_only != 'true'

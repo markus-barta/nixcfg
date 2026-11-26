@@ -522,9 +522,15 @@ The gates compare with the **running** `source_revision` from
 - G1 permits only the hausnetz URL/adjacent comments, its lock leaf values, and
   the existing RUNBOOK/T99 pin lines. Regular files may be 0644 or 0755, with
   unchanged modes. An unchanged running hausnetz pin is silently ignored.
+  If source fetches or running evidence are unavailable before the pair is
+  known, the tick writes only a local diagnostic and retries next time: no
+  ticket comment, attempted reservation or failed-target tombstone.
 - The Mac maintains and fetches a **full-history working clone** under
   `~/.local/share/hausnetz-cd/hausnetz`. Nix must be on PATH. G2 runs
   `nix run <clone>#cd-prepare -- --repo <clone> --rev <new> --running <running>` (600 s budget).
+  The clone is checked out at the running hausnetz revision, so the running
+  release's checker grades the candidate. An independent
+  `git merge-base --is-ancestor <running> <new>` check must pass first.
   Exactly one JSON object must report exit 0, the expected rev and locked
   narHash, a valid package CalVer, `persisted_ok = true`, unchanged manifests,
   matching 64-hex manifest digests, and no problems. Missing app, schema drift,
@@ -535,12 +541,18 @@ The gates compare with the **running** `source_revision` from
 - G4 requires byte-identical hausnetz `nix/`, `flake.nix` and `flake.lock`
   between those revisions. A module change always needs a human. G4 runs before
   cd-prepare. The controller passes the validated version/manifest digest to
-  the executor; G2 and G4 are controller evidence, not repeated app runs on hsb0.
+  the executor alongside the gated running nixcfg revision. A changed baseline
+  makes the run manual. G2 and G4 are labelled `controller_evidence` in executor
+  status, with the supplied baseline, target, version and manifest digest;
+  they are not repeated app runs on hsb0.
 - After the root build (`--max-jobs 1 --cores 2`), G3 permits only the hausnetz
   replacement and named `etc`/deployment-evidence closure churn. Added or removed
   secrets (including `hsb0-hausnetz-ha-token.age`) fail the gate. Dry-activate may
   stop/start/restart only hausnetz/polkit and reload only dbus-broker. All output
   is parsed, including stderr; unknown lines, extra units and errors are manual.
+  Only SGR colour escapes are stripped; other escapes/control characters fail.
+  `diff-closures` hides same-version changes under 8 KiB. G4 guards module changes
+  that this closure summary cannot reveal.
 
 Dry-run builds and checks gates, then reports proposed actions. Export, switch
 and Telegram steps run only in live mode. The executor rechecks G1, the running
@@ -549,8 +561,10 @@ switching, after the backup-copy acknowledgement.
 
 **Every manual hsb0 switch must hold `/run/hsb0-deploy.lock`**, including the
 manual examples elsewhere in this RUNBOOK. Run `just switch` as mba; the
-`switch`, `nix-switch` and `nix-build` recipes enforce the same lock on hsb0
-only, wait up to 900 seconds and fail closed if busy. Before the module has
+`switch`, `switch-simple` (alias `ss`), `nix-switch`, `nix-build`, `test`,
+`flake-rebuild-current`, `rollback` and `cleanup` recipes enforce the same lock
+on hsb0 only, including the entire cleanup/GC body. They wait up to 900 seconds
+and fail closed if busy or if the hostname cannot be determined. Before the module has
 created the lock file, they print `no hsb0 deploy lock yet` and proceed.
 The root-owned lock is 0644 so mba can open it; the executor preserves its mode.
 An inherited lock from the manual wrapper is reused to avoid nested locking:
@@ -560,6 +574,11 @@ sudo flock -w 900 /run/hsb0-deploy.lock nixos-rebuild switch --flake /path/to/ni
 # Or, from the reviewed checkout:
 flock -w 900 /run/hsb0-deploy.lock just switch
 ```
+
+Run root recipes directly without an outer flock: `just nix-switch`,
+`just nix-build` or `just test`. Those recipes take the lock under sudo, which
+closes inherited descriptors. The helper detects an ancestor holding the lock
+and refuses immediately with a clear message, instead of waiting on itself.
 
 Hold it around the entire build/switch, and around both profile selection and
 activation for a manual rollback. A busy lock skips the CD run and may retry.
@@ -576,6 +595,11 @@ Each executor first writes `starting` with its run ID; inspect
 `sudo cat /var/lib/hausnetz-cd/results/<run-id>.json`. Status includes phases,
 timestamps, old/new systems, package proofs, expected version/manifest digest,
 gates, health, backup and rollback. The controller accepts only its own run ID.
+Pre-lock refusals are terminal `manual` records. A duplicate run ID preserves
+the original status and writes its terminal refusal under `refusals/<run-id>.json`.
+Nix builds use `--out-link /var/lib/hausnetz-cd/new-system`; the recorded old
+system has an indirect GC root at `/var/lib/hausnetz-cd/old-system`. Both roots
+remain through completion and are replaced only by a later locked transaction.
 The Mac's state is `~/.local/share/ops-qa/state/hsb0-hausnetz-cd.json`;
 exports are `~/.local/share/ops-qa/hsb0-hausnetz-exports/` (newest 20).
 `failed`, `attempted` and `reports` retain the newest 200 entries. Durable
@@ -593,8 +617,8 @@ switch, **all** of these must hold on hsb0:
 - loopback `GET /api/meta` returns HTTP 200, the recorded `.version`, and
   `.capabilities_sha256` equal to cd-prepare's `manifest_sha256`;
 - loopback `GET /readyz` returns HTTP 200, JSON `ok == true`, the expected
-  `.version`, and truthy values for every `.checks` entry, including engine,
-  site and ui.
+  `.version`, and literal JSON `true` for every `.checks` entry, including
+  engine, site and ui. Truthy numbers, strings, arrays and objects fail.
 
 A mismatch, missing path, unreadable value or timeout fails closed and rolls
 back to the recorded OLD system, verified with the same OLD path/version/readiness
@@ -605,7 +629,10 @@ failure also persists a Mac alarm and invokes the configured independent csb1
 sender without moving credentials. A running result with an inactive/unknown
 unit becomes failed/UNKNOWN once, stops polling, and cannot auto-retry. Dry-run
 writes an alarm file plus its result log; live sends `ROLLBACK STATUS UNKNOWN`.
-A durable outbox retries ticket delivery without repeating deployment.
+A durable outbox retries ticket delivery without repeating deployment, with a
+maximum of five attempts per report. Exhaustion logs once locally and keeps
+the unsent report under `hausnetz-cd-ledger/outbox/`, even after its bounded
+state summary is pruned; later ticks do not send a sixth attempt.
 
 **Clearing a stuck pending reservation:** disable the timer first. Inspect the
 pending run ID, its root status, `sudo systemctl show hausnetz-cd-<run-id>.service --property=ActiveState --value`, and the running system/package proof. Wait for

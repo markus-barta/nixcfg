@@ -1,6 +1,7 @@
 """Offline transactions and guard-removal mutants for OPS-705."""
 
 import fcntl
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -19,10 +20,10 @@ REPO = Path(__file__).resolve().parents[1]
 SOURCE = Path(os.environ.get("HAUSNETZ_CD_SOURCE", REPO / "modules/hausnetz-cd"))
 sys.path.insert(0, str(SOURCE))
 from common import (Manual, EXECUTOR_BUDGET, POLL_BUDGET, POLL_INTERVAL, SSH_RETRY_TIMEOUT,
-                    UNIT_RUNTIME_MAX, coordinate, gate_g1, gate_g2, gate_g4,
+                    UNIT_RUNTIME_MAX, coordinate, gate_closures, gate_g1, gate_g2, gate_g4,
                     parse_export, prepare_result, strict_json)
-from orchestrate import REMOTE, save_state, validate_result
-from execute import execute as execute_transaction
+from orchestrate import REMOTE, ledger, save_state, tick, validate_result
+from execute import execute as execute_transaction, health
 
 
 class Fixture:
@@ -36,7 +37,7 @@ class Fixture:
         fake = REPO / "tests/fixtures/hausnetz-cd-command.py"
         # Use this test interpreter rather than relying on an executable bit
         # or a Python selected by the developer's global PATH.
-        for command in ("nix", "nix-env", "systemctl", "systemd-run", "curl", "ssh", "sudo",
+        for command in ("nix", "nix-store", "nix-env", "systemctl", "systemd-run", "curl", "ssh", "sudo",
                         "paimos", "alarm", "secondary-telegram", "switch-to-configuration", "readlink"):
             target = self.bin / command
             target.write_text("#!" + sys.executable + "\n" + fake.read_text())
@@ -192,11 +193,13 @@ class Fixture:
             raise AssertionError(result.stderr)
         return result
 
-    def execute(self, mode="dry-run", expect_ok=True, expected=None, version=None, manifest=None):
+    def execute(self, mode="dry-run", expect_ok=True, expected=None, version=None, manifest=None,
+                running=None, token=None):
         self.save()
-        self.run_id = "f" * 32
+        self.run_id = token or "f" * 32
         result = subprocess.run([str(self.executor_path), self.new, expected or self.new_hnet, mode,
-                                 version or self.new_version, manifest or self.manifest_sha, self.run_id],
+                                 version or self.new_version, manifest or self.manifest_sha,
+                                 running or self.old, self.run_id],
                                 env=self.env, capture_output=True, text=True, timeout=10, check=False)
         if expect_ok and result.returncode:
             raise AssertionError(result.stderr)
@@ -266,7 +269,8 @@ class TestCD(unittest.TestCase):
         self.f.tick()
         result = self.f.terminal()
         self.assertEqual(result["status"], "dry-run")
-        self.assertEqual(result["gates"], {"G1": "pass", "G2": "pass", "G3": "pass", "G4": "pass"})
+        self.assertEqual(result["gates"], {"G1": "pass", "G2": "controller_evidence",
+                                          "G3": "pass", "G4": "controller_evidence"})
         self.assertFalse(self.f.events("switch"))
         self.assertFalse(self.f.events("http"))
         self.assertFalse(self.f.events("telegram"))
@@ -553,10 +557,12 @@ class TestCD(unittest.TestCase):
         self.f.tick("live")
         self.assertEqual(len(self.f.events("secondary-telegram")), 1)
 
-    def test_missing_running_evidence_is_manual(self):
+    def test_missing_running_evidence_retries_silently(self):
         Path(self.f.executor["evidence_file"]).write_text('{}')
-        self.manual()
+        self.f.tick()
+        self.assertFalse(self.f.events("ticket"))
         self.assertFalse(self.f.events("start"))
+        self.assertFalse(Path(self.f.orchestrator["state_file"]).exists())
 
     def test_partial_switch_failure_recovers(self):
         self.f.scenario["partial_switch_fail"] = True
@@ -685,7 +691,7 @@ class TestCD(unittest.TestCase):
             raise BlockingIOError
         with mock.patch("execute.fcntl.flock", side_effect=busy):
             execute_transaction(self.f.executor, self.f.new, self.f.new_hnet, "dry-run",
-                                self.f.new_version, self.f.manifest_sha, self.f.run_id)
+                                self.f.new_version, self.f.manifest_sha, self.f.old, self.f.run_id)
         result = self.f.result()
         self.assertEqual(result["status"], "skipped")
         self.assertEqual(result["run_id"], self.f.run_id)
@@ -859,6 +865,7 @@ class TestCD(unittest.TestCase):
         self.assertEqual(self.f.events("prepare")[0]["args"],
                          ["run", clone + "#cd-prepare", "--", "--repo", clone,
                           "--rev", self.f.new_hnet, "--running", self.f.old_hnet])
+        self.assertEqual(self.f.events("prepare")[0]["checker_rev"], self.f.old_hnet)
 
     def test_executor_preserves_readable_lock_mode(self):
         lock = Path(self.f.executor["lock_file"])
@@ -942,19 +949,18 @@ class TestCD(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(Manual):
                 gate_g4(self.f.hnet, self.f.old_hnet, new)
 
-    def test_lock_parse_errors_are_one_manual_outcome(self):
+    def test_lock_parse_errors_retry_silently(self):
         for text in ("{broken", "{}", '{"nodes":[],"root":"root"}'):
             self.f.advance("flake.lock", text)
-            before = len(self.f.events("ticket"))
             self.f.tick()
             self.f.tick()
-            self.assertEqual(len(self.f.events("ticket")), before + 1)
+            self.assertFalse(self.f.events("ticket"))
             self.assertFalse(self.f.events("start"))
-            self.assertEqual(self.f.terminal()["status"], "manual")
+            self.assertFalse(Path(self.f.orchestrator["state_file"]).exists())
 
     def test_remote_rev_and_digest_regexes(self):
         Path(self.f.executor["state_dir"]).mkdir()
-        def remote_script(action, rev, digest, *, expected=None, token=None, version=None, manifest=None):
+        def remote_script(action, rev, digest, *, expected=None, token=None, version=None, manifest=None, running=None):
             self.f.save()
             script = REMOTE.replace("/var/lib/hausnetz-cd", self.f.executor["state_dir"])
             script = script.replace("/run/current-system/sw/bin/hausnetz-cd-execute", str(self.f.executor_path))
@@ -962,11 +968,13 @@ class TestCD(unittest.TestCase):
                     self.f.new_hnet if expected is None else expected, "dry-run", digest,
                     "a" * 32 if token is None else token,
                     self.f.new_version if version is None else version,
-                    self.f.manifest_sha if manifest is None else manifest]
+                    self.f.manifest_sha if manifest is None else manifest,
+                    self.f.old if running is None else running]
             return subprocess.run(args, input=script, env=self.f.env, capture_output=True, text=True, check=False)
         for bad in ("a" * 39, "A" * 40, "a" * 40 + ";true", "../bad"):
             self.assertNotEqual(remote_script("start", bad, "").returncode, 0)
             self.assertNotEqual(remote_script("start", self.f.new, "", expected=bad).returncode, 0)
+            self.assertNotEqual(remote_script("start", self.f.new, "", running=bad).returncode, 0)
         for bad in ("a" * 31, "A" * 32, "a" * 32 + ";true", "../bad"):
             self.assertNotEqual(remote_script("start", self.f.new, "", token=bad).returncode, 0)
         for bad in ("", "261126120508.0.0x", "../bad", "261126120508.0.0\n"):
@@ -1009,6 +1017,215 @@ class TestCD(unittest.TestCase):
         self.f.tick("live")
         self.assertEqual(self.f.terminal()["status"], "rollback_failed")
 
+    def test_g3_captured_pin_only_and_sgr_pass(self):
+        fixtures = REPO / "tests/fixtures"
+        raw = (fixtures / "hausnetz-diffclosures-r65-r66.bin").read_bytes()
+        self.assertEqual(raw, "hausnetz: 261126120508.0.0 → 261126125422.0.0, 11.4 KiB\n".encode())
+        colored = (fixtures / "hausnetz-diffclosures-r65-r66-sgr.bin").read_bytes()
+        self.assertEqual(colored, raw.replace(b"11.4 KiB", b"\x1b[31;1m11.4 KiB\x1b[0m"))
+        for data in (raw, colored):
+            with self.subTest(data=data):
+                try:
+                    gate_closures(data.decode(), "old", "new")
+                except Manual as exc:
+                    self.fail("Captured pin-only output must pass: " + str(exc))
+        # Empty/reset and multi-parameter SGR are permitted, too.
+        gate_closures("\x1b[m\x1b[1;31m" + raw.decode() + "\x1b[0m", "old", "new")
+
+    def test_g3_captured_secret_addition_fails(self):
+        raw = (REPO / "tests/fixtures/hausnetz-diffclosures-r64-r65.bin").read_bytes()
+        self.assertEqual(raw, ("hausnetz: 261123075451.0.0 → 261126120508.0.0, 453.0 KiB\n"
+                               "hsb0-hausnetz-ha-token.age: ∅ → ε\n").encode())
+        with self.assertRaises(Manual):
+            gate_closures(raw.decode(), "old", "new")
+
+    def test_g3_other_escapes_and_controls_fail(self):
+        raw = (REPO / "tests/fixtures/hausnetz-diffclosures-r65-r66.bin").read_text()
+        for control in ("\x1b[2K", "\x1b[1G", "\x1b[?25m", "\x1b]0;title\x07", "\x1b7",
+                        "\x00", "\x07", "\t", "\r", "\x7f", "\x85", "\x9b31m"):
+            with self.subTest(control=control), self.assertRaises(Manual):
+                gate_closures(raw + control, "old", "new")
+
+    def test_g3_control_bytes_are_not_normalized_away(self):
+        raw = (REPO / "tests/fixtures/hausnetz-diffclosures-r65-r66.bin").read_bytes()
+        self.f.scenario["closures"] = raw.decode() + "\r"
+        self.manual()
+        self.assertEqual(self.f.terminal()["reason"], "G3_escaped_closure_output")
+
+    def assert_no_delivery(self):
+        self.assertFalse(self.f.events("ticket"))
+        self.assertFalse(self.f.events("start"))
+        path = Path(self.f.orchestrator["state_file"])
+        if path.exists():
+            state = self.f.state()
+            self.assertEqual(state["failed"], [])
+            self.assertEqual(state["attempted"], {})
+            self.assertEqual(state["reports"], {})
+            self.assertIsNone(state["pending"])
+        self.assertFalse(list((path.parent / "hausnetz-cd-ledger").rglob("*.json")))
+
+    def test_unchanged_pin_and_evidence_ssh_failure_across_two_commits(self):
+        self.f.pin(self.f.old_hnet, 3)
+        self.f.scenario["ssh_fail"] = "evidence"
+        for index in range(2):
+            self.f.advance("unrelated.nix", str(index) + "\n")
+            output = self.f.tick()
+            self.assertIn("tick skipped", output.stdout)
+            self.assert_no_delivery()
+        self.f.scenario.pop("ssh_fail")
+        self.f.tick()
+        self.assert_no_delivery()
+
+    def test_missing_old_source_retries_without_tombstone(self):
+        path = Path(self.f.executor["evidence_file"])
+        path.write_text(json.dumps({"schema": "inspr.pharos.nix-deployment-evidence.v1",
+                                    "source_revision": "f" * 40}))
+        for number in (3, 4):
+            self.f.pin(self.f.new_hnet, number)
+            self.f.new = self.f.commit(self.f.repo)
+            self.f.tick()
+            self.assert_no_delivery()
+        path.write_text(json.dumps({"schema": "inspr.pharos.nix-deployment-evidence.v1",
+                                    "source_revision": self.f.old}))
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "dry-run")
+
+    def test_source_cache_failure_is_local_only(self):
+        with mock.patch("orchestrate.cache_repo", side_effect=Manual("command_failed")), \
+                mock.patch("builtins.print") as log:
+            tick(self.f.orchestrator)
+            tick(self.f.orchestrator)
+        self.assertEqual(log.call_count, 2)
+        self.assert_no_delivery()
+
+    def test_executor_rejects_changed_gated_baseline(self):
+        # Both revs exist and G1 would pass against the actual old revision;
+        # accepting it would change the baseline approved by the controller.
+        self.f.execute(running=self.f.new)
+        result = self.f.result()
+        self.assertEqual(result["status"], "manual")
+        self.assertEqual(result["reason"], "running_baseline_changed")
+        self.assertFalse(self.f.events("nix"))
+
+    def test_prepare_rejects_non_descendant_before_app(self):
+        with mock.patch.dict(os.environ, self.f.env), self.assertRaises(Manual) as caught:
+            gate_g2(self.f.hnet, self.f.new_hnet, self.f.old_hnet, "hash")
+        self.assertEqual(str(caught.exception), "G2_non_descendant")
+        self.assertFalse(self.f.events("prepare"))
+
+    def test_duplicate_run_has_terminal_refusal_without_overwriting_original(self):
+        self.f.run_id = "f" * 32
+        path = Path(self.f.executor["state_dir"]) / "results" / (self.f.run_id + ".json")
+        self.f.write(path, '{"status":"running","phase":"switch"}\n')
+        original = path.read_bytes()
+        self.assertNotEqual(self.f.execute(expect_ok=False).returncode, 0)
+        refusal = json.loads((path.parent.parent / "refusals" / path.name).read_text())
+        self.assertEqual(refusal["status"], "manual")
+        self.assertEqual(refusal["reason"], "run_already_started")
+        self.assertEqual(refusal["phase"], "complete")
+        self.assertIsNotNone(refusal["completed_at"])
+        self.assertEqual(path.read_bytes(), original)
+        self.assertFalse(self.f.events("nix"))
+
+    def test_revision_refusal_is_terminal_before_lock(self):
+        attempt = Path(self.f.executor["state_dir"]) / "attempted" / (self.f.new + ".json")
+        self.f.write(attempt, "{}\n")
+        self.assertNotEqual(self.f.execute(expect_ok=False).returncode, 0)
+        result = self.f.result()
+        self.assertEqual((result["status"], result["phase"], result["reason"]),
+                         ("manual", "complete", "revision_already_attempted"))
+        self.assertIsNotNone(result["completed_at"])
+        self.assertFalse(self.f.events("nix"))
+
+    def test_revision_refusal_under_lock_is_terminal(self):
+        self.f.run_id = "f" * 32
+        attempt = Path(self.f.executor["state_dir"]) / "attempted" / (self.f.new + ".json")
+        def raced(*_args):
+            self.f.write(attempt, "{}\n")
+        with mock.patch("execute.fcntl.flock", side_effect=raced), self.assertRaises(Manual):
+            execute_transaction(self.f.executor, self.f.new, self.f.new_hnet, "dry-run",
+                                self.f.new_version, self.f.manifest_sha, self.f.old, self.f.run_id)
+        self.assertEqual(self.f.result()["status"], "manual")
+        self.assertEqual(self.f.result()["reason"], "revision_already_attempted")
+        self.assertIsNotNone(self.f.result()["completed_at"])
+
+    def test_missing_deploy_lock_is_terminal_manual(self):
+        Path(self.f.executor["lock_file"]).unlink()
+        self.assertNotEqual(self.f.execute(expect_ok=False).returncode, 0)
+        result = self.f.result()
+        self.assertEqual((result["status"], result["phase"], result["reason"]),
+                         ("manual", "complete", "deploy_lock_missing_or_unreadable"))
+        self.assertIsNotNone(result["completed_at"])
+        self.assertFalse(self.f.events("nix"))
+
+    def test_gc_roots_protect_both_systems_through_g3_and_completion(self):
+        self.f.execute()
+        self.assertEqual(self.f.result()["status"], "dry-run")
+        expected = {"old-system": str(self.f.old_system), "new-system": str(self.f.new_system)}
+        self.assertEqual(self.f.events("dry-activate")[0]["roots"], expected)
+        for name, target in expected.items():
+            path = Path(self.f.executor["state_dir"]) / name
+            self.assertTrue(path.is_symlink())
+            self.assertEqual(str(path.resolve()), target)
+        self.assertEqual(self.f.events("gc-root")[0]["target"], str(self.f.old_system))
+
+    def test_ticket_attempts_cap_and_durable_local_outbox(self):
+        self.f.scenario["ticket_fail"] = True
+        outputs = [self.f.tick().stdout for _ in range(8)]
+        entry = self.f.state()["reports"][self.f.key]
+        self.assertEqual(entry["ticket_attempts"], 5)
+        self.assertFalse(entry["ticket"])
+        self.assertEqual(len(self.f.events("ticket")), 5)
+        self.assertEqual(sum(text.count("ticket retries exhausted") for text in outputs), 1)
+        outbox = ledger(self.f.orchestrator, "outbox", self.f.key)
+        self.assertEqual(json.loads(outbox.read_text()), entry)
+        self.f.scenario["ticket_fail"] = False
+        self.f.tick()
+        self.assertEqual(len(self.f.events("ticket")), 5)
+        self.assertEqual(len(self.f.events("start")), 1)
+        # Bounded summaries must not discard the exhausted local report.
+        state = self.f.state()
+        state["reports"].update({str(i): {"order": i + 10} for i in range(210)})
+        save_state(self.f.orchestrator, state)
+        self.assertNotIn(self.f.key, self.f.state()["reports"])
+        self.assertEqual(json.loads(outbox.read_text()), entry)
+
+    def test_readyz_truthy_nonbooleans_are_rejected(self):
+        proof = {"exe": "/fixture/hausnetz", "version": self.f.new_version,
+                 "manifest_sha256": self.f.manifest_sha}
+        def process(args, **_kwargs):
+            return proof["exe"] if args[0] == "readlink" else "123"
+        for key in ("engine", "site", "ui", "extra"):
+            for value in (1, "true", [True], {"ok": True}):
+                checks = {"engine": True, "site": True, "ui": True, key: value}
+                ready = {"ok": True, "version": proof["version"], "checks": checks}
+                def response(url, _timeout):
+                    return json.dumps(ready if url.endswith("/readyz") else {
+                        "version": proof["version"], "capabilities_sha256": proof["manifest_sha256"]})
+                with self.subTest(key=key, value=value), \
+                        mock.patch("execute.run", side_effect=process), \
+                        mock.patch("execute.http_get", side_effect=response):
+                    self.assertFalse(health({"health_timeout": 0.05}, proof))
+
+    def test_executor_labels_controller_evidence_and_preserves_values(self):
+        self.f.tick()
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "dry-run")
+        self.assertEqual(result["gates"]["G2"], "controller_evidence")
+        self.assertEqual(result["gates"]["G4"], "controller_evidence")
+        expected = {"running_nixcfg_rev": self.f.old, "hausnetz_rev": self.f.new_hnet,
+                    "version": self.f.new_version, "manifest_sha256": self.f.manifest_sha}
+        self.assertEqual(result["controller_evidence"], expected)
+        self.assertEqual(self.f.events("start")[0]["args"][-2], self.f.old)
+        pending = {**result, "running_nixcfg_rev": self.f.old}
+        self.assertIs(validate_result(result, pending), result)
+        for key in expected:
+            changed = {**result, "controller_evidence": {**expected, key: "wrong"}}
+            with self.subTest(key=key), self.assertRaises(Manual):
+                validate_result(changed, pending)
+        with self.assertRaises(Manual):
+            validate_result({**result, "gates": {**result["gates"], "G2": "pass"}}, pending)
+
 
 def mutants():
     # Run the same behavioral assertions against real source copies. A zero
@@ -1040,7 +1257,7 @@ def mutants():
         ("shared deploy lock", "execute.py", [('fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)', 'pass')], "test_lock_busy_is_skip_and_can_retry"),
         ("pair idempotency", "orchestrate.py", [('key in state["attempted"] or expected in state["failed"]', 'False or expected in state["failed"]'), ('or ledger(config, "attempted", key).exists()', 'or False')], "test_attempted_pair_not_nixcfg_revision"),
         ("failed target tombstone", "orchestrate.py", [('or ledger(config, "failed", expected).exists()', 'or False'), ('or ledger(config, "attempted", key).exists()', 'or False')], "test_failed_target_survives_bounded_history"),
-        ("executor idempotency", "execute.py", [('\n    require(not attempt.exists(), "revision_already_attempted")', '\n    pass'), ('\n        require(not attempt.exists(), "revision_already_attempted")', '\n        pass')], "test_idempotency_success_and_executor_duplicate"),
+        ("executor idempotency", "execute.py", [('\n    if attempt.exists():', '\n    if False:'), ('\n        if attempt.exists():', '\n        if False:')], "test_idempotency_success_and_executor_duplicate"),
         ("crashed executor detection", "orchestrate.py", [('if response["unit_state"] not in {"active", "activating", "deactivating"}:', 'if False:')], "test_crashed_running_unit_is_failed_once_dry_run"),
         ("run-scoped status identity", "orchestrate.py", [('            and result.get("run_id") == pending["run_id"]', '            and True'), ('isinstance(result, dict) and result.get("run_id") == pending["run_id"]', 'isinstance(result, dict)')], "test_stale_skipped_status_is_ignored"),
         ("result identity run ID", "orchestrate.py", [('            and result.get("run_id") == pending["run_id"]', '            and True')], "test_result_identity_requires_run_id"),
@@ -1057,7 +1274,7 @@ def mutants():
         ("metadata manifest digest proof", "execute.py", [('value.get("capabilities_sha256") == proof["manifest_sha256"]', 'True')], "test_meta_manifest_mismatch_rolls_back"),
         ("metadata manifest missing", "execute.py", [('value.get("capabilities_sha256") == proof["manifest_sha256"]', 'True')], "test_meta_manifest_missing_rolls_back"),
         ("readiness version proof", "execute.py", [('ready.get("version") == proof["version"]', 'True')], "test_readyz_version_mismatch_rolls_back"),
-        ("readiness checks proof", "execute.py", [('isinstance(checks, dict) and {"engine", "site", "ui"}.issubset(checks)\n                    and all(checks.values())', 'True')], "test_readyz_check_false_rolls_back"),
+        ("readiness checks proof", "execute.py", [('isinstance(checks, dict) and {"engine", "site", "ui"}.issubset(checks)\n                    and all(value is True for value in checks.values())', 'True')], "test_readyz_check_false_rolls_back"),
         ("readyz HTTP status", "common.py", [('separator and code == b"200"', 'separator')], "test_readyz_503_rolls_back"),
         ("readyz missing path", "common.py", [('separator and code == b"200"', 'separator')], "test_readyz_missing_rolls_back"),
         ("readyz JSON readiness", "execute.py", [('isinstance(ready, dict) and ready.get("ok") is True', 'True')], "test_readyz_false_rolls_back"),
@@ -1083,15 +1300,36 @@ def mutants():
         ("G2 extra stdout", "common.py", [('value = strict_json(stdout)', 'value = json.JSONDecoder().raw_decode(stdout.decode())[0]')], "test_prepare_extra_stdout_is_manual"),
         ("G2 app timeout", "common.py", [('capture_output=True, timeout=600, check=False)', 'capture_output=True, timeout=None, check=False)')], "test_prepare_timeout_is_manual"),
         ("fresh starting status", "execute.py", [('    save()\n    attempt = state', '    attempt = state')], "test_starting_status_precedes_lock"),
-        ("lock parse errors per tick", "orchestrate.py", [('except (Manual, OSError, KeyError, TypeError, ValueError) as exc:', 'except OSError as exc:')], "test_lock_parse_errors_are_one_manual_outcome"),
+        ("lock parse errors per tick", "orchestrate.py", [('except (Manual, OSError, KeyError, TypeError, ValueError):\n            print("hausnetz-cd: tick skipped;', 'except OSError:\n            print("hausnetz-cd: tick skipped;')], "test_lock_parse_errors_retry_silently"),
         ("built package versus prepared version", "execute.py", [('require(result["new_proof"]["version"] == expected_version,', 'require(True,')], "test_built_version_must_match_prepare"),
         ("activation never killed by timeout", "execute.py", [('run([new_system + "/bin/switch-to-configuration", "switch"], timeout=None)', 'run([new_system + "/bin/switch-to-configuration", "switch"], timeout=120)')], "test_poll_and_runtime_budgets"),
         ("remote expected revision regex", "orchestrate.py", [('[[ "$expected" =~ ^[0-9a-f]{40}$ ]]', 'true')], "test_remote_rev_and_digest_regexes"),
         ("remote run ID regex", "orchestrate.py", [('[[ "$run_id" =~ ^[0-9a-f]{32}$ ]]', 'true')], "test_remote_rev_and_digest_regexes"),
         ("remote version regex", "orchestrate.py", [('[[ "$version" =~ ^[0-9]{12}\\.0\\.0$ ]]', 'true')], "test_remote_rev_and_digest_regexes"),
         ("remote manifest digest regex", "orchestrate.py", [('[[ "$manifest_sha" =~ ^[0-9a-f]{64}$ ]]', 'true')], "test_remote_rev_and_digest_regexes"),
+        ("G3 no SGR stripping", "common.py", [('text = re.sub(r"\\x1b\\[[0-9;]*m", "", text)', 'text = text')], "test_g3_captured_pin_only_and_sgr_pass"),
+        ("G3 strip all escapes", "common.py", [('r"\\x1b\\[[0-9;]*m"', 'r"\\x1b(?:\\[[0-?]*[ -/]*[@-~]|\\][^\\x07]*(?:\\x07|\\x1b\\\\)|.)"')], "test_g3_other_escapes_and_controls_fail"),
+        ("G3 controls rejected", "common.py", [('all(char == "\\n" or char.isprintable() for char in text)', 'True')], "test_g3_other_escapes_and_controls_fail"),
+        ("G3 raw control bytes preserved", "execute.py", [('timeout=G3_COMMAND_TIMEOUT, binary=True).decode("utf-8")', 'timeout=G3_COMMAND_TIMEOUT)')], "test_g3_control_bytes_are_not_normalized_away"),
+        ("pre-pair SSH failure is retryable", "orchestrate.py", [('            print("hausnetz-cd: tick skipped; source or running evidence unavailable", flush=True)\n            return', '            state["failed"].append(expected)\n            save_state(config, state)\n            return')], "test_unchanged_pin_and_evidence_ssh_failure_across_two_commits"),
+        ("pre-pair old source failure is retryable", "orchestrate.py", [('            print("hausnetz-cd: tick skipped; source or running evidence unavailable", flush=True)\n            return', '            state["failed"].append(expected)\n            save_state(config, state)\n            return')], "test_missing_old_source_retries_without_tombstone"),
+        ("executor gated baseline", "execute.py", [('require(old_rev == gated_running,', 'require(True,')], "test_executor_rejects_changed_gated_baseline"),
+        ("G2 running release checker", "common.py", [('git(repo, "checkout", "--quiet", "--detach", old)', 'git(repo, "checkout", "--quiet", "--detach", new)')], "test_prepare_exact_command"),
+        ("G2 independent ancestry", "common.py", [('        git(repo, "merge-base", "--is-ancestor", old, new)', '        pass')], "test_prepare_rejects_non_descendant_before_app"),
+        ("duplicate run refusal terminal", "execute.py", [('result.update(status="manual", phase="complete", reason=reason,', 'result.update(status="running", phase="complete", reason=reason,')], "test_duplicate_run_has_terminal_refusal_without_overwriting_original"),
+        ("revision refusal terminal", "execute.py", [('result.update(status="manual", phase="complete", reason=reason,', 'result.update(status="running", phase="complete", reason=reason,')], "test_revision_refusal_is_terminal_before_lock"),
+        ("missing lock refusal terminal", "execute.py", [('result.update(status="manual", phase="complete", reason=reason,', 'result.update(status="running", phase="complete", reason=reason,')], "test_missing_deploy_lock_is_terminal_manual"),
+        ("old system GC root", "execute.py", [('run(["nix-store", "--add-root", state / "old-system", "--indirect", "--realise", old_system])', 'pass')], "test_gc_roots_protect_both_systems_through_g3_and_completion"),
+        ("new system GC root", "execute.py", [('"--out-link", state / "new-system",', '"--no-link",')], "test_gc_roots_protect_both_systems_through_g3_and_completion"),
+        ("ticket retry cap", "orchestrate.py", [('entry.get("ticket_attempts", 0) < 5', 'entry.get("ticket_attempts", 0) < 6')], "test_ticket_attempts_cap_and_durable_local_outbox"),
+        ("strict readiness booleans", "execute.py", [('all(value is True for value in checks.values())', 'all(checks.values())')], "test_readyz_truthy_nonbooleans_are_rejected"),
+        ("controller gate labels", "execute.py", [('result["gates"]["G2"] = "controller_evidence"', 'result["gates"]["G2"] = "pass"'), ('result["gates"]["G4"] = "controller_evidence"', 'result["gates"]["G4"] = "pass"')], "test_dry_run_success_and_limits"),
+        ("controller evidence values", "execute.py", [('"running_nixcfg_rev": gated_running,', '"running_nixcfg_rev": new_rev,')], "test_executor_labels_controller_evidence_and_preserves_values"),
+        ("controller evidence validation", "orchestrate.py", [('require(result.get("running_nixcfg_rev") == pending["running_nixcfg_rev"]', 'require(True or result.get("running_nixcfg_rev") == pending["running_nixcfg_rev"]')], "test_executor_labels_controller_evidence_and_preserves_values"),
+        ("remote running baseline regex", "orchestrate.py", [('[[ "$running" =~ ^[0-9a-f]{40}$ ]]', 'true')], "test_remote_rev_and_digest_regexes"),
     ]
-    for label, file, edits, test in cases:
+    def check_mutant(case):
+        label, file, edits, test = case
         with tempfile.TemporaryDirectory(prefix="t125-mutant-") as temporary:
             source = Path(temporary)
             for path in SOURCE.glob("*"):
@@ -1105,19 +1343,41 @@ def mutants():
             (source / file).write_text(text)
             result = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()), "TestCD." + test],
                                     env=dict(os.environ, HAUSNETZ_CD_SOURCE=str(source)),
-                                    capture_output=True, text=True, timeout=25, check=False)
+                                    capture_output=True, text=True, timeout=45, check=False)
             if result.returncode == 0:
                 raise AssertionError("SURVIVED guard-removal mutant: " + label)
             # Do not count a syntax/import/fixture setup failure as a killed
             # mutant. The selected behavior assertion itself must fail.
             if "FAIL: " not in result.stderr:
                 raise AssertionError("Invalid mutant run: " + label + "\n" + result.stderr)
+            return label
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        for label in workers.map(check_mutant, cases):
             print("must-fail mutant killed: " + label, flush=True)
     print("T125: " + str(len(cases)) + " guard-removal mutants killed", flush=True)
+
+
+def parallel_cases():
+    names = unittest.defaultTestLoader.getTestCaseNames(TestCD)
+    groups = [names[index::4] for index in range(4)]
+    def check_group(group):
+        return subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()),
+                               *("TestCD." + name for name in group)],
+                              capture_output=True, text=True, timeout=240, check=False)
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        results = list(workers.map(check_group, groups))
+    for result in results:
+        print(result.stdout, end="", flush=True)
+        print(result.stderr, end="", file=sys.stderr, flush=True)
+    if any(result.returncode for result in results):
+        raise SystemExit("T125: transaction shard failed")
+    print("T125: " + str(len(names)) + " transaction cases passed (4 bounded subprocesses)", flush=True)
 
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["--mutants"]:
         mutants()
+    elif sys.argv[1:] == ["--parallel"]:
+        parallel_cases()
     else:
         unittest.main(verbosity=2)

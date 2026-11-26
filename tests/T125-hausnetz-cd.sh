@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # OPS-705: entirely offline, bounded PATH-fake transactions; never a Nix build.
 set -euo pipefail
+started=$SECONDS
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 python3 -B "$repo/tests/test_hsb0_deploy_lock.py"
-python3 -B "$repo/tests/test_hausnetz_cd.py"
+python3 -B "$repo/tests/test_hausnetz_cd.py" --parallel
 python3 -B "$repo/tests/test_hausnetz_cd.py" --mutants
 for source in "$repo/modules/hausnetz-cd/default.nix" "$repo/hosts/mbp2607/hausnetz-cd.nix"; do
   nix-instantiate --parse "$source" >/dev/null
@@ -40,3 +41,4 @@ assert "exec python3 -B /nix/store/" in c["orchestratorRunner"]["text"]
 print("T125 Nix module contracts: disabled timer, dry-run host, readiness required, selected Nix passed")
 '
 printf 'T125 hausnetz CD: offline transactions and mutants passed\n'
+printf 'T125 elapsed: %s seconds\n' "$((SECONDS - started))"

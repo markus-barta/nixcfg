@@ -63,7 +63,7 @@ def health(config, proof):
             require(ready.get("version") == proof["version"], "health_readyz_version_mismatch")
             checks = ready.get("checks")
             require(isinstance(checks, dict) and {"engine", "site", "ui"}.issubset(checks)
-                    and all(checks.values()), "health_readyz_checks_failed")
+                    and all(value is True for value in checks.values()), "health_readyz_checks_failed")
             require(process() == pid and time.monotonic() < deadline, "health_process_changed")
             return True
         except (Manual, KeyError, TypeError):
@@ -92,15 +92,15 @@ def telegram(lines, message):
         return False
 
 
-def execute(config, new_rev, expected, mode, expected_version, manifest_sha, run_token):
+def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gated_running, run_token):
     revision(new_rev)
     revision(expected)
+    revision(gated_running)
     validate_run_id(run_token)
     require(os.geteuid() == 0 or config.get("fixture_root") is True, "executor_requires_root")
     require(mode in {"dry-run", "live"}, "invalid_mode")
     state = private_dir(config["state_dir"])
     result_path = state / "results" / (run_token + ".json")
-    require(not result_path.exists(), "run_already_started")
     result = {
         "schema": RESULT_SCHEMA, "host": "hsb0", "action": "hausnetz-cd", "mode": mode,
         "run_id": run_token, "nixcfg_rev": new_rev, "hausnetz_rev": expected,
@@ -119,18 +119,33 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, run
         result["updated_at"] = now()
         atomic_json(result_path, result)
 
+    def refuse(reason, path=None):
+        result.update(status="manual", phase="complete", reason=reason, completed_at=now(), updated_at=now())
+        atomic_json(path or result_path, result)
+        raise Manual(reason)
+
+    if result_path.exists():
+        # Preserve the original run's evidence, including a possibly active
+        # transaction. The duplicate invocation gets its own terminal refusal.
+        refuse("run_already_started", state / "refusals" / (run_token + ".json"))
     # A run-scoped starting record precedes lock checks, source access or work.
     save()
     attempt = state / "attempted" / (new_rev + ".json")
-    require(not attempt.exists(), "revision_already_attempted")
-    with open(config["lock_file"], "r", encoding="utf-8") as lock:
+    if attempt.exists():
+        refuse("revision_already_attempted")
+    try:
+        lock_file = open(config["lock_file"], "r", encoding="utf-8")
+    except OSError:
+        refuse("deploy_lock_missing_or_unreadable")
+    with lock_file as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             result.update(status="skipped", reason="lock_busy", completed_at=now())
             save("lock")
             return
-        require(not attempt.exists(), "revision_already_attempted")
+        if attempt.exists():
+            refuse("revision_already_attempted")
         atomic_json(attempt, {"run_id": run_token, "at": now()})
         switched = False
         switching = False
@@ -155,6 +170,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, run
             validate_digest(manifest_sha)
             result.update(expected_version=expected_version, manifest_sha256=manifest_sha)
             old_rev = evidence(Path(config["evidence_file"]).read_bytes())
+            require(old_rev == gated_running, "running_baseline_changed")
             result["running_nixcfg_rev"] = old_rev
             repo = cache_repo(state / "nixcfg.git", config["nixcfg_url"], old_rev, new_rev)
             save("G1")
@@ -165,8 +181,12 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, run
             save("G2")
             # The authenticated controller supplies the validated cd-prepare
             # coordinate only after G2 + G4. The app runs on the Mac, never here.
-            result["gates"]["G2"] = "pass"
-            result["gates"]["G4"] = "pass"
+            result["gates"]["G2"] = "controller_evidence"
+            result["gates"]["G4"] = "controller_evidence"
+            result["controller_evidence"] = {
+                "running_nixcfg_rev": gated_running, "hausnetz_rev": expected,
+                "version": expected_version, "manifest_sha256": manifest_sha,
+            }
             save("record_previous")
             old_system = str(Path(config["current_system"]).resolve(strict=True))
             require(re.fullmatch(config["store_pattern"], old_system), "invalid_old_system")
@@ -174,6 +194,10 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, run
             result["old_generation"] = os.readlink(config["system_profile"])
             require(str(Path(config["system_profile"]).resolve(strict=True)) == old_system,
                     "profile_disagrees_with_running_system")
+            # Indirect roots protect both systems from concurrent external GC.
+            # Keep the bounded pair of roots after completion for inspection;
+            # only a later transaction holding this lock may replace them.
+            run(["nix-store", "--add-root", state / "old-system", "--indirect", "--realise", old_system])
             result["generation"] = result["old_generation"]
             result["old_proof"] = package_proof(config, old_system)
             if mode == "live":
@@ -186,7 +210,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, run
                 require(health(config, result["old_proof"]), "old_health_failed")
             save("build")
             target = "git+file://" + str(repo) + "?rev=" + new_rev
-            new_system = run(["nix", "build", "--no-link", "--print-out-paths",
+            new_system = run(["nix", "build", "--out-link", state / "new-system", "--print-out-paths",
                               "--no-update-lock-file", "--max-jobs", "1", "--cores", "2",
                               target + "#nixosConfigurations.hsb0.config.system.build.toplevel"], timeout=BUILD_TIMEOUT).strip()
             require(re.fullmatch(config["store_pattern"], new_system), "invalid_new_system")
@@ -196,7 +220,8 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, run
             result["new_proof"]["manifest_sha256"] = manifest_sha
             require(result["new_proof"]["version"] == expected_version, "built_version_disagrees_with_prepare")
             save("G3")
-            gate_closures(run(["nix", "store", "diff-closures", old_system, new_system], timeout=G3_COMMAND_TIMEOUT),
+            gate_closures(run(["nix", "store", "diff-closures", old_system, new_system],
+                              timeout=G3_COMMAND_TIMEOUT, binary=True).decode("utf-8"),
                           old_system, new_system)
             # dry-activate diagnostics are part of the gate, not discarded.
             activation = subprocess.run([new_system + "/bin/switch-to-configuration", "dry-activate"],
@@ -289,12 +314,13 @@ def main():
     parser.add_argument("mode", choices=["dry-run", "live"])
     parser.add_argument("version")
     parser.add_argument("manifest_sha256")
+    parser.add_argument("running_nixcfg_rev")
     parser.add_argument("run_id")
     args = parser.parse_args()
     try:
         config = strict_json(Path(args.config).read_bytes())
         execute(config, args.nixcfg_rev, args.hausnetz_rev, args.mode,
-                args.version, args.manifest_sha256, args.run_id)
+                args.version, args.manifest_sha256, args.running_nixcfg_rev, args.run_id)
     except (Manual, OSError, KeyError, TypeError, ValueError):
         raise SystemExit("hausnetz-cd: executor refused; inspect root-owned status") from None
 

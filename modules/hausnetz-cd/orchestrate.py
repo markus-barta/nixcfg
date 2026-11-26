@@ -25,6 +25,7 @@ digest=${5:-}
 run_id=${6:-}
 version=${7:-}
 manifest_sha=${8:-}
+running=${9:-}
 state=/var/lib/hausnetz-cd
 if [ "$action" != evidence ]; then
   [[ "$rev" =~ ^[0-9a-f]{40}$ ]] || exit 2
@@ -37,13 +38,14 @@ case "$action" in
     [[ "$mode" == dry-run || "$mode" == live ]] || exit 2
     [[ "$version" =~ ^[0-9]{12}\.0\.0$ ]] || exit 2
     [[ "$manifest_sha" =~ ^[0-9a-f]{64}$ ]] || exit 2
+    [[ "$running" =~ ^[0-9a-f]{40}$ ]] || exit 2
     sudo -n systemd-run --quiet --collect --unit="hausnetz-cd-$run_id" \
       --property=Type=exec --property=Nice=19 --property=CPUQuota=200% \
       --property=IOSchedulingClass=idle --property=UMask=0077 --property=TimeoutStopSec=300 \
       --property=MemoryHigh=1G --property=MemoryMax=1500M --property=RuntimeMaxSec=@RUNTIME@ \
       --property=KillMode=process --property=SendSIGKILL=no \
       /run/current-system/sw/bin/hausnetz-cd-execute "$rev" "$expected" "$mode" \
-      "$version" "$manifest_sha" "$run_id"
+      "$version" "$manifest_sha" "$running" "$run_id"
     ;;
   status)
     active=$(sudo -n systemctl show "hausnetz-cd-$run_id.service" --property=ActiveState --value 2>/dev/null) || active=unknown
@@ -68,8 +70,8 @@ esac
 
 
 def remote(config, action, rev="", expected="", mode="", digest="", run_id="",
-           version="", manifest_sha="", binary=False):
-    args = [action, rev, expected, mode, digest, run_id, version, manifest_sha]
+           version="", manifest_sha="", running="", binary=False):
+    args = [action, rev, expected, mode, digest, run_id, version, manifest_sha, running]
     command = "bash -s -- " + " ".join(shlex.quote(value) for value in args)
     return run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
                 "-o", "StrictHostKeyChecking=yes", config["target"], command],
@@ -126,10 +128,17 @@ def validate_result(result, pending):
             and result.get("mode") == pending["mode"], "remote_result_identity")
     require(result.get("status") in TERMINAL | {"running"}, "remote_result_status")
     if result["status"] in {"succeeded", "dry-run"}:
-        require(result.get("gates") == {"G1": "pass", "G2": "pass", "G3": "pass", "G4": "pass"},
+        require(result.get("gates") == {"G1": "pass", "G2": "controller_evidence",
+                                        "G3": "pass", "G4": "controller_evidence"},
                 "remote_result_gates")
         require(result.get("expected_version") == pending["expected_version"]
                 and result.get("manifest_sha256") == pending["manifest_sha256"], "remote_result_coordinate")
+        require(result.get("running_nixcfg_rev") == pending["running_nixcfg_rev"]
+                and result.get("controller_evidence") == {
+                    "running_nixcfg_rev": pending["running_nixcfg_rev"],
+                    "hausnetz_rev": pending["hausnetz_rev"],
+                    "version": pending["expected_version"],
+                    "manifest_sha256": pending["manifest_sha256"]}, "remote_controller_evidence")
     if result["status"] == "succeeded":
         require(result.get("health") == "pass" and result.get("backup") == "copied"
                 and result["mode"] == "live", "remote_success_evidence")
@@ -158,13 +167,28 @@ def report(config, state, key):
         alarm(config, result, "ROLLBACK STATUS UNKNOWN" if result["status"] == "unknown" else "ROLLBACK FAILED")
         entry["alarm"] = True
         save_state(config, state)
-    if not entry["ticket"]:
+    if not entry["ticket"] and entry.get("ticket_attempts", 0) < 5:
+        # Reserve before sending, so a crash cannot reset the retry budget.
+        entry["ticket_attempts"] = entry.get("ticket_attempts", 0) + 1
+        atomic_json(ledger(config, "outbox", key), entry)
+        save_state(config, state)
         try:
             comment(config, log_line(result))
             entry["ticket"] = True
-            save_state(config, state)
         except Manual:
             pass
+        if entry["ticket"]:
+            ledger(config, "outbox", key).unlink(missing_ok=True)
+        else:
+            atomic_json(ledger(config, "outbox", key), entry)
+        save_state(config, state)
+    if (not entry["ticket"] and entry.get("ticket_attempts", 0) >= 5
+            and not entry.get("outbox_logged")):
+        print("hausnetz-cd: ticket retries exhausted; report retained in local outbox key=" + key,
+              flush=True)
+        entry["outbox_logged"] = True
+        atomic_json(ledger(config, "outbox", key), entry)
+        save_state(config, state)
 
 
 def finish(config, state, result):
@@ -277,31 +301,32 @@ def tick(config):
         if state["pending"]:
             reconcile(config, state)
             return
-        repo = cache_repo(directory / "nixcfg.git", config["nixcfg_url"])
-        new = revision(git(repo, "rev-parse", "refs/heads/main").strip())
-        manual_key = "manual-" + new
-        if ledger(config, "attempted", manual_key).exists():
+        # Nothing is a delivery attempt until both hausnetz revisions are known
+        # and different. Transport/source failures must remain retryable.
+        try:
+            repo = cache_repo(directory / "nixcfg.git", config["nixcfg_url"])
+            new = revision(git(repo, "rev-parse", "refs/heads/main").strip())
+            expected, new_lock = lock_pin(blob(repo, new, "flake.lock"))
+            old = evidence(remote(config, "evidence"))
+            cache_repo(repo, config["nixcfg_url"], old, new)
+            running = lock_pin(blob(repo, old, "flake.lock"))[0]
+        except (Manual, OSError, KeyError, TypeError, ValueError):
+            print("hausnetz-cd: tick skipped; source or running evidence unavailable", flush=True)
+            return
+        if expected == running:
+            return  # no delivery: no reservation, failure entry or comment
+        key = running + "-" + expected
+        if (key in state["attempted"] or expected in state["failed"]
+                or ledger(config, "attempted", key).exists()
+                or ledger(config, "failed", expected).exists()):
             return
         result = {"schema": RESULT_SCHEMA, "nixcfg_rev": new, "hausnetz_rev": "unknown",
-                  "run_key": manual_key, "run_id": uuid.uuid4().hex,
+                  "run_key": key, "run_id": uuid.uuid4().hex,
                   "mode": config["mode"], "status": "manual", "phase": "preflight",
                   "gates": {"G1": "not_run", "G2": "not_run", "G3": "not_run", "G4": "not_run"},
                   "health": "not_run", "rollback": "not_required", "generation": None}
         try:
-            # Parse failures belong to this tick's once-only manual outcome.
-            expected, new_lock = lock_pin(blob(repo, new, "flake.lock"))
             result["hausnetz_rev"] = expected
-            old = evidence(remote(config, "evidence"))
-            cache_repo(repo, config["nixcfg_url"], old, new)
-            running = lock_pin(blob(repo, old, "flake.lock"))[0]
-            if expected == running:
-                return  # no delivery: no reservation, failure entry or comment
-            key = running + "-" + expected
-            result["run_key"] = key
-            if (key in state["attempted"] or expected in state["failed"]
-                    or ledger(config, "attempted", key).exists()
-                    or ledger(config, "failed", expected).exists()):
-                return
             result["phase"] = "G1"
             a, b = gate_g1(repo, old, new)
             require(b == expected, "expected_revision_disagrees_with_lock")
@@ -322,6 +347,7 @@ def tick(config):
             finish(config, state, result)
             return
         pending = {"nixcfg_rev": new, "hausnetz_rev": expected, "mode": config["mode"],
+                   "running_nixcfg_rev": old,
                    "run_id": result["run_id"], "run_key": key, "reserved_at": now(),
                    "expected_version": prepared["version"], "manifest_sha256": prepared["manifest_sha256"],
                    "deadline": time.time() + fixture_limit(config, "poll_timeout", POLL_BUDGET)}
@@ -332,7 +358,7 @@ def tick(config):
         save_state(config, state)
         try:
             remote(config, "start", new, expected, config["mode"], run_id=pending["run_id"],
-                   version=prepared["version"], manifest_sha=prepared["manifest_sha256"])
+                   version=prepared["version"], manifest_sha=prepared["manifest_sha256"], running=old)
         except Manual:
             pass
         reconcile(config, state)
