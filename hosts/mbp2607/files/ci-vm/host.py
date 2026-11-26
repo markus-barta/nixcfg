@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Host-only locking and narrowly scoped Darwin background-policy enforcement."""
+"""Host-only locking and narrowly scoped Darwin standard-policy enforcement."""
 
 import ctypes
 import fcntl
@@ -21,7 +21,7 @@ QOS_COMMAND = (sys.executable, __file__, "qos", PIDFILE)
 COMMANDS = {
     "status": ("colima", "status", "ci", "--json"),
     "stop": ("colima", "stop", "ci"),
-    "start": ("taskpolicy", "-b", "-c", "background", "colima", "start", "ci",
+    "start": ("colima", "start", "ci",
               "--activate=false", "--ssh-config=false"),
     "qos": QOS_COMMAND,
     "host-ready": ("colima", "--profile", "ci", "ssh", "--", "sudo",
@@ -149,12 +149,21 @@ def qos():
         raise RuntimeError("cannot uniquely associate a Virtualization XPC process with ci's disk")
 
     for target, role in targets:
-        subprocess.run(["/usr/sbin/taskpolicy", "-b", "-p", str(target)], check=True)
-        # SDK mach/task_policy.h: PROC_FLAG_DARWINBG / EXT_DARWINBG.
+        # sys/proc_info.h: PROC_FLAG_DARWINBG / PROC_FLAG_EXT_DARWINBG.
         flags = info(target)[0]
-        if not flags & (0x8000 | 0x10000):
-            raise RuntimeError(f"background policy absent for PID {target}")
-        print(f"ci-vm: {role} pid={target} background=true flags={flags:#x}")
+        if flags & (0x8000 | 0x10000):
+            # -B clears only the external flag (0x10000); inherited
+            # internal background policy (0x8000) requires a fresh starter.
+            subprocess.run(["/usr/sbin/taskpolicy", "-B", "-p", str(target)], check=True)
+            flags = info(target)[0]
+            if flags & 0x8000:
+                raise RuntimeError(
+                    f"inherited background policy (0x8000) on PID {target}: "
+                    "restart ci from the new starter"
+                )
+            if flags & 0x10000:
+                raise RuntimeError(f"background policy still set for PID {target}")
+        print(f"ci-vm: {role} pid={target} background=false flags={flags:#x}")
 
 
 if __name__ == "__main__":
