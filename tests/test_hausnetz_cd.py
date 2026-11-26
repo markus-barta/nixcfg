@@ -107,8 +107,12 @@ class Fixture:
             "nixcfg_url": str(self.repo), "current_system": str(root / "current-system"),
             "system_profile": str(root / "profile"), "store_pattern": str(root / "store") + r"/[^/]+",
             "package_pattern": str(root / "store") + r"/[0-9a-z]{32}-hausnetz-([^/]+)/bin/hausnetz",
-            "require_readyz": True, "health_timeout": 1.25,
-            "backup_ack_timeout": 3, "telegram_file": str(self.credential),
+            # OPS-705: generous windows so a loaded CI runner cannot turn the
+            # expected outcome into an early 'manual' (#1326 flake: the ack
+            # missed a 3 s window). Failure cases still end at the deadline;
+            # the dedicated timeout tests set their own tiny values.
+            "require_readyz": True, "health_timeout": 4,
+            "backup_ack_timeout": 30, "telegram_file": str(self.credential),
         }
         self.orchestrator = {
             "enabled": True, "mode": "dry-run", "target": "mba@hsb0.lan",
