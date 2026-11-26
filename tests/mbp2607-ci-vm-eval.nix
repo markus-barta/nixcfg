@@ -31,7 +31,18 @@ let
           && !lib.hasInfix "@dispatcher@" text
         )
       ) "Host helper must pin the module state, ci PID and dispatcher paths";
-      write name text;
+      assert lib.assertMsg (
+        name != "ci-vm-heavy-lock.py"
+        || (
+          lib.hasInfix ''LOCK_PATH = "/'' text
+          && lib.hasInfix "operate(action, Path(LOCK_PATH)" text
+          && !lib.hasInfix "action, path, pid, now, *extra = sys.argv" text
+        )
+      ) "Heavy helper must bake a constant absolute path and reject CLI path overrides";
+      (write name text)
+      // lib.optionalAttrs (name == "ci-vm-heavy-lock.py") {
+        outPath = "/fixture/${name}-${builtins.hashString "sha256" text}";
+      };
     writeShellScriptBin = write;
   };
   fixture = {
@@ -87,6 +98,18 @@ let
       };
     };
   };
+  customHeavy = evaluate {
+    services.ciVm = {
+      enable = true;
+      heavyLockPath = "/fixture/custom-heavy.lock.d";
+      repositories.hausnetz.repository = "inspr-at/hausnetz";
+    };
+  };
+  helperLine =
+    cfg:
+    builtins.filter (line: lib.hasPrefix "export CI_VM_HEAVY_LOCK_HELPER=" line) (
+      lib.splitString "\n" (builtins.head cfg.home.packages).text
+    );
   disabled = evaluate { services.ciVm.enable = false; };
   invalid = evaluate {
     services.ciVm = {
@@ -124,18 +147,11 @@ let
     sharedHeavyLock =
       module.services.ciVm.heavyLockPath == "/Users/Shared/ci-locks/mbp2607-heavy.lock.d"
       && lib.hasInfix "export CI_VM_HEAVY_LOCK=/Users/Shared/ci-locks/mbp2607-heavy.lock.d" command
-      && lib.hasInfix "export CI_VM_HEAVY_LOCK_HELPER=/nix/store/" command;
+      && lib.hasInfix "export CI_VM_HEAVY_LOCK_HELPER=/fixture/ci-vm-heavy-lock.py" command;
     configurableHeavyLock =
-      lib.hasInfix "export CI_VM_HEAVY_LOCK=/fixture/custom-heavy.lock.d"
-        (builtins.head
-          (evaluate {
-            services.ciVm = {
-              enable = true;
-              heavyLockPath = "/fixture/custom-heavy.lock.d";
-              repositories.hausnetz.repository = "inspr-at/hausnetz";
-            };
-          }).home.packages
-        ).text;
+      lib.hasInfix "export CI_VM_HEAVY_LOCK=/fixture/custom-heavy.lock.d" (builtins.head customHeavy.home.packages)
+      .text
+      && helperLine module != helperLine customHeavy;
     noLegacyColimaHome = lib.all (source: !lib.hasInfix "/.colima" source) sources;
     hardCaps = colima.cpu == 4 && colima.memory == 16 && colima.disk == 150 && colima.rootDisk == 150;
     linuxKvm = colima.arch == "aarch64" && colima.vmType == "vz" && colima.nestedVirtualization;

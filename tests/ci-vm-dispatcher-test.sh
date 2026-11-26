@@ -92,7 +92,7 @@ if "--request" in args:
         assert payload == {}
         print('{}')
     elif parsed.path.endswith("/comments"):
-        assert "host busy: mbp2607 heavy-CI lock held by papp-night since" in payload["body"]
+        assert "host busy: mbp2607 heavy-CI lock held by " in payload["body"]
         assert "https://github.com/inspr-at/hausnetz/actions/runs/" in payload["body"]
         with open(os.environ["CI_TEST_CALLS"], "a") as f: f.write("COMMENT " + payload["body"] + "\n")
         print('{}')
@@ -103,8 +103,14 @@ if "--request" in args:
     else: raise AssertionError(url)
     if "--write-out" in args: print("\n" + str(code))
     sys.exit()
+if parsed.path.endswith("/issues/429"):
+    state = os.environ.get("CI_TEST_ISSUE_STATE", "open")
+    if state == "deleted": sys.exit(22)
+    print(json.dumps({"number":429,"title":"CI nightly: host busy / cancellations", "state":state, "locked":state == "locked"}))
+    sys.exit()
 if parsed.path.endswith("/issues"):
     issues = [{"number":429,"title":"CI nightly: host busy / cancellations"}] if os.path.exists(os.environ["CI_VM_STATE_DIR"] + "/nightly-issue") else []
+    if os.environ.get("CI_TEST_ISSUE_STATE", "open") != "open": issues = []
     print(json.dumps(issues))
     sys.exit()
 query = parse_qs(parsed.query)
@@ -316,7 +322,16 @@ new_case() {
   export CI_VM_HOST_HELPER="$case_dir/host.py"
   export CI_VM_HEAVY_LOCK="$case_dir/ci-locks/mbp2607-heavy.lock.d"
   export CI_VM_HEAVY_LOCK_HELPER="$case_dir/heavy-lock.py" CI_TEST_HA_PID=$$
-  cp "$root/hosts/mbp2607/files/ci-vm/heavy-lock.py" "$CI_VM_HEAVY_LOCK_HELPER"
+  # The fixture invokes the test-only function with its disposable path.
+  # Production's CLI has no path argument or environment override.
+  python3 - "$root/hosts/mbp2607/files/ci-vm/heavy-lock.py" "$CI_VM_HEAVY_LOCK_HELPER" <<'PY_HEAVY_FIXTURE'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text().replace('if __name__ == "__main__":', 'if False:')
+source += '\nif __name__ == "__main__":\n    action, pid, now, *extra = sys.argv[1:]\n    print(json.dumps(operate(action, Path(os.environ["CI_VM_HEAVY_LOCK"]), int(pid), int(now), extra[0] if extra else "", int(extra[1]) if len(extra) > 1 else 0)))\n'
+Path(sys.argv[2]).write_text(source)
+PY_HEAVY_FIXTURE
+  export CI_TEST_ISSUE_STATE=open
   export CI_TEST_CANCEL=ok CI_TEST_COMMENT=ok CI_TEST_ISSUE=ok CI_TEST_HANDOFF_FAIL=0 CI_TEST_HA_LIVE=0 CI_TEST_HA_UNKNOWN=0 CI_TEST_RUN_ATTEMPT=1
   export CI_TEST_RUN_ID=11 CI_TEST_WORKFLOW=.github/workflows/nix.yml CI_TEST_NIGHTLY=0
   export CI_TEST_SCENARIO=empty CI_TEST_NOW=1000 CI_TEST_CALLS="$case_dir/calls" CI_TEST_VM="$case_dir/vm" CI_TEST_QOS_FAIL=0 CI_TEST_READY_FAIL=0 CI_TEST_REQUIRE_CLOSED_STDIN=0
@@ -1008,6 +1023,42 @@ if /bin/bash "$dispatcher" stop --force >"$case_dir/out" 2>&1; then fail 'unveri
 [[ -d "$CI_VM_HEAVY_LOCK" ]] || fail 'still-running VM lost its lock after unsuccessful stop'
 echo 'ok heavy release: idle stop, failed boot and operator stop release only own lock; parent retained'
 
+new_case
+heavy_owner papp-night "$$"
+chmod 000 "$CI_VM_HEAVY_LOCK/owner.json"
+export CI_TEST_SCENARIO=queued
+run_tick
+export CI_TEST_NOW=1600
+run_tick
+[[ "$(calls 'POST .*cancel')" == 1 && "$(calls 'POST .*issues/42/comments')" == 1 ]] || fail 'unreadable lock did not use normal busy cancellation'
+unchanged || fail 'unreadable lock booted VM'
+[[ -f "$CI_VM_HEAVY_LOCK/owner.json" ]] || fail 'unreadable lock was removed'
+chmod 644 "$CI_VM_HEAVY_LOCK/owner.json"
+echo 'ok heavy unreadable record: busy wait and visible cancellation apply; no boot or stale break'
+
+failed_boot_hostagent_contract() {
+  new_case
+  export CI_TEST_SCENARIO=queued CI_TEST_START_FAIL=1 CI_TEST_HA_LIVE=1
+  if run_tick "${1:-$dispatcher}"; then return 1; fi
+  [[ -d "$CI_VM_HEAVY_LOCK" ]] || return 1
+  ! grep -q 'heavy lock released' "$case_dir/out"
+}
+failed_boot_hostagent_contract || fail 'failed boot released a live hostagent lock'
+echo 'ok heavy failed boot: live hostagent retains tick lock despite stopped Colima status'
+
+for holder in missing dead-tick; do
+  new_case
+  if [[ "$holder" == dead-tick ]]; then heavy_owner hausnetz-ci-vm 99999999; fi
+  echo running >"$case_dir/vm"
+  export CI_TEST_SCENARIO=queued
+  run_tick
+  # $pid is a jq variable.
+  # shellcheck disable=SC2016
+  "$CI_TEST_REAL_JQ" -e --argjson pid "$$" '.pid == $pid and .owner == "hausnetz-ci-vm"' "$CI_VM_HEAVY_LOCK/owner.json" >/dev/null || fail 'running hostagent lock not reasserted'
+  [[ "$(calls 'colima start')" == 0 ]] || fail 'running lock recovery restarted VM'
+done
+echo 'ok heavy running recovery: missing lock and dead tick holder reassert the verified hostagent'
+
 # Fix-round contracts run against both the real dispatcher and must-fail copies.
 unknown_busy_contract() {
   local script=${1:-$dispatcher} scenario
@@ -1244,6 +1295,27 @@ run_tick
 [[ "$(calls 'POST .*/issues$')" == 1 && "$(calls 'POST .*issues/429/comments')" == 1 ]] || fail 'uncertain issue creation not reconciled by title'
 echo 'ok heavy issue creation: uncertainty suppresses duplicate creation and recovers through title lookup'
 
+# Definite issue rejection allows recovery; cached issues are freshly validated.
+for issue_state in closed locked deleted; do
+  new_case
+  heavy_owner papp-night "$$"
+  export CI_TEST_SCENARIO=queued CI_TEST_NIGHTLY=1 CI_TEST_ISSUE=403
+  run_tick
+  export CI_TEST_NOW=1600
+  run_tick
+  [[ ! -e "$CI_VM_STATE_DIR/heavy-issue-inspr-at-hausnetz.create-uncertain" ]] || fail 'definite issue rejection left an uncertain marker'
+  export CI_TEST_ISSUE=ok
+  run_tick
+  [[ "$(calls 'POST .*issues/429/comments')" == 1 ]] || fail 'issue rejection did not recover'
+  export CI_TEST_RUN_ID=12
+  run_tick
+  export CI_TEST_NOW=2200 CI_TEST_ISSUE_STATE="$issue_state"
+  run_tick
+  [[ "$(calls 'GET .*issues/429$')" == 1 ]] || fail 'cached issue not revalidated'
+  [[ "$(calls 'POST .*/issues$')" == 3 ]] || fail 'unusable cached issue was not replaced'
+done
+echo 'ok heavy issue recovery: definite 403 retried; closed, locked and deleted cached issues revalidated'
+
 python3 - "$dispatcher" "$CI_VM_HEAVY_LOCK_HELPER" "$work" <<'PY_MUTANTS'
 from pathlib import Path
 import sys
@@ -1253,6 +1325,7 @@ for name, old, new in [
     ("uncertain-busy", 'retry_count "$key.cancel-tries"\n      [ "$retries" -lt 3 ] || continue', 'retry_count "$key.cancel-tries"'),
     ("false-cancel", '[ "$post_code" = 202 ] && [ "$post_transport" = 0 ]', '[ "$post_code" = 403 ]'),
     ("wait-reset", '  clear_heavy_waits\n}', '  :\n}'),
+    ("failed-boot-agent", '    [ "$remaining_hostagent" = 0 ] || return 1', '    :'),
     ("handoff-ignore", 'hostagent=$(bounded 20 hostagent) || return 1', 'hostagent=$(bounded 20 hostagent) || return 0')]:
     assert source.count(old) == 1, (name, source.count(old))
     Path(sys.argv[3], name + '-mutant.sh').write_text(source.replace(old, new))
@@ -1263,6 +1336,7 @@ for name, old, new in [
     assert old in helper
     Path(sys.argv[3], name + '-mutant.py').write_text(helper.replace(old, new))
 PY_MUTANTS
+if failed_boot_hostagent_contract "$work/failed-boot-agent-mutant.sh"; then fail 'failed boot live hostagent mutant survived'; fi
 if unknown_busy_contract "$work/unknown-busy-mutant.sh"; then fail 'unknown busy scan mutant survived'; fi
 if uncertain_cancel_contract "$work/uncertain-busy-mutant.sh"; then fail 'unbounded uncertain cancel mutant survived'; fi
 if forbidden_cancel_contract "$work/false-cancel-mutant.sh"; then fail 'false cancellation on 403 mutant survived'; fi

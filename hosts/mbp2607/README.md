@@ -607,12 +607,16 @@ finish. Keep the VM disk/enrollment for rollback. No other profile is managed.
 ### Shared heavy-CI lock (OPS-707)
 
 The dispatcher and PAPP share `/Users/Shared/ci-locks/mbp2607-heavy.lock.d`
-under **OPS-669 detail spec v1**. The first holder creates the parent with mode
-1777; it is never deleted. `services.ciVm.heavyLockPath` selects the path (tests
-use a temporary override). Atomic `mkdir` precedes every stopped-VM boot,
+under **OPS-669 detail spec v1.1**. The first holder creates the parent with mode
+1777; it is never deleted. `services.ciVm.heavyLockPath` bakes the path into
+the helper at build time; the production CLI accepts no path override. Tests
+invoke a separate fixture entry point. Atomic `mkdir` precedes every stopped-VM boot,
 including operator start. An atomic `owner.json` write records the dispatcher
 PID, then the validated Colima `ci` hostagent PID immediately after boot.
-An already-running VM keeps its existing lock unchanged.
+An already-running VM keeps a valid hostagent record unchanged. If a lock is
+missing or still records a dead boot tick, the dispatcher reasserts its verified
+live hostagent without breaking a foreign lock. The lock directory is 0755 and
+the record is made 0644 before its atomic rename.
 
 Busy runs persist their first-seen time per run ID and attempt across the
 60-second ticks. Waits reset when a run leaves the queue, acquires the lock or
@@ -628,8 +632,13 @@ cancellations retry on subsequent ticks, at most three times per run attempt,
 then remain marked uncertain for operator inspection. Comment failures are
 logged and retried up to three times. Confirmed outcomes prevent repeated
 cancels and comments. An incomplete or failed demand scan never cancels runs.
-The fixed issue number is cached after confirmation; an uncertain creation is
-reconciled by title before any further comments, without repeating creation.
+The fixed issue number is cached and rechecked for open/unlocked status before
+reuse. Closed, locked or deleted issues are replaced through title lookup.
+Definite creation rejections permit retry; uncertain creation is reconciled by
+title without repeating creation. If creation remains uncertain and no issue
+exists, an operator must verify the repository and prior API outcome, then trash
+only `heavy-issue-<owner>-<repo>.create-uncertain` in the dispatcher state directory
+to permit another create. Each run still has at most three comment attempts.
 
 The agent token needs **Actions: write** to cancel, **Issues: write** for the
 fixed issue, and **Pull requests: write** for PR comments. The coordinator
@@ -640,15 +649,21 @@ A foreign lock is stale only when its PID is dead **and** its start is over
 three hours old. Each owner field is parsed independently: UTC timestamps
 accept fractional seconds and `Z` or `+00:00`; an absent or invalid URL is
 shown as unknown without discarding the owner or PID. An unparseable start
-uses the directory mtime. Missing or unreadable records also use the mtime;
-an invalid PID in a readable record is unknown, never evidence of death.
+uses the directory mtime. Only a truly missing record inside a readable
+directory, or malformed but readable JSON, also uses the mtime. Permission
+failures and other I/O errors on the record or directory mean busy with an
+unknown owner, never stale; normal waits and cancellation still apply. An
+invalid PID in a readable record is unknown, never evidence of death.
 Stale locks are atomically renamed to `.stale-<UTC>-<pid>` siblings and logged;
-the coordinator trashes them later. Our own residue can be released sooner
+the coordinator trashes them later. A changed record detected after the stale
+rename leaves a sibling `.blocked` marker that prevents further boots. The
+coordinator must inspect both paths, restore any live holder and remove the
+marker only after resolving ownership. Our own residue can be released sooner
 only after verifying `ci` is stopped, no `ci` hostagent is present, and its
 recorded PID is dead or reused. Never release while the VM or a hostagent
 runs. Operator start uses `https://github.com/<configured-repo>/actions` for
 its ownership URL. Stop `ci` before rolling out the lock protocol to an
-already-running VM; a running VM keeps its existing ownership record. Normal
+already-running VM. Normal
 idle/drain/failure/operator stops and failed boots release only our own holder
 record, after verifying stopped status, by removing `owner.json` then the empty
 lock directory. The parent remains.

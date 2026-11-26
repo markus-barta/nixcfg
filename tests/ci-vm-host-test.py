@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Offline Darwin policy checks against the real host helper, without host CLIs."""
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 import importlib.util
 import io
 import json
 import os
+import runpy
 import tempfile
 from pathlib import Path
 import struct
@@ -49,6 +50,7 @@ class HeavyLockTest(unittest.TestCase):
         replace = heavy.os.replace
         observed = []
         def check_replace(src, dst):
+            self.assertEqual(Path(src).stat().st_mode & 0o777, 0o644)
             data = json.loads(Path(src).read_text())
             self.assertEqual(set(data), {"schema", "owner", "pid", "started_at", "job_url", "host"})
             self.assertEqual(data["schema"], "mbp2607-heavy-lock.v1")
@@ -89,6 +91,104 @@ class HeavyLockTest(unittest.TestCase):
                 self.assertTrue(self.acquire()["busy"])
                 os.utime(self.path, (self.now - 10801, self.now - 10801))
                 self.assertFalse(self.acquire()["busy"])
+
+    def test_production_cli_uses_constant_path_and_rejects_path_argument(self):
+        script = source.with_name("heavy-lock.py")
+        output = io.StringIO()
+        with patch.dict(os.environ, {"CI_VM_HEAVY_LOCK": str(self.path)}), \
+                patch.object(sys, "argv", [str(script), "acquire", str(os.getpid()), str(self.now),
+                                          "https://github.com/fixture/repo/actions"]), \
+                patch.object(Path, "exists", return_value=False), \
+                patch.object(Path, "mkdir", autospec=True, side_effect=PermissionError) as mkdir, \
+                redirect_stdout(output):
+            runpy.run_path(str(script), run_name="__main__")
+        self.assertEqual(mkdir.call_args.args[0], Path(heavy.LOCK_PATH).parent)
+        self.assertTrue(json.loads(output.getvalue())["busy"])
+        with patch.object(sys, "argv", [str(script), "acquire", str(self.path),
+                                       str(os.getpid()), str(self.now)]), \
+                patch.object(Path, "mkdir") as mkdir, redirect_stderr(io.StringIO()), \
+                self.assertRaises(SystemExit) as error:
+            runpy.run_path(str(script), run_name="__main__")
+        self.assertEqual(error.exception.code, 1)
+        mkdir.assert_not_called()
+
+    def test_unreadable_record_and_directory_never_stale(self):
+        self.fixture(pid=os.getpid())
+        record = self.path / "owner.json"
+        os.utime(self.path, (self.now - 10801, self.now - 10801))
+        record.chmod(0)
+        try:
+            self.assertTrue(self.acquire()["busy"])
+            self.assertEqual(list(self.path.parent.glob("*.stale-*")), [])
+        finally:
+            record.chmod(0o644)
+        self.path.chmod(0)
+        try:
+            self.assertTrue(self.acquire()["busy"])
+        finally:
+            self.path.chmod(0o755)
+
+    def test_missing_record_dead_holder_uses_old_directory_mtime(self):
+        self.fixture()
+        (self.path / "owner.json").unlink()
+        os.utime(self.path, (self.now - 10801, self.now - 10801))
+        self.assertFalse(self.acquire()["busy"])
+        self.assertEqual(len(list(self.path.parent.glob("*.stale-*"))), 1)
+
+    def test_io_errors_and_sticky_parent_denial_are_busy(self):
+        self.fixture()
+        for error in (PermissionError, OSError):
+            with self.subTest(error=error), patch.object(Path, "read_text", side_effect=error):
+                self.assertTrue(self.acquire()["busy"])
+        with patch.object(Path, "rename", side_effect=PermissionError):
+            self.assertTrue(self.acquire()["busy"])
+        with patch.object(Path, "mkdir", side_effect=PermissionError):
+            self.assertTrue(self.acquire()["busy"])
+        with patch.object(heavy.os, "scandir", side_effect=PermissionError):
+            self.assertTrue(self.acquire()["busy"])
+
+    def test_changed_stale_rename_blocks_future_boots(self):
+        self.fixture()
+        original = heavy.same
+        def changed(path, stat, owner):
+            return False if ".stale-" in path.name else original(path, stat, owner)
+        with patch.object(heavy, "same", side_effect=changed):
+            with self.assertRaisesRegex(RuntimeError, "boots blocked"):
+                self.acquire()
+        self.assertFalse(self.path.exists())
+        self.assertTrue(self.acquire()["busy"])
+        self.assertFalse(self.path.exists())
+
+    def test_running_lock_recovery(self):
+        result = heavy.operate("retain", self.path, os.getpid(), self.now,
+                               "https://github.com/fixture/repo/actions", os.getpid())
+        self.assertFalse(result["busy"])
+        self.assertEqual(result["owner"]["pid"], os.getpid())
+        self.fixture(owner=heavy.OWNER)
+        result = heavy.operate("retain", self.path, os.getpid(), self.now,
+                               "https://github.com/fixture/repo/actions", os.getpid())
+        self.assertFalse(result["busy"])
+        self.assertEqual(result["owner"]["pid"], os.getpid())
+        self.fixture()
+        self.assertTrue(heavy.operate("retain", self.path, os.getpid(), self.now,
+                                     "https://github.com/fixture/repo/actions", os.getpid())["busy"])
+
+    def test_must_fail_unreadable_and_missing_record_mutants(self):
+        original = source.with_name("heavy-lock.py").read_text()
+        for old, new, contract in [
+            ('    except FileNotFoundError:\n        # A disappearing directory',
+             '    except OSError:\n        # A disappearing directory',
+             "test_unreadable_record_and_directory_never_stale"),
+            ('    except FileNotFoundError:\n        # A disappearing directory',
+             '    except PermissionError:\n        # A disappearing directory',
+             "test_missing_record_dead_holder_uses_old_directory_mtime")]:
+            self.assertEqual(original.count(old), 1)
+            namespace = {"__name__": "mutant"}
+            exec(compile(original.replace(old, new), "heavy-lock-mutant.py", "exec"), namespace)
+            with patch.object(heavy, "operate", namespace["operate"]):
+                result = unittest.TestResult()
+                HeavyLockTest(contract).run(result)
+                self.assertFalse(result.wasSuccessful(), "record-read mutant survived")
 
     def test_invalid_record_with_live_pid_is_retained(self):
         self.acquire()
@@ -297,6 +397,17 @@ class StandardPolicyTest(unittest.TestCase):
                     host.hostagent_state()
         with patch.object(Path, "read_text", return_value="bad"):
             with self.assertRaises(ValueError):
+                host.hostagent_state()
+
+    def test_reused_hostagent_pid_is_absent_but_inspection_errors_are_unknown(self):
+        with patch.object(host.os, "kill"):
+            self.executables[101] = "unrelated"
+            self.assertEqual(host.hostagent_state(), 0)
+            self.executables[101] = "limactl"
+            self.args = "limactl hostagent --pidfile /other/ha.pid ci"
+            self.assertEqual(host.hostagent_state(), 0)
+            self.unreadable = 101
+            with self.assertRaisesRegex(RuntimeError, "cannot inspect"):
                 host.hostagent_state()
 
     def test_hostagent_identity_for_lock_handoff(self):

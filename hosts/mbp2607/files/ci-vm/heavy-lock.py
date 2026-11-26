@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""OPS-669 detail spec v1: shared host lock; no VM or network operations."""
+"""OPS-669 detail spec v1.1: shared host lock; no VM or network operations."""
 
 import datetime
 import json
 import os
 from pathlib import Path
+from stat import S_ISDIR, S_ISLNK
 import sys
 import tempfile
 from urllib.parse import urlparse
 
 OWNER = "hausnetz-ci-vm"
 SCHEMA = "mbp2607-heavy-lock.v1"
+# Replaced by Nix at build time. Production never accepts a path from argv/env.
+LOCK_PATH = "/Users/Shared/ci-locks/mbp2607-heavy.lock.d"
 
 
 def utc(seconds):
@@ -40,21 +43,30 @@ def valid_url(value):
 
 
 def dead(owner):
-    # Unknown PID is not evidence of death. An unreadable/missing record has
-    # no process identity at all and follows the spec's directory-mtime rule.
+    # Unknown PID is not evidence of death. Only a missing or malformed
+    # readable record follows the directory-mtime rule.
     return not owner or (owner.get("pid") is not None and not alive(owner["pid"]))
 
 
 def snapshot(path):
     stat = path.lstat()
-    if path.is_symlink() or not path.is_dir():
+    if S_ISLNK(stat.st_mode) or not S_ISDIR(stat.st_mode):
         raise RuntimeError("unsafe heavy lock path")
+    # ENOENT for owner.json is meaningful only inside a readable directory.
+    if not stat.st_mode & 0o444:
+        raise PermissionError("unreadable heavy lock directory")
+    with os.scandir(path) as entries:
+        list(entries)
     owner = {}
     started = stat.st_mtime
     try:
-        if (path / "owner.json").is_symlink():
-            raise ValueError("symlinked owner")
-        data = json.loads((path / "owner.json").read_text())
+        record = path / "owner.json"
+        record_stat = record.lstat()
+        if S_ISLNK(record_stat.st_mode):
+            raise PermissionError("symlinked owner")
+        if not record_stat.st_mode & 0o444:
+            raise PermissionError("unreadable heavy lock record")
+        data = json.loads(record.read_text())
         if isinstance(data, dict) and data:
             # Independent fields: an optional URL must not discard a valid PID,
             # owner or start time from another participant's record.
@@ -71,7 +83,10 @@ def snapshot(path):
                     started = value.timestamp()
             except (ValueError, KeyError, OverflowError):
                 pass
-    except (OSError, ValueError, TypeError):
+    except FileNotFoundError:
+        # A disappearing directory is retried by the caller, not declared stale.
+        path.lstat()
+    except (ValueError, TypeError):
         pass
     return stat, owner, started
 
@@ -107,6 +122,46 @@ def release(path, stat, owner):
 
 
 def operate(action, path, pid, now, job_url="", hostagent=0):
+    try:
+        return _operate(action, path, pid, now, job_url, hostagent)
+    except OSError:
+        if action not in {"acquire", "residue", "retain"}:
+            raise
+        # Includes sticky-parent rename/mkdir denial and all unreadable records.
+        # Preserve the busy path so wait limits and notifications still run.
+        return {"transitions": [], "busy": True, "owner": {"pid": None}}
+
+
+def _operate(action, path, pid, now, job_url="", hostagent=0):
+    blocked = path.with_name(path.name + ".blocked")
+    if action in {"acquire", "retain"} and blocked.exists():
+        return {"transitions": [], "busy": True, "owner": {"pid": None}}
+    if action == "retain":
+        if hostagent <= 0 or not valid_url(job_url):
+            raise RuntimeError("running lock requires a verified hostagent and https URL")
+        # Never stale-break another holder while ci is running.
+        try:
+            path.parent.mkdir(mode=0o1777, parents=True)
+        except FileExistsError:
+            pass
+        else:
+            path.parent.chmod(0o1777)
+        try:
+            path.mkdir(mode=0o755)
+        except FileExistsError:
+            stat, owner, _ = snapshot(path)
+            if owner.get("owner") != OWNER:
+                return {"transitions": [], "busy": True, "owner": owner}
+            if owner.get("pid") == hostagent:
+                return {"transitions": [], "busy": False, "owner": owner}
+            if owner.get("pid") is None or alive(owner["pid"]) or not same(path, stat, owner):
+                return {"transitions": [], "busy": True, "owner": owner}
+            owner["pid"] = hostagent
+        else:
+            path.chmod(0o755)
+            owner = dict(schema=SCHEMA, owner=OWNER, pid=hostagent, started_at=utc(now), job_url=job_url, host="mbp2607")
+        write_owner(path, owner)
+        return {"transitions": ["acquired running-hostagent"], "busy": False, "owner": owner}
     if action == "acquire":
         if not valid_url(job_url):
             raise ValueError("acquisition requires an https job_url")
@@ -142,9 +197,17 @@ def operate(action, path, pid, now, job_url="", hostagent=0):
                     # Never overwrite an earlier quarantine directory.
                     if stale.exists():
                         return {"transitions": transitions, "busy": True, "owner": owner}
-                    path.rename(stale)
+                    # A crash or changed record after rename must block future boots.
+                    # Leave this marker on any uncertain outcome for operator recovery.
+                    blocked.touch(exist_ok=False)
+                    try:
+                        path.rename(stale)
+                    except OSError:
+                        blocked.unlink()
+                        raise
                     if not same(stale, stat, owner):
-                        raise RuntimeError("heavy lock changed during stale rename; quarantined for inspection")
+                        raise RuntimeError("heavy lock changed during stale rename; boots blocked for inspection")
+                    blocked.unlink()
                     transitions.append(f"stale-broken {stale}")
                     continue
                 return {"transitions": transitions, "busy": True, "owner": owner}
@@ -185,8 +248,8 @@ def operate(action, path, pid, now, job_url="", hostagent=0):
 
 if __name__ == "__main__":
     try:
-        action, path, pid, now, *extra = sys.argv[1:]
-        print(json.dumps(operate(action, Path(path), int(pid), int(now),
+        action, pid, now, *extra = sys.argv[1:]
+        print(json.dumps(operate(action, Path(LOCK_PATH), int(pid), int(now),
                                  extra[0] if extra else "", int(extra[1]) if len(extra) > 1 else 0)))
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"ci-vm: heavy lock: {exc}", file=sys.stderr)

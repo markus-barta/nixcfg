@@ -87,6 +87,10 @@ def lock(path, command):
         os.close(fd)
 
 
+class NotHostagent(RuntimeError):
+    """Process inspection positively identified an unrelated/reused PID."""
+
+
 def hostagent_state():
     """Zero only proves absence/death; inspection failure remains unknown."""
     try:
@@ -101,7 +105,10 @@ def hostagent_state():
         return 0
     except PermissionError:
         return pid
-    return hostagent()[0]
+    try:
+        return hostagent()[0]
+    except NotHostagent:
+        return 0
 
 
 def hostagent():
@@ -129,12 +136,12 @@ def hostagent():
         return Path(os.fsdecode(buf.value)).name
 
     if info(pid)[5] != os.getuid() or executable(pid) not in {"limactl", ".limactl-wrapped"}:
-        raise RuntimeError("ci hostagent PID has the wrong owner or executable")
+        raise NotHostagent("ci hostagent PID has the wrong owner or executable")
     args = shlex.split(subprocess.check_output(
         ["/bin/ps", "-p", str(pid), "-o", "command="], text=True
     ))
     if "hostagent" not in args or not any(str(pidfile) in arg for arg in args):
-        raise RuntimeError("PID does not identify this ci instance's hostagent")
+        raise NotHostagent("PID does not identify this ci instance's hostagent")
 
     return pid, libproc, info, executable
 

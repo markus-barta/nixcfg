@@ -155,7 +155,7 @@ stop_now() {
   stamp last-demand
 }
 failed_vm() {
-  local rc
+  local rc remaining_hostagent
   if [ "$running" = true ] && [ "$qos_failed" = false ]; then
     if [ "$active" = true ] || local_worker_active; then
       log "RETRY: $1; active work retained, retrying next tick"
@@ -175,7 +175,11 @@ failed_vm() {
     stop_now || log 'ci stop failed or timed out; next poll must retry'
   fi
   vm_status || return 1
-  if [ "$running" = false ]; then heavy_operation release "$$" || return 1; fi
+  if [ "$running" = false ]; then
+    remaining_hostagent=$(bounded 20 hostagent-state 2>/dev/null) || return 1
+    [ "$remaining_hostagent" = 0 ] || return 1
+    heavy_operation release "$$" || return 1
+  fi
   return 1
 }
 stop_if_idle() {
@@ -401,6 +405,14 @@ for path in state.glob("heavy-wait-*"):
 PY_STATE
 }
 
+clear_issue_uncertainty() {
+  python3 - "$1.create-uncertain" <<'PY_CLEAR_ISSUE'
+from pathlib import Path
+import sys
+Path(sys.argv[1]).unlink(missing_ok=True)
+PY_CLEAR_ISSUE
+}
+
 retry_count() {
   retries=0
   if [ -f "$state/$1" ]; then read -r retries <"$state/$1" || retries=0; fi
@@ -412,7 +424,7 @@ heavy_acquired=false
 heavy_result='{}'
 heavy_operation() {
   local operation=$1 pid=$2 transition
-  heavy_result=$(python3 "$heavy_helper" "$operation" "$heavy_lock" "$pid" "$now" "${3:-}" "${4:-0}") || return 1
+  heavy_result=$(python3 "$heavy_helper" "$operation" "$pid" "$now" "${3:-}" "${4:-0}") || return 1
   while IFS= read -r transition; do
     [ -z "$transition" ] || log "heavy lock $transition"
   done < <(jq -r '.transitions[]' <<<"$heavy_result")
@@ -428,6 +440,17 @@ heavy_acquire() {
   if jq -e '.busy' <<<"$heavy_result" >/dev/null; then return 75; fi
   heavy_acquired=true
   clear_heavy_waits
+}
+
+heavy_retain() {
+  local hostagent repo
+  hostagent=$(bounded 20 hostagent-state 2>/dev/null) || return 1
+  [[ "$hostagent" =~ ^[1-9][0-9]*$ ]] || return 1
+  repo=$(jq -er '.[0].repository' "$CI_VM_REPOSITORIES") || return 1
+  heavy_operation retain "$$" "https://github.com/$repo/actions" "$hostagent" || return 1
+  if jq -e '.busy' <<<"$heavy_result" >/dev/null; then
+    log 'ERROR: running ci cannot reassert heavy lock; operator inspection required'
+  fi
 }
 
 busy_runs() {
@@ -489,12 +512,20 @@ busy_runs() {
       issue_file="$state/heavy-issue-${repo//\//-}"
       if [ -s "$issue_file" ]; then
         read -r issue <"$issue_file" || issue=''
-        if [[ "$issue" =~ ^[1-9][0-9]*$ ]]; then found=true; fi
+        if [[ "$issue" =~ ^[1-9][0-9]*$ ]]; then
+          response=$(api_get "https://api.github.com/repos/$repo/issues/$issue") || response='{}'
+          if jq -e '.state == "open" and .locked != true and (has("pull_request") | not) and .title == "CI nightly: host busy / cancellations"' <<<"$response" >/dev/null; then
+            found=true
+          else
+            issue=''
+            : >"$issue_file"
+          fi
+        fi
       fi
       while [ "$found" = false ]; do
         response=$(api_get "https://api.github.com/repos/$repo/issues?state=open&per_page=100&page=$page") || break
         jq -e 'type == "array"' <<<"$response" >/dev/null || break
-        issue=$(jq -r '[.[] | select(.title == "CI nightly: host busy / cancellations" and (has("pull_request") | not)) | .number][0] // empty' <<<"$response") || return 1
+        issue=$(jq -r '[.[] | select(.title == "CI nightly: host busy / cancellations" and .locked != true and (has("pull_request") | not)) | .number][0] // empty' <<<"$response") || return 1
         if [ -n "$issue" ]; then
           found=true
           printf '%s\n' "$issue" >"$issue_file"
@@ -505,15 +536,22 @@ busy_runs() {
         [ "$page" -lt 100 ] || break
         page=$((page + 1))
       done
+      if [ "$found" = true ]; then clear_issue_uncertainty "$issue_file"; fi
       if [ "$found" = false ] && [ "$count" -ge 0 ] && [ "$count" -lt 100 ] && [ ! -e "$issue_file.create-uncertain" ]; then
         # Even a 201 with a lost/malformed body must not duplicate creation.
         stamp "${issue_file##*/}.create-uncertain"
         post_outcome "https://api.github.com/repos/$repo/issues" '{"title":"CI nightly: host busy / cancellations","body":"CI runs cancelled because the shared mbp2607 heavy-CI host is busy are recorded here."}'
         if [ "$post_code" = 201 ] && [ "$post_transport" = 0 ]; then
           issue=$(jq -er '.number | select(type == "number" and . > 0 and . == floor)' <<<"$post_body") || issue=''
-          if [ -n "$issue" ]; then printf '%s\n' "$issue" >"$issue_file"; fi
+          if [ -n "$issue" ]; then
+            printf '%s\n' "$issue" >"$issue_file"
+            clear_issue_uncertainty "$issue_file"
+          fi
+        elif [[ "$post_code" =~ ^4[0-9][0-9]$ ]]; then
+          # A definite rejection cannot have created an issue; allow later recovery.
+          clear_issue_uncertainty "$issue_file"
+          log "ERROR: heavy lock issue creation rejected HTTP $post_code"
         else
-          stamp "${issue_file##*/}.create-uncertain"
           log "heavy lock issue creation uncertain HTTP $post_code; reconcile by title next tick"
         fi
       fi
@@ -598,6 +636,7 @@ now=$(date +%s)
 case "$action" in
 start)
   vm_status
+  if [ "$running" = true ]; then heavy_retain; fi
   if [ -n "${2:-}" ] && [ "$2" != --provision-only ]; then exit 2; fi
   if [ "$running" = false ]; then
     if heavy_acquire; then :; else
@@ -662,6 +701,7 @@ reconcile_heavy_waits "$complete_scan"
 # must still retry after that, independently of the current VM/lock state.
 busy_runs pending
 vm_status
+if [ "$running" = true ]; then heavy_retain; fi
 if [ "$running" = false ] && [ -d "$heavy_lock" ]; then
   residue_hostagent=$(bounded 20 hostagent-state 2>/dev/null) || residue_hostagent=-1
   heavy_operation residue "$$" "" "$residue_hostagent"
