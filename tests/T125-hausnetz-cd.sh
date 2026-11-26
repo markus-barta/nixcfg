@@ -12,9 +12,10 @@ import json, sys
 c = json.load(sys.stdin)
 e, o = c["executorDefaults"], c["orchestratorDefaults"]
 assert e["enable"] is False and e["allowLive"] is False
-assert e["manifestPath"] is None and e["versionUrl"] is None and e["versionField"] is None
+assert e["requireReadyz"] is True
+assert not {"manifestPath", "versionUrl", "versionField", "healthUrl"}.intersection(e)
 assert o["enable"] is False and o["mode"] == "dry-run"
-assert o["manifestPath"] is None and o["releaseTicket"] is None
+assert "manifestPath" not in o and o["releaseTicket"] is None
 assert o["alarmCommand"] == [] and o["secondaryTelegramCommand"] == []
 assert c["hostSettings"] == {"enable": True, "allowLive": False}
 assert c["hostAssertion"] is True and c["otherHostAssertion"] is False
@@ -24,14 +25,16 @@ assert c["executorTmpfiles"] == ["d /var/lib/hausnetz-cd 0700 root root - -"]
 assert c["agent"]["enable"] is False and c["agent"]["config"]["StartInterval"] == 120
 executor = json.loads(c["executorRunner"]["text"].split("--config ", 1)[1])
 assert executor["allow_live"] is False and executor["lock_file"] == "/run/hsb0-deploy.lock"
-assert executor["manifest_path"] is None and executor["version_url"] is None
-assert executor["version_field"] is None and executor["health_url"] is None
-assert {"git", "nix", "curl", "python3", "systemd", "util-linux"}.issubset(c["executorRunner"]["runtimeInputs"])
+assert executor["require_readyz"] is True
+assert not {"manifest_path", "version_url", "version_field", "health_url"}.intersection(executor)
+assert {"git", "selected-nix", "curl", "python3", "systemd", "util-linux"}.issubset(c["executorRunner"]["runtimeInputs"])
+assert "nix" not in c["executorRunner"]["runtimeInputs"]
 assert "exec python3 -B /nix/store/" in c["executorRunner"]["text"]
 orchestrator = json.loads(c["orchestratorRunner"]["text"].split("--config ", 1)[1])
 assert orchestrator["enabled"] is False and orchestrator["mode"] == "dry-run"
 assert orchestrator["target"] == "mba@hsb0.lan"
+assert "selected-nix" in c["orchestratorRunner"]["runtimeInputs"]
 assert "exec python3 -B /nix/store/" in c["orchestratorRunner"]["text"]
-print("T125 Nix module contracts: disabled timer, dry-run host and unset HNET-570 inputs passed")
+print("T125 Nix module contracts: disabled timer, dry-run host, readiness required, selected Nix passed")
 '
 printf 'T125 hausnetz CD: offline transactions and mutants passed\n'

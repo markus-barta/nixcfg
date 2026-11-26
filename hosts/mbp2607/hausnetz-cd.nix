@@ -13,7 +13,6 @@ let
     builtins.toJSON {
       enabled = cfg.enable;
       mode = cfg.mode;
-      manifest_path = cfg.manifestPath;
       release_ticket = cfg.releaseTicket;
       alarm_command = cfg.alarmCommand;
       secondary_telegram_command = cfg.secondaryTelegramCommand;
@@ -32,6 +31,7 @@ let
     runtimeInputs = with pkgs; [
       coreutils
       git
+      config.nix.package
       openssh
       python3
     ];
@@ -51,11 +51,6 @@ in
         "live"
       ];
       default = "dry-run";
-    };
-    manifestPath = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      description = "HNET-570 manifest repo path; unset is manual.";
     };
     releaseTicket = lib.mkOption {
       type = lib.types.nullOr lib.types.str;

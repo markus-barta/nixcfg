@@ -17,9 +17,26 @@ class Manual(Exception):
 
 
 REV = re.compile(r"[0-9a-f]{40}")
+SHA256 = re.compile(r"[0-9a-f]{64}")
+RUN_ID = re.compile(r"[0-9a-f]{32}")
+# Hausnetz's existing compact CalVer package coordinate; no version migration.
+CALVER = re.compile(r"[0-9]{12}\.0\.0")
+BUILD_TIMEOUT = 600
+G3_COMMAND_TIMEOUT = 60
+G3_TIMEOUT = 2 * G3_COMMAND_TIMEOUT  # diff-closures + dry-activate
+ACK_TIMEOUT = 120
+HEALTH_TIMEOUT = 120
+SWITCH_BUDGET = 600  # observation budget only: activation is never killed
+SOURCE_BUDGET = 600
+EXECUTOR_BUDGET = (SOURCE_BUDGET + BUILD_TIMEOUT + G3_TIMEOUT + ACK_TIMEOUT
+                   + 3 * HEALTH_TIMEOUT + 2 * SWITCH_BUDGET + 120)
+SSH_RETRY_TIMEOUT = 300
+POLL_INTERVAL = 15
+POLL_BUDGET = EXECUTOR_BUDGET + SSH_RETRY_TIMEOUT + 120
+UNIT_RUNTIME_MAX = POLL_BUDGET + 300
 EVIDENCE_SCHEMA = "inspr.pharos.nix-deployment-evidence.v1"
 RESULT_SCHEMA = "inspr.pharos.guarded-deploy-result.v1"
-TERMINAL = {"manual", "dry-run", "succeeded", "failed", "rollback_failed", "skipped"}
+TERMINAL = {"manual", "dry-run", "succeeded", "failed", "rollback_failed", "skipped", "unknown"}
 
 
 def require(condition, reason):
@@ -29,6 +46,26 @@ def require(condition, reason):
 
 def revision(value):
     require(isinstance(value, str) and REV.fullmatch(value), "invalid_revision")
+    return value
+
+
+def coordinate(version):
+    require(isinstance(version, str) and CALVER.fullmatch(version), "invalid_calendar_version")
+    try:
+        parts = [int(version[i:i + 2]) for i in range(0, 12, 2)]
+        datetime.datetime(2000 + parts[0], *parts[1:])
+    except ValueError as exc:
+        raise Manual("invalid_calendar_version") from exc
+    return version
+
+
+def digest(value):
+    require(isinstance(value, str) and SHA256.fullmatch(value), "invalid_manifest_digest")
+    return value
+
+
+def run_id(value):
+    require(isinstance(value, str) and RUN_ID.fullmatch(value), "invalid_run_id")
     return value
 
 
@@ -118,13 +155,18 @@ def git(repo, *args):
     return run(["git", "-C", repo, *args])
 
 
-def cache_repo(path, url, *revs):
+def cache_repo(path, url, *revs, worktree=False):
     path = Path(path)
     if not path.exists():
-        run(["git", "clone", "--bare", "--quiet", url, path], timeout=90)
+        run(["git", "clone", *([] if worktree else ["--bare"]), "--quiet", url, path], timeout=90)
     require(git(path, "config", "--get", "remote.origin.url").strip() == url,
             "cache_origin_mismatch")
-    git(path, "fetch", "--quiet", "origin", "refs/heads/main:refs/heads/main")
+    if worktree:
+        if git(path, "rev-parse", "--is-shallow-repository").strip() == "true":
+            git(path, "fetch", "--quiet", "--unshallow", "origin")
+        git(path, "fetch", "--quiet", "origin")
+    else:
+        git(path, "fetch", "--quiet", "origin", "refs/heads/main:refs/heads/main")
     for rev in revs:
         revision(rev)
         try:
@@ -134,9 +176,15 @@ def cache_repo(path, url, *revs):
     return path
 
 
-def blob(repo, rev, path):
+def tree_mode(repo, rev, path):
     entry = git(repo, "ls-tree", rev, "--", path).split()
-    require(len(entry) == 4 and entry[0:2] == ["100644", "blob"], "nonregular_gate_input")
+    require(len(entry) == 4 and entry[0] in {"100644", "100755"}
+            and entry[1] == "blob", "nonregular_gate_input")
+    return entry[0]
+
+
+def blob(repo, rev, path):
+    tree_mode(repo, rev, path)
     return run(["git", "-C", repo, "show", rev + ":" + path], binary=True).decode("utf-8")
 
 
@@ -248,6 +296,7 @@ def gate_g1(repo, old, new):
     for line in changes:
         parts = line.split("\t")
         require(len(parts) == 2 and parts[0] == "M" and parts[1] in allowed, "G1_extra_change")
+        require(tree_mode(repo, old, parts[1]) == tree_mode(repo, new, parts[1]), "G1_mode_changed")
         paths.append(parts[1])
     require({"flake.nix", "flake.lock"}.issubset(paths), "G1_not_a_pin_bump")
     a_text, b_text = (blob(repo, rev, "flake.lock") for rev in (old, new))
@@ -267,11 +316,40 @@ def gate_g1(repo, old, new):
     return a, b
 
 
-def gate_g2(repo, old, new, path):
-    require(isinstance(path, str) and path and not path.startswith("/")
-            and all(p not in ("", ".", "..") for p in path.split("/")), "G2_manifest_unset_or_invalid")
-    a, b = (blob(repo, rev, path) for rev in (old, new))
-    require(a.strip() and a == b, "G2_manifest_changed_or_empty")
+def prepare_result(stdout, returncode, expected, nar_hash):
+    """The entire HNET-570 stdout contract lives here; schema drift is manual."""
+    value = strict_json(stdout)  # rejects extra output and duplicate JSON keys
+    fields = {"rev", "narHash", "version", "persisted_ok", "manifest_changed",
+              "manifest_sha256", "running_manifest_sha256", "problems"}
+    require(isinstance(value, dict) and set(value) == fields, "G2_prepare_schema")
+    require(type(value["persisted_ok"]) is bool and type(value["manifest_changed"]) is bool
+            and isinstance(value["problems"], list)
+            and all(isinstance(p, str) for p in value["problems"]), "G2_prepare_schema")
+    coordinate(value["version"])
+    digest(value["manifest_sha256"])
+    digest(value["running_manifest_sha256"])
+    require(returncode == 0 and value["persisted_ok"] is True
+            and value["manifest_changed"] is False and not value["problems"]
+            and value["rev"] == expected and value["narHash"] == nar_hash
+            and value["manifest_sha256"] == value["running_manifest_sha256"], "G2_prepare_unsafe")
+    return value
+
+
+def gate_g2(repo, old, new, nar_hash):
+    require(not git(repo, "status", "--porcelain"), "G2_dirty_clone")
+    git(repo, "checkout", "--quiet", "--detach", new)
+    try:
+        result = subprocess.run(["nix", "run", str(repo) + "#cd-prepare", "--",
+                                 "--rev", new, "--running", old],
+                                capture_output=True, timeout=600, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise Manual("G2_prepare_unavailable_or_timeout") from exc
+    return prepare_result(result.stdout, result.returncode, new, nar_hash)
+
+
+def gate_g4(repo, old, new):
+    git(repo, "diff", "--quiet", "--no-ext-diff", "--no-textconv", old, new,
+        "--", "nix/", "flake.nix", "flake.lock")
 
 
 def gate_closures(text, old, new):

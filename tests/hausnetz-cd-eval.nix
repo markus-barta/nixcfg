@@ -44,6 +44,7 @@ let
     import ../modules/hausnetz-cd {
       inherit lib pkgs;
       config = {
+        nix.package = "selected-nix";
         networking.hostName = host;
         inspr.hausnetzCd = (defaults (executor "hsb0").options.inspr.hausnetzCd) // {
           enable = true;
@@ -53,6 +54,7 @@ let
   orchestrator = import ../hosts/mbp2607/hausnetz-cd.nix {
     inherit lib pkgs;
     config = {
+      nix.package = "selected-nix";
       home.homeDirectory = "/fixture/home";
       home.profileDirectory = "/fixture/profile";
       inspr.hausnetzCdOrchestrator = defaults orchestrator.options.inspr.hausnetzCdOrchestrator;

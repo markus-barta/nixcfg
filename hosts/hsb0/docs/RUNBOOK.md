@@ -116,7 +116,7 @@ arrange Markus's own status-only probe instead.
 
 ### Switch, verify, remove temporary plaintext
 
-On each host, use `gitpl && just switch` only after approval and merge. Agenix
+After approval and merge, use `gitpl && sudo flock /run/hsb0-deploy.lock just switch` on hsb0; hsb8 uses `gitpl && just switch`. Agenix
 activation requires the switch; restarting a container or AdGuard alone is
 insufficient. `restartTriggers` tracks ciphertext content, so secret-only
 rotations restart AdGuard. Verify service state and DNS/DHCP using the existing
@@ -507,54 +507,130 @@ hosts; hsb0 and hsb1 retain their existing failure behavior. Other mbp2607
 failures still fail the unit and log the last five error lines with URL query
 strings removed.
 
-### Guarded hausnetz CD (OPS-705, dry-run first)
+### Guarded hausnetz CD (OPS-705, design v1.1, dry-run first)
 
 `hausnetz-cd-execute` is installed only on hsb0 with `allowLive = false`.
-mbp2607 imports `hausnetz-cd.nix`; its two-minute launchd agent and script are
-disabled by default (`inspr.hausnetzCdOrchestrator.enable = false`). Pause by
-disabling that option and applying Home Manager. An already detached executor
-finishes its transaction; pausing the timer does not interrupt recovery.
-Live activation is a separate LEAD gate after attended dry-run trials.
+mbp2607's two-minute launchd agent stays disabled by default
+(`inspr.hausnetzCdOrchestrator.enable = false`). Pause by disabling that option
+and applying Home Manager. A detached executor finishes its transaction;
+pausing the timer does not interrupt recovery. Live activation remains a
+separate LEAD gate after attended dry-run trials and HNET-570 readiness.
 
-Only a strict pin bump relative to the **running** `source_revision` in
-`/etc/pharos-deployment/evidence.json` can qualify: the hausnetz URL and adjacent
-comments, its lock leaf values, and the existing RUNBOOK/T99 pin lines. Every
-other change stays manual. Both machines recheck G1 and the byte-identical
-capability manifest (G2). HNET-570's manifest path, version URL/JSON field and
-health URL have no inferred defaults; missing contracts force manual handling.
-After the root build (`--max-jobs 1 --cores 2`), G3 accepts only hausnetz and
-etc/deployment-evidence closure changes, stop/start/restart of hausnetz/polkit,
-and reload of dbus-broker. Unknown output, extra units and errors stay manual.
-Dry-run builds and checks these gates, then reports the proposed actions. Export,
-switch and Telegram steps run only in live mode.
+The gates compare with the **running** `source_revision` from
+`/etc/pharos-deployment/evidence.json`, never a merge parent:
 
-**Every manual hsb0 switch must take the same lock as the executor**, e.g.
-`sudo flock /run/hsb0-deploy.lock nixos-rebuild switch --flake /path/to/nixcfg#hsb0`.
-Keep that lock around the entire manual build/switch procedure. A busy lock
-skips the CD tick. The transient root unit is detached with Nice=19,
-CPUQuota=200%, IOSchedulingClass=idle. No credential moves between hosts.
+- G1 permits only the hausnetz URL/adjacent comments, its lock leaf values, and
+  the existing RUNBOOK/T99 pin lines. Regular files may be 0644 or 0755, with
+  unchanged modes. An unchanged running hausnetz pin is silently ignored.
+- The Mac maintains and fetches a **full-history working clone** under
+  `~/.local/share/hausnetz-cd/hausnetz`. Nix must be on PATH. G2 runs
+  `nix run <clone>#cd-prepare -- --rev <new> --running <running>` (600 s budget).
+  Exactly one JSON object must report exit 0, the expected rev and locked
+  narHash, a valid package CalVer, `persisted_ok = true`, unchanged manifests,
+  matching 64-hex manifest digests, and no problems. Missing app, schema drift,
+  extra output or any error is manual. The app does not fetch.
+- G4 requires byte-identical hausnetz `nix/`, `flake.nix` and `flake.lock`
+  between those revisions. A module change always needs a human. G4 runs before
+  cd-prepare. The controller passes the validated version/manifest digest to
+  the executor; G2 and G4 are controller evidence, not repeated app runs on hsb0.
+- After the root build (`--max-jobs 1 --cores 2`), G3 permits only the hausnetz
+  replacement and named `etc`/deployment-evidence closure churn. Added or removed
+  secrets (including `hsb0-hausnetz-ha-token.age`) fail the gate. Dry-activate may
+  stop/start/restart only hausnetz/polkit and reload only dbus-broker. All output
+  is parsed, including stderr; unknown lines, extra units and errors are manual.
 
-Root-only status and the latest export live in `/var/lib/hausnetz-cd/` (0700,
-files 0600); inspect `sudo cat /var/lib/hausnetz-cd/results/<nixcfg-rev>.json`.
-Status records phase/timestamps, old/new systems and generation, each gate,
-health, backup and rollback. On mbp2607 the cache is
-`~/.local/share/hausnetz-cd/`, attempt/failed/last-deployed state is
-`~/.local/share/ops-qa/state/hsb0-hausnetz-cd.json`, and exports are in
-`~/.local/share/ops-qa/hsb0-hausnetz-exports/` (newest 20). Failed or uncertain
-attempts are never restarted automatically; a busy-lock skip may retry.
+Dry-run builds and checks gates, then reports proposed actions. Export, switch
+and Telegram steps run only in live mode. The executor rechecks G1, the running
+system after G3, and the running evidence/system/profile immediately before
+switching, after the backup-copy acknowledgement.
+
+**Every manual hsb0 switch must hold `/run/hsb0-deploy.lock`**, including the
+manual examples elsewhere in this RUNBOOK. `just switch` does not take it:
+
+```bash
+sudo flock /run/hsb0-deploy.lock nixos-rebuild switch --flake /path/to/nixcfg#hsb0
+# Or, from the reviewed checkout:
+sudo flock /run/hsb0-deploy.lock just switch
+```
+
+Hold it around the entire build/switch, and around both profile selection and
+activation for a manual rollback. A busy lock skips the CD run and may retry.
+The transient root unit uses Nice=19, CPUQuota=200%, IOSchedulingClass=idle,
+MemoryHigh=1G and MemoryMax=1500M. Its runtime observation limit exceeds the
+shared executor/poll budgets. Polls are 15 s apart, with up to five minutes of
+SSH retries before an UNKNOWN alarm. Activation has no killing timeout;
+KillMode=process and SendSIGKILL=no keep systemd from killing the activation
+child. A hung switch retains the deploy lock and requires operator inspection.
+
+Root-only status and the latest export live in `/var/lib/hausnetz-cd/` (0700).
+Status/export files are 0600; acknowledgement files are made 0600 if possible.
+Each executor first writes `starting` with its run ID; inspect
+`sudo cat /var/lib/hausnetz-cd/results/<run-id>.json`. Status includes phases,
+timestamps, old/new systems, package proofs, expected version/manifest digest,
+gates, health, backup and rollback. The controller accepts only its own run ID.
+The Mac's state is `~/.local/share/ops-qa/state/hsb0-hausnetz-cd.json`;
+exports are `~/.local/share/ops-qa/hsb0-hausnetz-exports/` (newest 20).
+`failed`, `attempted` and `reports` retain the newest 200 entries. Durable
+`hausnetz-cd-ledger/` tombstones beside the state prevent retries after pruning:
+attempts are keyed by running→new hausnetz rev, and failed target revs stay
+blocked even if another nixcfg commit pins them again.
 
 Live mode requires a parsed, nonempty local `/api/export` backup (JSON or ZIP),
-copied and checksum-acknowledged by the Mac before switching. Health polls
-locally for at most two minutes and must prove the exact expected Git revision
-and pass healthz. Failure switches back to the recorded old store path and
-checks the old revision. The existing local bot reports `auto-rollback` or
-`ROLLBACK FAILED`. The Mac also persists an alarm and comments on the configured
-HNET release ticket; configurable alarm argv and an independent argv invoking
-csb1's existing sender keep credentials on their owning host. The independent
-sender must be configured before live mode. A durable reporting outbox retries
-ticket delivery without repeating deployment.
-Lost live executor status also raises an independent `ROLLBACK STATUS UNKNOWN`
-alarm and preserves the once-only reservation for manual reconciliation.
+copied and checksum-acknowledged by the Mac. Before switching, the executor
+records OLD and NEW binary store paths and package versions from each system's
+hausnetz unit ExecStart; NEW must match cd-prepare's version. Within 120 s after
+switch, **all** of these must hold on hsb0:
+
+- `/proc/<hausnetz.service MainPID>/exe` resolves to the recorded NEW binary;
+- loopback `GET /api/meta` returns HTTP 200 and the recorded `.version`;
+- loopback `GET /readyz` returns HTTP 200 and JSON `ok == true`.
+
+A mismatch, missing path, unreadable value or timeout fails closed and rolls
+back to the recorded OLD system, verified with the same OLD path/version/readiness
+proof. `/healthz` is only liveness. `requireReadyz` defaults to true; setting it
+false refuses live mode. No configurable version endpoint or rev field remains.
+The existing local bot reports `auto-rollback` or `ROLLBACK FAILED`. Rollback
+failure also persists a Mac alarm and invokes the configured independent csb1
+sender without moving credentials. A running result with an inactive/unknown
+unit becomes failed/UNKNOWN once, stops polling, and cannot auto-retry. Dry-run
+writes an alarm file plus its result log; live sends `ROLLBACK STATUS UNKNOWN`.
+A durable outbox retries ticket delivery without repeating deployment.
+
+**Clearing a stuck pending reservation:** disable the timer first. Inspect the
+pending run ID, its root status, `sudo systemctl show hausnetz-cd-<run-id>.service --property=ActiveState --value`, and the running system/package proof. Wait for
+any active/deactivating executor to finish. Never clear an uncertain active
+switch. After manual reconciliation is recorded on OPS-705, run this on the
+Mac with the inspected run ID; it preserves an archive and failure tombstone,
+then clears only `pending`. It does not authorize retrying that release.
+
+```bash
+python3 -B - '<run-id>' <<'PYCLEAR'
+import json, os, pathlib, re, sys, tempfile
+root = pathlib.Path.home() / '.local/share/ops-qa/state'
+path = root / 'hsb0-hausnetz-cd.json'
+state = json.loads(path.read_text())
+pending = state['pending']
+assert re.fullmatch(r'[0-9a-f]{32}', sys.argv[1])
+assert pending['run_id'] == sys.argv[1]
+rev = pending['hausnetz_rev']
+assert re.fullmatch(r'[0-9a-f]{40}', rev)
+def write(target, value):
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd, name = tempfile.mkstemp(dir=target.parent)
+    with os.fdopen(fd, 'w') as out:
+        os.fchmod(out.fileno(), 0o600)
+        json.dump(value, out)
+        out.flush()
+        os.fsync(out.fileno())
+    os.replace(name, target)
+write(root / ('hsb0-hausnetz-cd-before-clear-' + sys.argv[1] + '.json'), state)
+write(root / 'hausnetz-cd-ledger/failed' / (rev + '.json'),
+      {'status': 'manual-reconciliation', 'run_id': sys.argv[1]})
+state['failed'] = ([item for item in state['failed'] if item != rev] + [rev])[-200:]
+state['pending'] = None
+write(path, state)
+PYCLEAR
+```
 
 TODO (outside v1): rehearse restoring an export in a throwaway hausnetz **only
 in the workstation Colima VM**, after HNET supplies its import contract.
@@ -772,7 +848,7 @@ just oc-stop && just oc-start
 
 # 6. FULL DEPLOY (git pull + NixOS switch + container rebuild)
 #    Run on hsb0 or via SSH:
-ssh mba@hsb0.lan "cd ~/Code/nixcfg && gitpl && just switch && just oc-rebuild"
+ssh mba@hsb0.lan "cd ~/Code/nixcfg && gitpl && sudo flock /run/hsb0-deploy.lock just switch && just oc-rebuild"
 
 # 7. VIEW LIVE CONFIG (what's running vs what's in git)
 docker exec openclaw-gateway cat /home/node/.openclaw/openclaw.json | jq
@@ -864,7 +940,7 @@ agenix -e secrets/hsb0-<name>.age
 
 ```bash
 # Commit + push, then on hsb0:
-gitpl && just switch && just <container>-rebuild
+gitpl && sudo flock /run/hsb0-deploy.lock just switch && just <container>-rebuild
 # 'just switch' is required — agenix only decrypts on NixOS switch, not docker rebuild
 ```
 
@@ -878,7 +954,7 @@ gitpl && just switch && just <container>-rebuild
 ssh mba@192.168.1.99
 cd ~/Code/nixcfg
 git pull
-just switch
+sudo flock /run/hsb0-deploy.lock just switch
 ```
 
 ### Fix Git Issues & Update
@@ -893,7 +969,7 @@ git checkout -- .                    # Discard all local changes
 # OR for specific file:
 git checkout -- path/to/file
 git pull
-just switch
+sudo flock /run/hsb0-deploy.lock just switch
 ```
 
 ### Rollback to Previous Generation
@@ -912,7 +988,7 @@ never overwrite the current trading journals or JoeDesk history during rollback.
 
 ```bash
 ssh mba@192.168.1.99
-sudo nixos-rebuild switch --rollback
+sudo flock /run/hsb0-deploy.lock nixos-rebuild switch --rollback
 ```
 
 ---
@@ -1031,7 +1107,7 @@ For hsb8 (ww87), add to the `dnsAllowlist` variable at the top of `hosts/hsb8/co
 
 ```bash
 # For hsb0
-ssh mba@192.168.1.99 "cd ~/Code/nixcfg && git pull && just switch"
+ssh mba@192.168.1.99 "cd ~/Code/nixcfg && git pull && sudo flock /run/hsb0-deploy.lock just switch"
 
 # For hsb8 (from any machine)
 nixos-rebuild switch --flake .#hsb8 --target-host hsb8 --use-remote-sudo
@@ -1187,12 +1263,12 @@ If hsb0 is completely down:
 
 ### Recovery Scenarios
 
-| Scenario               | Impact                     | Action                                                                                      |
-| ---------------------- | -------------------------- | ------------------------------------------------------------------------------------------- |
-| **AdGuard Home Stops** | CRITICAL - No DNS/DHCP     | `sudo nixos-rebuild switch --rollback` or `sudo systemctl restart adguardhome`              |
-| **DNS Broken**         | HIGH - No internet by name | `nslookup google.com 127.0.0.1`. If fails, check upstream DNS in AdGuard Web UI.            |
-| **DHCP Broken**        | MEDIUM - New devices fail  | Verify `/run/agenix/static-leases-hsb0` exists and is valid JSON.                           |
-| **SSH Lockout**        | MEDIUM - No remote access  | Connect monitor/keyboard, login as `mba`, and rollback. Check for `omega@*` keys in config. |
+| Scenario               | Impact                     | Action                                                                                                     |
+| ---------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **AdGuard Home Stops** | CRITICAL - No DNS/DHCP     | `sudo flock /run/hsb0-deploy.lock nixos-rebuild switch --rollback` or `sudo systemctl restart adguardhome` |
+| **DNS Broken**         | HIGH - No internet by name | `nslookup google.com 127.0.0.1`. If fails, check upstream DNS in AdGuard Web UI.                           |
+| **DHCP Broken**        | MEDIUM - New devices fail  | Verify `/run/agenix/static-leases-hsb0` exists and is valid JSON.                                          |
+| **SSH Lockout**        | MEDIUM - No remote access  | Connect monitor/keyboard, login as `mba`, and rollback. Check for `omega@*` keys in config.                |
 
 ### Restore from Generation
 
@@ -1201,8 +1277,10 @@ If hsb0 is completely down:
 sudo nix-env --list-generations -p /nix/var/nix/profiles/system
 
 # Switch to specific generation
-sudo nix-env --switch-generation N -p /nix/var/nix/profiles/system
-sudo /nix/var/nix/profiles/system/bin/switch-to-configuration switch
+sudo flock /run/hsb0-deploy.lock bash -c '
+  nix-env --switch-generation "$1" -p /nix/var/nix/profiles/system &&
+  /nix/var/nix/profiles/system/bin/switch-to-configuration switch
+' -- N
 ```
 
 ### Restore from Backup
@@ -1218,7 +1296,7 @@ git show COMMIT:secrets/static-leases-hsb0.age > secrets/static-leases-hsb0.age
 
 # Verify and redeploy
 agenix -d secrets/static-leases-hsb0.age | jq empty
-just switch
+sudo flock /run/hsb0-deploy.lock just switch
 ```
 
 **Restore from ZFS snapshot:**
@@ -1236,7 +1314,7 @@ sudo zfs rollback zroot/root@SNAPSHOT_NAME
 1. Navigate to `~/Code/nixcfg` in Time Machine
 2. Restore desired files
 3. Commit and push: `git add . && git commit -m "restore: from Time Machine backup"`
-4. Deploy to hsb0: `ssh mba@hsb0 "cd ~/Code/nixcfg && git pull && just switch"`
+4. Deploy to hsb0: `ssh mba@hsb0 "cd ~/Code/nixcfg && git pull && sudo flock /run/hsb0-deploy.lock just switch"`
 
 ### Backup Frequency
 
@@ -1646,7 +1724,7 @@ steps on hsb0 (never run the rebuild on macOS):
    Never delete the backup or put it inside `v2`: unknown entries there fail
    closed. Preserve any unexpected residue for coordinator review.
 
-3. Run `sudo nixos-rebuild switch --rollback`. Verify the r15 stager opens with
+3. Run `sudo flock /run/hsb0-deploy.lock nixos-rebuild switch --rollback`. Verify the r15 stager opens with
    no retained pairs and continues above the saved sequence high-water; keep the
    dated backup as evidence. No sequence or receipt-log edit is required.
 4. Accept the bounded source-clock transient: r15 uses retained `lastGeneratedAt`

@@ -9,12 +9,8 @@ let
   settings = pkgs.writeText "hausnetz-cd-executor.json" (
     builtins.toJSON {
       allow_live = cfg.allowLive;
-      manifest_path = cfg.manifestPath;
-      version_url = cfg.versionUrl;
-      version_field = cfg.versionField;
-      health_url = cfg.healthUrl;
+      require_readyz = cfg.requireReadyz;
       nixcfg_url = "https://github.com/markus-barta/nixcfg.git";
-      hausnetz_url = "ssh://git@github.com/inspr-at/hausnetz";
       state_dir = "/var/lib/hausnetz-cd";
       lock_file = "/run/hsb0-deploy.lock";
       evidence_file = "/etc/pharos-deployment/evidence.json";
@@ -30,7 +26,7 @@ let
       coreutils
       curl
       git
-      nix
+      config.nix.package
       openssh
       python3
       systemd
@@ -51,25 +47,10 @@ in
       default = false;
       description = "Separate release gate; false refuses every live request.";
     };
-    manifestPath = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      description = "HNET-570 manifest repo path; unset forces manual handling.";
-    };
-    versionUrl = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      description = "HNET-570 version endpoint on 127.0.0.1:8377; no inferred URL.";
-    };
-    versionField = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      description = "Dot-separated exact Git revision field; no inferred field.";
-    };
-    healthUrl = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      description = "HNET-570 healthz endpoint on 127.0.0.1:8377.";
+    requireReadyz = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Require HTTP 200 and JSON ok=true from /readyz; false refuses live mode.";
     };
   };
   config = lib.mkIf cfg.enable {
