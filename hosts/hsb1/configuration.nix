@@ -105,7 +105,7 @@ in
   #     → BT reconnect: auto-connect keyboard on boot
   #   - Docker compose: ./docker/compose-spec.nix (funkeykid service), rendered
   #     by composeStack into the system closure
-  #   - Data: ~/docker/mounts/funkeykid/{settings.json,sounds/,images/}
+  #   - Data: ~/docker/mounts/funkeykid/ mounted whole as /data (settings.json, sounds/, images/, ai-generated/, archive/; OPS-701)
   services.funkeykid = {
     enable = false; # systemd service off — Docker container runs instead
     hardwareIsolation = true; # udev + logind isolation (MUST stay on)
