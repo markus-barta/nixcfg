@@ -114,7 +114,7 @@ _require-current:
 
 [group('build')]
 test:
-    sudo nixos-rebuild test --flake .#{{ hostname }} -L
+    sudo bash scripts/hsb0-deploy-lock.sh nixos-rebuild test --flake .#{{ hostname }} -L
 
 # Careful: This can use a lot of memory on large flakes
 
@@ -283,13 +283,13 @@ janus-engine-down:
 
 [group('build')]
 nix-switch:
-    sudo nixos-rebuild switch --flake .#{{ hostname }} -L
+    sudo bash scripts/hsb0-deploy-lock.sh nixos-rebuild switch --flake .#{{ hostname }} -L
 
 # Build and switch to the new configuration for the current host (no notification)
 [group('build')]
 switch-simple:
     just _require-current
-    nh os switch -H {{ hostname }} .
+    bash scripts/hsb0-deploy-lock.sh nh os switch -H {{ hostname }} .
 
 # Build and switch to the new configuration for the current host (platform-aware)
 [group('build')]
@@ -368,7 +368,7 @@ switch args='':
         echo "$(printf '\xef\x8c\x93') Detected NixOS - running ❄️ nixos-rebuild switch for {{ hostname }}..."
         sudo true
         start_time=$(date +%s)
-        nh os switch -H {{ hostname }} . -- {{ args }}
+        bash scripts/hsb0-deploy-lock.sh nh os switch -H {{ hostname }} . -- {{ args }}
         # NIX-325: see above — capture $? immediately, before `date`.
         exit_code=$?
         end_time=$(date +%s)
@@ -609,7 +609,7 @@ home-switch args='':
 # Build the current host with nix-rebuild
 [group('build')]
 nix-build:
-    sudo nixos-rebuild build --flake .#{{ hostname }}
+    sudo bash scripts/hsb0-deploy-lock.sh nixos-rebuild build --flake .#{{ hostname }}
 
 # Build a host with nh
 [group('build')]
@@ -901,7 +901,7 @@ build-vm host:
 # Rebuild the current host
 [group('build')]
 flake-rebuild-current:
-    nh os switch -H {{ hostname }} .
+    bash scripts/hsb0-deploy-lock.sh nh os switch -H {{ hostname }} .
 
 # Update the flakes
 [group('build')]
@@ -912,6 +912,9 @@ flake-update:
 [confirm("Are you sure you want to clean up the system?")]
 [group('maintenance')]
 cleanup:
+    bash scripts/hsb0-deploy-lock.sh just _cleanup
+
+_cleanup:
     duf
     sudo journalctl --vacuum-time=3d
     docker system prune -f
@@ -936,7 +939,7 @@ list-generations:
 # Rollback to the previous generation
 [group('maintenance')]
 rollback:
-    nh os rollback
+    bash scripts/hsb0-deploy-lock.sh nh os rollback
 
 # Garbage collect the nix store to free up space
 [group('maintenance')]

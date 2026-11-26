@@ -36,6 +36,7 @@ in
     ./pi-local.nix
     ./mbp2606-trash-purge.nix # OPS-489: weekly purge of mbp2606's /Users/mba/.Trash (> 3 days, Sun 04:30)
     ./night-levels.nix # OPS-595: OPS-300 policy loop as a launchd agent (KeepAlive) + stale alert
+    ./hausnetz-cd.nix # OPS-705: disabled two-minute hausnetz CD orchestrator
     ./ci-vm.nix # OPS-669: on-demand, memory-capped Linux runner for private CI
     ./yue2-comfyui # NIX-518: `yue2` command + stack tooling (runtime stays in ~/Code/yue2-comfyui)
     ../../modules/uzumaki/home-manager.nix
