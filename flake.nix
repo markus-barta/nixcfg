@@ -64,13 +64,13 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 65: v261126120508.0.0 (sequence 135; hausnetz main 65ba40f2 = merge of release PR #434, tag on
-    # c6facac0). "Rooms from Home Assistant, device roles and movable columns". New capability: the optional
-    # read-only Home Assistant reader (services.hausnetz.homeAssistant, nix/module.nix); hsb0 turns it on in
-    # the same change (OPS-703, Markus's go on HNET-556, 2026-11-26). Other module changes: test/VM files
-    # and the vendorHash only. Rollback: previous generation; a re-pin below 65 must drop the HA block.
+    # HNET pin 66: v261126125422.0.0 (sequence 136; hausnetz main ee251604 = merge of hotfix
+    # release PR #436, tag on c5fac78d). "Home Assistant take-over handles rooms only" (HNET-577). Since 65: HA rooms
+    # logic, a Shelly-heal timeout refactor, tests, UI and release files; no nix/, flake or Go-dependency change, no new
+    # listener, outbound call or capability (HNET-578); the HA reader block (OPS-703) is unchanged. Rollback: previous
+    # generation (pin 65); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=65ba40f2bfb47e6ae1a41aee2c17fb8263dea79c";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=ee251604501bada9f0190897a57bb3f92a504185";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {

@@ -48,7 +48,7 @@ ready)
   test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 0
   systemctl is-active --quiet ci-vm-firewall.service
   if [ "${2:-}" = --provision-only ]; then exit 0; fi
-  # This gate is never opened by the provision-only inspection path.
+  # The host has verified standard policy; provision-only never opens this gate.
   touch /run/ci-vm-host-qos-ready
   while IFS= read -r id; do
     unit="ci-runner-$id.service"

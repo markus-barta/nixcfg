@@ -122,7 +122,7 @@ let
     .text;
     qosColimaHome = lib.hasInfix "\${colimaHome}/_lima/colima-ci/ha.pid" moduleSource;
     noLegacyColimaHome = lib.all (source: !lib.hasInfix "/.colima" source) sources;
-    hardCaps = colima.cpu == 6 && colima.memory == 16 && colima.disk == 150 && colima.rootDisk == 150;
+    hardCaps = colima.cpu == 4 && colima.memory == 16 && colima.disk == 150 && colima.rootDisk == 150;
     linuxKvm = colima.arch == "aarch64" && colima.vmType == "vz" && colima.nestedVirtualization;
     singleDisk = colima.runtime == "none";
     noAutoActivation = !colima.autoActivate && !colima.sshConfig && !colima.forwardAgent;
@@ -158,11 +158,12 @@ let
       launch.StartInterval == 60
       && launch.RunAtLoad
       && ((launch.KeepAlive or null) == null || !launch.KeepAlive);
-    background =
-      launch.ProcessType == "Background"
-      && launch.LowPriorityIO
-      && launch.LowPriorityBackgroundIO
+    standardPolicy =
+      launch.ProcessType == "Standard"
+      && !(launch ? LowPriorityIO)
+      && !(launch ? LowPriorityBackgroundIO)
       && launch.AbandonProcessGroup;
+    noBackgroundStarter = !lib.hasInfix "taskpolicy" command;
     log =
       launch.StandardOutPath == "/Users/markus/.local/share/ops-qa/state/ci-vm-dispatcher.log"
       && launch.StandardErrorPath == launch.StandardOutPath;

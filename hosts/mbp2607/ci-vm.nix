@@ -50,7 +50,7 @@ let
   # JSON is valid YAML. Colima rewrites this file: the starter COPIES it.
   colimaConfig = pkgs.writeText "ci-colima.yaml" (
     builtins.toJSON {
-      cpu = 6;
+      cpu = 4;
       memory = 16;
       disk = 150;
       rootDisk = 150;
@@ -106,7 +106,7 @@ let
     export CI_VM_CONFIG=${colimaConfig}
     export CI_VM_REPOSITORIES=${reposFile}
     export CI_VM_HOST_HELPER=${hostHelper}
-    exec /usr/sbin/taskpolicy -b -c background /bin/bash ${./files/ci-vm/dispatcher.sh} "$@"
+    exec /bin/bash ${./files/ci-vm/dispatcher.sh} "$@"
   '';
 in
 {
@@ -174,9 +174,7 @@ in
           "tick"
         ];
         EnvironmentVariables.HOME = home;
-        ProcessType = "Background";
-        LowPriorityIO = true;
-        LowPriorityBackgroundIO = true;
+        ProcessType = "Standard";
         # The hostagent must survive the end of a single dispatcher poll.
         AbandonProcessGroup = true;
         StartInterval = 60;

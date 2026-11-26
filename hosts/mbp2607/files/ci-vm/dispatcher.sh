@@ -219,7 +219,7 @@ prepare() {
   touch "$profile/.nixcfg-ci-vm"
 }
 
-background_vm() {
+verify_vm_qos() {
   if ! bounded 30 qos; then
     qos_failed=true
     return 1
@@ -300,7 +300,7 @@ activate_runners() {
 ensure_vm() {
   if [ "$running" = false ]; then
     prepare || return 1
-    log 'starting ci (6 CPUs, 16 GiB RAM, 150 GiB disk)'
+    log 'starting ci (4 CPUs, 16 GiB RAM, 150 GiB disk, standard priority)'
     bounded 900 start </dev/null || return 1
     now=$(date +%s)
     stamp last-demand
@@ -309,7 +309,7 @@ ensure_vm() {
     clear_stamp no-worker-since
     clear_stamp worker-without-api-demand-since
   fi
-  background_vm || return 1
+  verify_vm_qos || return 1
   if [ "${1:-}" = --provision-only ]; then
     bounded 30 provision-only </dev/null || return 1
     log 'provision verified; no runner activation requested'
@@ -471,7 +471,7 @@ if [ "$active" = true ] || [ "$queued" = true ]; then
     fi
   fi
 elif [ "$running" = true ]; then
-  if ! background_vm; then failed_vm 'background policy could not be verified'; fi
+  if ! verify_vm_qos; then failed_vm 'standard policy could not be verified'; fi
   if [ "$unknown" = true ]; then
     read_stamp unknown-since
     if [ "$((now - last))" -ge 3600 ]; then
