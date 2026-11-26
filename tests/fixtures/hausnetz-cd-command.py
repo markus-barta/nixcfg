@@ -15,6 +15,12 @@ import urllib.parse
 import zipfile
 
 
+# Value-free hsb0 r67 capture (2026-11-26); older fixture releases substitute
+# only their version. The capability body below remains synthetic test data.
+CAPTURED_READYZ = b'{"ok":true,"version":"261126165633.0.0","checks":{"instance":true,"engine":true,"site":true,"ui":true}}'
+CAPTURED_META_SHA_PREFIX = "782631fc5c0bb9e9"
+
+
 # Each fake is copied into its private fixture bin directory.
 root = Path(__file__).resolve().parent.parent
 config = json.loads((root / "fixture.json").read_text())
@@ -132,12 +138,16 @@ elif command == "readlink":
         print(os.readlink(config["system_profile"]))
 elif command == "nix":
     if args[0] == "run":
+        assert args[1] == "--offline"
+        checker = urllib.parse.urlsplit(args[2])
+        repo = urllib.parse.unquote(checker.path)
+        assert checker.scheme == "git+file" and checker.fragment == "cd-prepare"
+        checker_rev = urllib.parse.parse_qs(checker.query)["rev"][0]
         event("prepare", args=args,
-              checker_rev=subprocess.check_output(["git", "-C", args[4], "rev-parse", "HEAD"], text=True).strip())
-        assert args[1].endswith("#cd-prepare") and args[2:4] == ["--", "--repo"]
-        assert args[5] == "--rev" and args[7] == "--running"
-        repo = args[1].split("#")[0]
-        assert args[4] == repo
+              checker_rev=subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"], text=True).strip())
+        assert args[3:5] == ["--", "--repo"] and args[5] == repo
+        assert args[6] == "--rev" and args[8] == "--running"
+        assert checker_rev == args[9]
         assert subprocess.check_output(["git", "-C", repo, "rev-parse", "--is-shallow-repository"], text=True).strip() == "false"
         if scenario.get("prepare_missing"):
             raise SystemExit(1)
@@ -145,13 +155,16 @@ elif command == "nix":
             result = subprocess.run(["git", "-C", repo, "show", rev + ":capabilities.json"],
                                     capture_output=True, check=False)
             return result.stdout if result.returncode == 0 else b""
-        before, after = manifest(args[8]), manifest(args[6])
-        value = {"rev": args[6], "narHash": config["nar_hash"], "version": config["new_version"],
+        before, after = manifest(args[9]), manifest(args[7])
+        value = {"rev": args[7], "narHash": config["nar_hash"], "version": config["new_version"],
                  "persisted_ok": True, "manifest_changed": before != after,
                  "manifest_sha256": hashlib.sha256(after).hexdigest(),
                  "running_manifest_sha256": hashlib.sha256(before).hexdigest(),
+                 "changed_paths": [], "changed_paths_total": 0, "checker_rev": checker_rev,
                  "problems": [] if before and after else ["manifest_missing"]}
         value.update(scenario.get("prepare", {}))
+        for field in scenario.get("prepare_omit", []):
+            value.pop(field)
         if scenario.get("prepare_json") is not None:
             print(scenario["prepare_json"])
         else:
@@ -263,10 +276,22 @@ elif command == "curl":
                     if scenario.get("meta_manifest_missing"):
                         metadata.pop("capabilities_sha256")
                     if scenario.get("meta_manifest_mismatch"):
-                        metadata["capabilities_sha256"] = "0" * 64
+                        # Only the captured prefix is known; this suffix is
+                        # deliberately synthetic and must not pass the proof.
+                        metadata["capabilities_sha256"] = CAPTURED_META_SHA_PREFIX + "0" * 48
                 elif scenario.get("rollback_manifest_mismatch") and (root / "rolled-back").exists():
                     metadata["capabilities_sha256"] = "0" * 64
                 print(json.dumps(metadata))
+        elif url.endswith("/api/host-capabilities"):
+            body = b'{"connections":[],"secrets":[],"writes":[]}\n'
+            if active_new() and scenario.get("capabilities_mismatch"):
+                body += b" "
+            if active_new() and scenario.get("capabilities_missing"):
+                status = 404
+            if not active_new() and scenario.get("rollback_capabilities_mismatch") and (root / "rolled-back").exists():
+                body += b" "
+            sys.stdout.buffer.write(body)
+            sys.stdout.buffer.flush()
         elif url.endswith("/readyz"):
             if active_new() and scenario.get("readyz_missing"):
                 status = 404
@@ -275,8 +300,8 @@ elif command == "curl":
             bad = (active_new() and scenario.get("readyz_false")) or (
                 not active_new() and scenario.get("rollback_readyz_false") and (root / "rolled-back").exists())
             version = config["new_version"] if active_new() else config["old_version"]
-            ready = {"ok": not bad, "version": version,
-                     "checks": {"engine": True, "site": True, "ui": True}}
+            ready = json.loads(CAPTURED_READYZ)
+            ready.update(ok=not bad, version=version)
             if active_new():
                 ready.update(scenario.get("readyz", {}))
             print(json.dumps(ready))

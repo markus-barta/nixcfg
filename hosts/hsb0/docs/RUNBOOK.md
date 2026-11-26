@@ -527,16 +527,25 @@ The gates compare with the **running** `source_revision` from
   ticket comment, attempted reservation or failed-target tombstone.
 - The Mac maintains and fetches a **full-history working clone** under
   `~/.local/share/hausnetz-cd/hausnetz`. Nix must be on PATH. G2 runs
-  `nix run <clone>#cd-prepare -- --repo <clone> --rev <new> --running <running>` (600 s budget).
+  `nix run --offline "git+file://<clone>?rev=<running>#cd-prepare" -- --repo <clone> --rev <new> --running <running>` (600 s budget).
   The clone is checked out at the running hausnetz revision, so the running
-  release's checker grades the candidate. An independent
+  release's explicitly pinned checker grades the candidate. Its app PATH supplies
+  git and esbuild; nix comes from the orchestrator. It runs no repository code. An independent
   `git merge-base --is-ancestor <running> <new>` check must pass first.
   Exactly one JSON object must report exit 0, the expected rev and locked
   narHash, a valid package CalVer, `persisted_ok = true`, unchanged manifests,
-  matching 64-hex manifest digests, and no problems. Missing app, schema drift,
+  matching 64-hex manifest digests, `changed_paths_total == 0`,
+  `changed_paths == []`, `checker_rev == running`, and `problems == []`.
+  The exact stdout keys are `rev`, `narHash`, `version`, `persisted_ok`,
+  `manifest_changed`, `manifest_sha256`, `running_manifest_sha256`,
+  `changed_paths`, `changed_paths_total`, `checker_rev`, and `problems`.
+  `changed_paths` is a sorted array of at most 100 strings; `changed_paths_total`
+  is an integer (`-1` means no diff taken and always requires manual handling).
+  Missing app, missing/unknown keys, schema drift,
   extra output or any error is manual. Exit 1 (manual), 2 (bad usage), or any
-  other nonzero exit is manual, and the JSON `problems` are recorded in the
-  result. The app does not fetch and refuses shallow/non-descendant revisions.
+  other nonzero exit is manual. The JSON `changed_paths` and `problems` are
+  retained in the result and log line, including manual outcomes.
+  The app does not fetch and refuses shallow/non-descendant revisions.
   The capability manifest endpoint is `GET /api/host-capabilities`.
 - G4 requires byte-identical hausnetz `nix/`, `flake.nix` and `flake.lock`
   between those revisions. A module change always needs a human. G4 runs before
@@ -616,9 +625,12 @@ switch, **all** of these must hold on hsb0:
 - `/proc/<hausnetz.service MainPID>/exe` resolves to the recorded NEW binary;
 - loopback `GET /api/meta` returns HTTP 200, the recorded `.version`, and
   `.capabilities_sha256` equal to cd-prepare's `manifest_sha256`;
+- loopback `GET /api/host-capabilities` returns HTTP 200 and its exact response
+  bytes have a SHA-256 equal to `/api/meta`'s `.capabilities_sha256`;
 - loopback `GET /readyz` returns HTTP 200, JSON `ok == true`, the expected
-  `.version`, and literal JSON `true` for every `.checks` entry, including
-  engine, site and ui. Truthy numbers, strings, arrays and objects fail.
+  `.version`, and exactly four `.checks` keys: `instance`, `engine`, `site`,
+  and `ui`, each literal JSON `true`. Missing/extra checks and truthy numbers,
+  strings, arrays and objects fail.
 
 A mismatch, missing path, unreadable value or timeout fails closed and rolls
 back to the recorded OLD system, verified with the same OLD path/version/readiness
