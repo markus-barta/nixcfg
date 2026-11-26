@@ -604,6 +604,41 @@ config. To disable automatic dispatch, set `services.ciVm.enable =
 false` through the reviewed Home Manager path and stop `ci` when its jobs
 finish. Keep the VM disk/enrollment for rollback. No other profile is managed.
 
+### Shared heavy-CI lock (OPS-707)
+
+The dispatcher and PAPP share `/Users/Shared/ci-locks/mbp2607-heavy.lock.d`
+under **OPS-669 detail spec v1**. The first holder creates the parent with mode
+1777; it is never deleted. `services.ciVm.heavyLockPath` selects the path (tests
+use a temporary override). Atomic `mkdir` precedes every stopped-VM boot,
+including operator start. An atomic `owner.json` write records the dispatcher
+PID, then the validated Colima `ci` hostagent PID immediately after boot.
+An already-running VM keeps its existing lock unchanged.
+
+Busy runs persist their first-seen time across the 60-second ticks. The
+`.github/workflows/nightly.yml` wait is 45 minutes; `.github/workflows/nix.yml`
+and all other workflows wait 10 minutes. At the limit, the dispatcher cancels
+the run and comments with its URL and the holder/reason on the PR, or, for runs
+without a PR, on the open issue titled `CI nightly: host busy / cancellations`
+in the same repository (created once if absent). Cancellation and comment
+attempt markers prevent repeated requests per run, including after uncertain
+API failures; inspect logged uncertain outcomes before retrying manually.
+
+A foreign lock is stale only when its PID is dead **and** its start is over
+three hours old. Missing or invalid owner records use the directory mtime.
+Stale locks are atomically renamed to `.stale-<UTC>-<pid>` siblings and logged;
+the coordinator trashes them later. Our own residue can be released sooner
+only after verifying `ci` is stopped and its recorded PID is dead or is no
+longer the validated `ci` hostagent. Never release while the VM runs. Normal
+idle/drain/failure/operator stops and failed boots release only our own holder
+record, after verifying stopped status, by removing `owner.json` then the empty
+lock directory. The parent remains.
+
+Inspect the shared, value-free ownership record with:
+
+```bash
+cat /Users/Shared/ci-locks/mbp2607-heavy.lock.d/owner.json
+```
+
 Offline tests (Bash 5 is required by the test's false-pass guard):
 
 ```bash

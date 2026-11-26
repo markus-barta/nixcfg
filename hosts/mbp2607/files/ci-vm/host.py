@@ -24,6 +24,7 @@ COMMANDS = {
     "start": ("colima", "start", "ci",
               "--activate=false", "--ssh-config=false"),
     "qos": QOS_COMMAND,
+    "hostagent": (sys.executable, __file__, "hostagent"),
     "host-ready": ("colima", "--profile", "ci", "ssh", "--", "sudo",
                    "/usr/local/libexec/ci-vm/host-ready"),
     "provision-only": ("colima", "--profile", "ci", "ssh", "--", "sudo",
@@ -85,7 +86,7 @@ def lock(path, command):
         os.close(fd)
 
 
-def qos():
+def hostagent():
     if sys.platform != "darwin":
         raise RuntimeError("QoS enforcement requires Darwin")
     pidfile = Path(PIDFILE)
@@ -117,6 +118,12 @@ def qos():
     if "hostagent" not in args or not any(str(pidfile) in arg for arg in args):
         raise RuntimeError("PID does not identify this ci instance's hostagent")
 
+    return pid, libproc, info, executable
+
+
+def qos():
+    pid, libproc, info, executable = hostagent()
+    pidfile = Path(PIDFILE)
     targets = [(pid, "ci-hostagent")]
     # A responsibility PID can be shared by several VMs launched from one
     # terminal. Instead use this hostagent's launchd domain AND its open disk.
@@ -173,6 +180,8 @@ if __name__ == "__main__":
             if sys.argv[2] != lockfile:
                 raise RuntimeError("unexpected dispatcher lock path")
             sys.exit(lock(lockfile, LOCK_COMMANDS[tuple(sys.argv[3:])]))
+        elif len(sys.argv) == 2 and sys.argv[1] == "hostagent":
+            print(hostagent()[0])
         elif len(sys.argv) == 3 and sys.argv[1] == "qos":
             if sys.argv[2] != PIDFILE:
                 raise RuntimeError("unexpected ci hostagent PID path")

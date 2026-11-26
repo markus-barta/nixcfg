@@ -70,13 +70,33 @@ assert "GH_TOKEN" not in os.environ, "token in curl environment"
 assert sys.stdin.read() == 'header = "Authorization: Bearer fixture-agent-value"\n', "token not transported on stdin"
 url = args[-1]
 with open(os.environ["CI_TEST_CALLS"], "a") as f:
-    f.write("GET " + url + "\n")
+    f.write(("POST " if "--request" in args else "GET ") + url + "\n")
 assert url.startswith("https://api.github.com/repos/inspr-at/"), url
 assert "registration-token" not in url
 scenario = os.environ["CI_TEST_SCENARIO"]
 if scenario == "failure": sys.exit(22)
 if scenario == "mixed" and "/hausnetz/" in url: sys.exit(22)
 parsed = urlparse(url)
+if "--request" in args:
+    payload = json.loads(args[args.index("--data") + 1])
+    if parsed.path.endswith("/cancel"):
+        assert payload == {}
+        print('{}')
+    elif parsed.path.endswith("/comments"):
+        assert "host busy: mbp2607 heavy-CI lock held by papp-night since" in payload["body"]
+        assert "https://github.com/inspr-at/hausnetz/actions/runs/" in payload["body"]
+        with open(os.environ["CI_TEST_CALLS"], "a") as f: f.write("COMMENT " + payload["body"] + "\n")
+        print('{}')
+    elif parsed.path.endswith("/issues"):
+        assert payload["title"] == "CI nightly: host busy / cancellations"
+        with open(os.environ["CI_VM_STATE_DIR"] + "/nightly-issue", "w") as f: f.write("429")
+        print('{"number":429}')
+    else: raise AssertionError(url)
+    sys.exit()
+if parsed.path.endswith("/issues"):
+    issues = [{"number":429,"title":"CI nightly: host busy / cancellations"}] if os.path.exists(os.environ["CI_VM_STATE_DIR"] + "/nightly-issue") else []
+    print(json.dumps(issues))
+    sys.exit()
 query = parse_qs(parsed.query)
 page = int(query["page"][0])
 is_jobs = parsed.path.endswith("/jobs")
@@ -100,7 +120,10 @@ if not is_jobs:
         runs = [{"id": i} for i in range(1, 101)] if page == 1 else [{"id": 101}]
         total = 101
     else:
-        runs = [{"id": 11}] if active else []
+        runs = [{"id": int(os.environ.get("CI_TEST_RUN_ID", "11")),
+                 "html_url": "https://github.com/inspr-at/hausnetz/actions/runs/" + os.environ.get("CI_TEST_RUN_ID", "11"),
+                 "path": os.environ.get("CI_TEST_WORKFLOW", ".github/workflows/nix.yml"),
+                 "pull_requests": [] if os.environ.get("CI_TEST_NIGHTLY") == "1" else [{"number": 42}]}] if active else []
         total = len(runs)
     print(json.dumps({"workflow_runs": runs, "total_count": total}))
 else:
@@ -179,13 +202,17 @@ case "$1" in
     ;;
   start)
     [[ "$*" == 'start ci --activate=false --ssh-config=false' ]] || exit 81
+    # A boot without an atomic, complete own lock must fail this contract.
+    "$CI_TEST_REAL_JQ" -e '.schema == "mbp2607-heavy-lock.v1" and .owner == "hausnetz-ci-vm" and (.pid | type == "number") and .host == "mbp2607"' "$CI_VM_HEAVY_LOCK/owner.json" >/dev/null || exit 91
     [[ ! -L "$COLIMA_HOME/ci/colima.yaml" ]] || exit 82
     if [[ "${CI_TEST_START_FAIL:-0}" == 1 ]]; then exit 1; fi
     cmp -s "$CI_VM_CONFIG" "$COLIMA_HOME/ci/colima.yaml" || exit 83
     printf '\n# rewritten by Colima\n' >>"$COLIMA_HOME/ci/colima.yaml"
     echo running >"$CI_TEST_VM"
     ;;
-  stop) echo stopped >"$CI_TEST_VM" ;;
+  stop)
+    if [[ "${CI_TEST_STOP_STAYS_RUNNING:-0}" != 1 ]]; then echo stopped >"$CI_TEST_VM"; fi
+    ;;
   *) exit 84 ;;
 esac
 STUB
@@ -221,6 +248,11 @@ cat >"$work/bin/qos" <<'STUB'
 printf 'qos ci\n' >>"$CI_TEST_CALLS"
 exit "${CI_TEST_QOS_FAIL:-0}"
 STUB
+cat >"$work/bin/hostagent" <<'STUB'
+#!/usr/bin/env bash
+[[ "$(<"$CI_TEST_VM")" == running ]] || exit 1
+printf '%s\n' "$CI_TEST_HA_PID"
+STUB
 cat >"$work/bin/date" <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = +%s ]; then printf '%s\n' "$CI_TEST_NOW"; else printf 'fixture-time\n'; fi
@@ -237,6 +269,8 @@ for placeholder, value in zip(("@stateDir@", "@pidfile@", "@dispatcher@"), sys.a
     source = source.replace(json.dumps(placeholder), json.dumps(value))
 source = source.replace('QOS_COMMAND = (sys.executable, __file__, "qos", PIDFILE)',
                         'QOS_COMMAND = ' + repr((sys.argv[6],)))
+source = source.replace('"hostagent": (sys.executable, __file__, "hostagent"),',
+                        '"hostagent": ' + repr((str(Path(sys.argv[6]).with_name("hostagent")),)) + ',')
 Path(sys.argv[2]).write_text(source)
 PY
 }
@@ -257,10 +291,14 @@ new_case() {
   export CI_VM_STATE_DIR="$case_dir/state" CI_VM_CONFIG="$work/declared.yaml"
   export CI_VM_REPOSITORIES="$case_dir/repos.json" CI_VM_AGENT_TOKEN_FILE="$case_dir/agent.env"
   export CI_VM_HOST_HELPER="$case_dir/host.py"
+  export CI_VM_HEAVY_LOCK="$case_dir/ci-locks/mbp2607-heavy.lock.d"
+  export CI_VM_HEAVY_LOCK_HELPER="$case_dir/heavy-lock.py" CI_TEST_HA_PID=$$
+  cp "$root/hosts/mbp2607/files/ci-vm/heavy-lock.py" "$CI_VM_HEAVY_LOCK_HELPER"
+  export CI_TEST_RUN_ID=11 CI_TEST_WORKFLOW=.github/workflows/nix.yml CI_TEST_NIGHTLY=0
   export CI_TEST_SCENARIO=empty CI_TEST_NOW=1000 CI_TEST_CALLS="$case_dir/calls" CI_TEST_VM="$case_dir/vm" CI_TEST_QOS_FAIL=0 CI_TEST_READY_FAIL=0 CI_TEST_REQUIRE_CLOSED_STDIN=0
   export CI_TEST_WORKER=1 CI_TEST_DRAIN=0 CI_TEST_START_FAIL=0 CI_TEST_ENROLLED='' CI_TEST_JQ_FAIL=''
   export CI_TEST_SSH_FAIL_ONCE=0 CI_TEST_ENROLL_ON_READY=0 CI_TEST_ENROLLED_FAIL=0
-  export CI_TEST_STATUS_EXIT=0
+  export CI_TEST_STATUS_EXIT=0 CI_TEST_STOP_STAYS_RUNNING=0
   export CI_TEST_WORKER_NUL=0
   unset CI_TEST_WORKER_OUTPUT CI_TEST_DRAIN_OUTPUT CI_TEST_ENROLLED_OUTPUT
   render_host_helper "$dispatcher"
@@ -816,6 +854,145 @@ finally:
     os.kill(child, signal.SIGTERM)
 PY
 echo 'ok detached daemon: a surviving child cannot retain the dispatcher lock'
+
+# Shared lock integration contracts, using only disposable fixtures.
+heavy_owner() {
+  python3 - "$CI_VM_HEAVY_LOCK" "$1" "$2" "${3:-1000}" <<'PY'
+import datetime, json
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+path.mkdir(parents=True, exist_ok=True)
+started = datetime.datetime.fromtimestamp(int(sys.argv[4]), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+(path / "owner.json").write_text(json.dumps(dict(schema="mbp2607-heavy-lock.v1", owner=sys.argv[2], pid=int(sys.argv[3]), started_at=started, job_url="https://example.test/papp/1", host="mbp2607")))
+PY
+}
+acquire_contract() {
+  new_case
+  export CI_TEST_SCENARIO=queued
+  run_tick "${1:-$dispatcher}" || return 1
+  started || return 1
+  # $pid is a jq variable.
+  # shellcheck disable=SC2016
+  "$CI_TEST_REAL_JQ" -e --argjson pid "$$" '.pid == $pid and .job_url == "https://github.com/inspr-at/hausnetz/actions/runs/11"' "$CI_VM_HEAVY_LOCK/owner.json" >/dev/null || return 1
+  grep -q 'heavy lock acquired' "$case_dir/out" || return 1
+}
+acquire_contract || fail 'lock was not acquired before boot and handed to hostagent'
+echo 'ok heavy acquire: mkdir and complete owner schema before boot; verified hostagent handoff'
+
+new_case
+heavy_owner hausnetz-ci-vm "$$"
+echo running >"$case_dir/vm"
+cp "$CI_VM_HEAVY_LOCK/owner.json" "$case_dir/owner-before.json"
+export CI_TEST_SCENARIO=queued
+run_tick
+cmp -s "$CI_VM_HEAVY_LOCK/owner.json" "$case_dir/owner-before.json" || fail 'already-running VM rewrote lock'
+[[ "$(calls 'colima start')" == 0 ]] || fail 'running VM booted again'
+echo 'ok heavy already-running: lock remains byte-identical'
+
+busy_pr_contract() {
+  local script=${1:-$dispatcher}
+  new_case
+  heavy_owner papp-night "$$"
+  export CI_TEST_SCENARIO=queued
+  run_tick "$script" || return 1
+  unchanged || return 1
+  export CI_TEST_NOW=1599
+  run_tick "$script" || return 1
+  [[ "$(calls 'POST .*cancel')" == 0 ]] || return 1
+  export CI_TEST_NOW=1600
+  run_tick "$script" || return 1
+  [[ "$(calls 'POST .*cancel')" == 1 && "$(calls 'POST .*issues/42/comments')" == 1 ]] || return 1
+  grep -q 'heavy lock cancelled run=11' "$case_dir/out" || return 1
+  run_tick "$script" || return 1
+  [[ "$(calls 'POST .*cancel')" == 1 && "$(calls 'POST .*issues/42/comments')" == 1 ]] || return 1
+  unchanged || return 1
+}
+busy_pr_contract || fail 'busy PR wait/cancel/comment/exactly-once contract'
+echo 'ok heavy busy PR: waits 10 minutes across ticks, cancels and comments on PR once'
+
+new_case
+heavy_owner papp-night "$$"
+export CI_TEST_SCENARIO=queued CI_TEST_NIGHTLY=1 CI_TEST_WORKFLOW=.github/workflows/nightly.yml
+run_tick
+export CI_TEST_NOW=3699
+run_tick
+[[ "$(calls 'POST .*cancel')" == 0 ]] || fail 'nightly cancelled before 45 minutes'
+export CI_TEST_NOW=3700
+run_tick
+[[ "$(calls 'POST .*cancel')" == 1 && "$(calls 'POST .*issues/429/comments')" == 1 && "$(calls 'POST .*/issues$')" == 1 ]] || fail 'nightly cancel did not create and comment on fixed issue'
+run_tick
+export CI_TEST_RUN_ID=12
+run_tick
+export CI_TEST_NOW=6400
+run_tick
+[[ "$(calls 'POST .*cancel')" == 2 && "$(calls 'POST .*issues/429/comments')" == 2 && "$(calls 'POST .*/issues$')" == 1 ]] || fail 'nightly issue was not reused'
+unchanged || fail 'busy nightly booted the VM'
+echo 'ok heavy nightly: 45-minute boundary, one issue creation, reuse and one comment per run'
+
+new_case
+heavy_owner papp-night "$$"
+export CI_TEST_SCENARIO=queued CI_TEST_NIGHTLY=1 CI_TEST_WORKFLOW=.github/workflows/other.yml
+run_tick
+export CI_TEST_NOW=1600
+run_tick
+[[ "$(calls 'POST .*cancel')" == 1 && "$(calls 'POST .*issues/429/comments')" == 1 ]] || fail 'other workflow did not use 10-minute fallback and issue comment'
+
+new_case
+heavy_owner hausnetz-ci-vm 99999999
+run_tick
+[[ ! -d "$CI_VM_HEAVY_LOCK" ]] || fail 'own residue retained while stopped'
+grep -q 'heavy lock residue-released' "$case_dir/out" || fail 'residue release not logged'
+new_case
+heavy_owner hausnetz-ci-vm 99999999
+echo running >"$case_dir/vm"
+run_tick
+[[ -d "$CI_VM_HEAVY_LOCK" ]] || fail 'own residue released while VM runs'
+echo 'ok heavy residue: releases only own stopped work, retains lock while running'
+
+new_case
+heavy_owner hausnetz-ci-vm "$$"
+echo running >"$case_dir/vm"
+echo 1000 >"$CI_VM_STATE_DIR/last-demand"
+export CI_TEST_NOW=2200
+run_tick
+[[ ! -d "$CI_VM_HEAVY_LOCK" && -d "${CI_VM_HEAVY_LOCK%/*}" ]] || fail 'idle stop retained lock or removed parent'
+grep -q 'heavy lock released' "$case_dir/out" || fail 'idle release not logged'
+new_case
+export CI_TEST_SCENARIO=queued CI_TEST_START_FAIL=1
+if run_tick; then fail 'failed boot returned success'; fi
+[[ ! -d "$CI_VM_HEAVY_LOCK" ]] || fail 'boot failure retained lock'
+new_case
+heavy_owner papp-night "$$"
+echo running >"$case_dir/vm"
+/bin/bash "$dispatcher" stop --force >"$case_dir/out" 2>&1
+[[ -d "$CI_VM_HEAVY_LOCK" ]] || fail 'operator stop released foreign lock'
+new_case
+heavy_owner hausnetz-ci-vm "$$"
+echo running >"$case_dir/vm"
+/bin/bash "$dispatcher" stop --force >"$case_dir/out" 2>&1
+[[ ! -d "$CI_VM_HEAVY_LOCK" ]] || fail 'operator stop retained own lock'
+new_case
+heavy_owner hausnetz-ci-vm "$$"
+echo running >"$case_dir/vm"
+export CI_TEST_STOP_STAYS_RUNNING=1
+if /bin/bash "$dispatcher" stop --force >"$case_dir/out" 2>&1; then fail 'unverified stop returned success'; fi
+[[ -d "$CI_VM_HEAVY_LOCK" ]] || fail 'still-running VM lost its lock after unsuccessful stop'
+echo 'ok heavy release: idle stop, failed boot and operator stop release only own lock; parent retained'
+
+python3 - "$dispatcher" "$work" <<'PY'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+for name, old, new in [
+    ('heavy-boot', 'if heavy_acquire; then :; else', 'if true; then heavy_acquired=true; else'),
+    ('heavy-repeat', '[ ! -e "$state/$key.cancel-attempted" ]', '[ -n "$key" ]')]:
+    assert old in source
+    Path(sys.argv[2], name + '-mutant.sh').write_text(source.replace(old, new))
+PY
+if acquire_contract "$work/heavy-boot-mutant.sh"; then fail 'boot without lock mutant survived'; fi
+if busy_pr_contract "$work/heavy-repeat-mutant.sh"; then fail 'repeated cancellation mutant survived'; fi
+echo 'ok heavy must-fail mutants: boot without lock and repeated cancel rejected (host tests reject stale OR and foreign release)'
 
 python3 - "$dispatcher" "$work" <<'PY'
 from pathlib import Path

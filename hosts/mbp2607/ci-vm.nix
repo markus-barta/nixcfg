@@ -105,6 +105,8 @@ let
     }:/usr/bin:/bin:/usr/sbin:/sbin
     export CI_VM_CONFIG=${colimaConfig}
     export CI_VM_REPOSITORIES=${reposFile}
+    export CI_VM_HEAVY_LOCK_HELPER=${./files/ci-vm/heavy-lock.py}
+    export CI_VM_HEAVY_LOCK=${lib.escapeShellArg cfg.heavyLockPath}
     export CI_VM_HOST_HELPER=${hostHelper}
     exec /bin/bash ${./files/ci-vm/dispatcher.sh} "$@"
   '';
@@ -112,6 +114,11 @@ in
 {
   options.services.ciVm = {
     enable = lib.mkEnableOption "the memory-capped, on-demand Colima CI VM";
+    heavyLockPath = lib.mkOption {
+      type = lib.types.str;
+      default = "/Users/Shared/ci-locks/mbp2607-heavy.lock.d";
+      description = "OPS-669 detail spec v1 heavy-CI lock shared with PAPP.";
+    };
     repositories = lib.mkOption {
       default = { };
       description = "Private repositories, each with its own Unix user and runner service.";

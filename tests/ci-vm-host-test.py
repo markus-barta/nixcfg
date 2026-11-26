@@ -4,6 +4,9 @@
 from contextlib import redirect_stdout
 import importlib.util
 import io
+import json
+import os
+import tempfile
 from pathlib import Path
 import struct
 import subprocess
@@ -18,6 +21,123 @@ sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("ci_vm_host", source)
 host = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(host)
+
+
+heavy_spec = importlib.util.spec_from_file_location("heavy_lock", source.with_name("heavy-lock.py"))
+heavy = importlib.util.module_from_spec(heavy_spec)
+heavy_spec.loader.exec_module(heavy)
+
+
+class HeavyLockTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "ci-locks" / "mbp2607-heavy.lock.d"
+        self.now = 20000
+
+    def acquire(self):
+        return heavy.operate("acquire", self.path, os.getpid(), self.now,
+                             "https://github.com/fixture/repo/actions/runs/1")
+
+    def fixture(self, owner="papp-night", pid=99999999, age=10801):
+        self.acquire()
+        data = json.loads((self.path / "owner.json").read_text())
+        data.update(owner=owner, pid=pid, started_at=heavy.utc(self.now - age))
+        heavy.write_owner(self.path, data)
+
+    def test_atomic_schema_parent_and_handoff(self):
+        replace = heavy.os.replace
+        observed = []
+        def check_replace(src, dst):
+            data = json.loads(Path(src).read_text())
+            self.assertEqual(set(data), {"schema", "owner", "pid", "started_at", "job_url", "host"})
+            self.assertEqual(data["schema"], "mbp2607-heavy-lock.v1")
+            self.assertEqual(data["host"], "mbp2607")
+            self.assertTrue(data["started_at"].endswith("Z"))
+            observed.append(data["pid"])
+            replace(src, dst)
+        with patch.object(heavy.os, "replace", side_effect=check_replace):
+            self.assertEqual(self.acquire()["transitions"], ["acquired"])
+            heavy.operate("handoff", self.path, os.getpid(), self.now, "", 1234)
+        self.assertEqual(observed, [os.getpid(), 1234])
+        self.assertEqual(self.path.parent.stat().st_mode & 0o7777, 0o1777)
+        self.assertEqual(self.path.stat().st_mode & 0o777, 0o755)
+        self.assertEqual((self.path / "owner.json").stat().st_mode & 0o777, 0o644)
+        self.assertEqual(list(self.path.iterdir()), [self.path / "owner.json"])
+
+    def test_stale_requires_both_dead_and_old(self):
+        for pid, age, stale in [(99999999,10801,True), (os.getpid(),10801,False),
+                                (99999999,10800,False), (99999999,100,False)]:
+            with self.subTest(pid=pid, age=age), tempfile.TemporaryDirectory() as directory:
+                self.path = Path(directory) / "ci-locks" / "mbp2607-heavy.lock.d"
+                self.fixture(pid=pid, age=age)
+                result = self.acquire()
+                self.assertEqual(result["busy"], not stale)
+                quarantines = list(self.path.parent.glob("*.stale-*"))
+                self.assertEqual(len(quarantines), int(stale))
+                if stale:
+                    self.assertEqual(json.loads((quarantines[0] / "owner.json").read_text())["owner"], "papp-night")
+                    self.assertTrue(any(t.startswith("stale-broken ") for t in result["transitions"]))
+
+    def test_missing_and_malformed_use_mtime(self):
+        for text in (None, "{bad json", '{}'):
+            with self.subTest(text=text), tempfile.TemporaryDirectory() as directory:
+                self.path = Path(directory) / "ci-locks" / "mbp2607-heavy.lock.d"
+                self.path.mkdir(parents=True)
+                if text is not None: (self.path / "owner.json").write_text(text)
+                os.utime(self.path, (self.now - 100, self.now - 100))
+                self.assertTrue(self.acquire()["busy"])
+                os.utime(self.path, (self.now - 10801, self.now - 10801))
+                self.assertFalse(self.acquire()["busy"])
+
+    def test_invalid_record_with_live_pid_is_retained(self):
+        self.acquire()
+        (self.path / "owner.json").write_text(json.dumps({"pid": os.getpid()}))
+        os.utime(self.path, (self.now - 10801, self.now - 10801))
+        self.assertTrue(self.acquire()["busy"])
+
+    def test_handoff_refuses_missing_or_changed_owner(self):
+        with self.assertRaisesRegex(RuntimeError, "disappeared"):
+            heavy.operate("handoff", self.path, os.getpid(), self.now, "", 1234)
+        self.fixture(pid=os.getpid())
+        with self.assertRaisesRegex(RuntimeError, "ownership changed"):
+            heavy.operate("handoff", self.path, os.getpid(), self.now, "", 1234)
+
+    def test_own_residue_and_pid_reuse(self):
+        self.fixture(owner=heavy.OWNER, age=1)
+        self.assertEqual(self.acquire()["transitions"], ["residue-released", "acquired"])
+        # Same PID is a verified hostagent: retain even with stopped status.
+        result = heavy.operate("acquire", self.path, os.getpid(), self.now, "", os.getpid())
+        self.assertTrue(result["busy"])
+        # A live unrelated/reused PID is residue only after caller verified stopped.
+        self.assertEqual(self.acquire()["transitions"], ["residue-released", "acquired"])
+
+    def test_release_requires_own_owner_and_exact_pid(self):
+        self.fixture(pid=os.getpid())
+        self.assertEqual(heavy.operate("release", self.path, os.getpid(), self.now)["transitions"], [])
+        self.assertTrue(self.path.exists())
+        data = json.loads((self.path / "owner.json").read_text())
+        data["owner"] = heavy.OWNER
+        heavy.write_owner(self.path, data)
+        self.assertEqual(heavy.operate("release", self.path, 1234, self.now)["transitions"], [])
+        self.assertEqual(heavy.operate("release", self.path, os.getpid(), self.now)["transitions"], ["released"])
+        self.assertTrue(self.path.parent.exists())
+        self.assertFalse(self.path.exists())
+
+    def test_must_fail_stale_or_and_foreign_release_mutants(self):
+        original = source.with_name("heavy-lock.py").read_text()
+        for old, new, contract in [
+            ('not alive(owner.get("pid")) and now - started > 10800',
+             'not alive(owner.get("pid")) or now - started > 10800', "test_stale_requires_both_dead_and_old"),
+            ('owner.get("owner") != OWNER or not same(path, stat, owner)',
+             'not same(path, stat, owner)', "test_release_requires_own_owner_and_exact_pid")]:
+            self.assertEqual(original.count(old), 1)
+            namespace = {"__name__": "mutant"}
+            exec(compile(original.replace(old, new), "heavy-lock-mutant.py", "exec"), namespace)
+            with patch.object(heavy, "operate", namespace["operate"]):
+                result = unittest.TestResult()
+                HeavyLockTest(contract).run(result)
+                self.assertFalse(result.wasSuccessful(), "heavy lock mutant survived")
 
 
 class StandardPolicyTest(unittest.TestCase):
@@ -86,6 +206,10 @@ class StandardPolicyTest(unittest.TestCase):
         self.assertEqual(len(lines), 2)
         for line, role, pid in zip(lines, ("ci-hostagent", "ci-virtualization-xpc"), (101, 202)):
             self.assertEqual(line, f"ci-vm: {role} pid={pid} background=false flags=0x0")
+
+    def test_hostagent_identity_for_lock_handoff(self):
+        self.assertEqual(host.hostagent()[0], 101)
+        self.assertEqual(self.clears, [])
 
     def test_standard_pids_need_no_clear(self):
         self.verify()

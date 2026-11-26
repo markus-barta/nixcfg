@@ -121,6 +121,21 @@ let
     configurableXdgHome = lib.hasInfix "export COLIMA_HOME=/Users/markus/ci-xdg-test/colima" (builtins.head customXdg.home.packages)
     .text;
     qosColimaHome = lib.hasInfix "\${colimaHome}/_lima/colima-ci/ha.pid" moduleSource;
+    sharedHeavyLock =
+      module.services.ciVm.heavyLockPath == "/Users/Shared/ci-locks/mbp2607-heavy.lock.d"
+      && lib.hasInfix "export CI_VM_HEAVY_LOCK=/Users/Shared/ci-locks/mbp2607-heavy.lock.d" command
+      && lib.hasInfix "export CI_VM_HEAVY_LOCK_HELPER=/nix/store/" command;
+    configurableHeavyLock =
+      lib.hasInfix "export CI_VM_HEAVY_LOCK=/fixture/custom-heavy.lock.d"
+        (builtins.head
+          (evaluate {
+            services.ciVm = {
+              enable = true;
+              heavyLockPath = "/fixture/custom-heavy.lock.d";
+              repositories.hausnetz.repository = "inspr-at/hausnetz";
+            };
+          }).home.packages
+        ).text;
     noLegacyColimaHome = lib.all (source: !lib.hasInfix "/.colima" source) sources;
     hardCaps = colima.cpu == 4 && colima.memory == 16 && colima.disk == 150 && colima.rootDisk == 150;
     linuxKvm = colima.arch == "aarch64" && colima.vmType == "vz" && colima.nestedVirtualization;

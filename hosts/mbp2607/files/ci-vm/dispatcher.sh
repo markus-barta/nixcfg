@@ -13,6 +13,8 @@ state=${CI_VM_STATE_DIR:-$HOME/.local/state/ci-vm}
 secrets="$state/secrets"
 profile="$COLIMA_HOME/ci"
 helper=${CI_VM_HOST_HELPER:-$(dirname "$0")/host.py}
+heavy_helper=${CI_VM_HEAVY_LOCK_HELPER:-$(dirname "$0")/heavy-lock.py}
+heavy_lock=${CI_VM_HEAVY_LOCK:-/Users/Shared/ci-locks/mbp2607-heavy.lock.d}
 mkdir -p "$state"
 if [ "${1:-}" != --locked ]; then
   exec python3 "$helper" lock "$state/dispatcher.lock" /bin/bash "$0" --locked "$@"
@@ -136,7 +138,15 @@ worker_cap_reached() {
   [ "$((now - last))" -ge 3600 ]
 }
 stop_now() {
+  local holder=0
+  if [ -f "$heavy_lock/owner.json" ]; then
+    holder=$(jq -r 'if (.pid | type) == "number" and .pid > 0 and .pid == (.pid | floor) then .pid else 0 end' "$heavy_lock/owner.json" 2>/dev/null) || holder=0
+  fi
   bounded 180 stop || return 1
+  # A successful stop plus a fresh stopped status is required before release.
+  vm_status || return 1
+  if [ "$running" != false ]; then return 1; fi
+  heavy_operation release "$holder" || return 1
   clear_stamp unknown-since
   clear_stamp no-worker-since
   clear_stamp queue-since
@@ -163,6 +173,8 @@ failed_vm() {
   if [ -f "$profile/.nixcfg-ci-vm" ] && [ ! -L "$profile" ]; then
     stop_now || log 'ci stop failed or timed out; next poll must retry'
   fi
+  vm_status || return 1
+  if [ "$running" = false ]; then heavy_operation release "$$" || return 1; fi
   return 1
 }
 stop_if_idle() {
@@ -299,9 +311,16 @@ activate_runners() {
 
 ensure_vm() {
   if [ "$running" = false ]; then
+    # Busy is handled before this function, so failure cleanup cannot stop work
+    # belonging to another holder. Explicit starts use the same acquisition.
+    [ "$heavy_acquired" = true ] || return 1
     prepare || return 1
     log 'starting ci (4 CPUs, 16 GiB RAM, 150 GiB disk, standard priority)'
     bounded 900 start </dev/null || return 1
+    local hostagent
+    hostagent=$(bounded 20 hostagent) || return 1
+    [[ "$hostagent" =~ ^[1-9][0-9]*$ ]] || return 1
+    heavy_operation handoff "$$" "" "$hostagent" || return 1
     now=$(date +%s)
     stamp last-demand
     stamp queue-since
@@ -320,7 +339,7 @@ ensure_vm() {
 
 # Source only inside the request subshell. curl receives the Authorization
 # header on stdin, so the agent token never appears in process arguments.
-api_get() (
+api_request() (
   set +x
   set +a
   unset GH_TOKEN
@@ -337,9 +356,94 @@ api_get() (
       unset GH_TOKEN
       exec curl -q --config - --fail --silent --show-error --max-time "$remaining" --proto '=https' \
         --header 'Accept: application/vnd.github+json' \
-        --header 'X-GitHub-Api-Version: 2022-11-28' "$1"
+        --header 'X-GitHub-Api-Version: 2022-11-28' "${@:2}" "$1"
     )
 )
+
+api_get() { api_request "$1"; }
+api_post() { api_request "$1" --request POST --header 'Content-Type: application/json' --data "$2"; }
+
+heavy_acquired=false
+heavy_result='{}'
+heavy_operation() {
+  local operation=$1 pid=$2 transition
+  heavy_result=$(python3 "$heavy_helper" "$operation" "$heavy_lock" "$pid" "$now" "${3:-}" "${4:-0}") || return 1
+  while IFS= read -r transition; do
+    [ -z "$transition" ] || log "heavy lock $transition"
+  done < <(jq -r '.transitions[]' <<<"$heavy_result")
+}
+heavy_acquire() {
+  local job_url hostagent=0
+  job_url=$(jq -sr '.[0].html_url // ""' "$state/heavy-demand.jsonl") || return 1
+  # This identifies PID reuse conservatively; a real hostagent remains live
+  # even if an inconsistent Colima status reports stopped.
+  hostagent=$(bounded 20 hostagent 2>/dev/null) || hostagent=0
+  heavy_operation acquire "$$" "$job_url" "$hostagent" || return 1
+  if jq -e '.busy' <<<"$heavy_result" >/dev/null; then return 75; fi
+  heavy_acquired=true
+}
+
+busy_runs() {
+  local run repo id url workflow pr key waited limit owner reason response issue page count found
+  owner=$(jq -r '.owner | "\(.owner // "unknown") since \(.started_at // "unknown") (\(.job_url // "unknown"))"' <<<"$heavy_result") || return 1
+  reason="host busy: mbp2607 heavy-CI lock held by $owner"
+  while IFS= read -r run; do
+    repo=$(jq -r .repository <<<"$run") || return 1
+    id=$(jq -r .id <<<"$run") || return 1
+    url=$(jq -r .html_url <<<"$run") || return 1
+    workflow=$(jq -r .path <<<"$run") || return 1
+    pr=$(jq -r '.pull_requests[0].number // empty' <<<"$run") || return 1
+    key="heavy-wait-${repo//\//-}-$id"
+    read_stamp "$key"
+    waited=$((now - last))
+    limit=600
+    if [ "$workflow" = .github/workflows/nightly.yml ]; then limit=2700; fi
+    log "heavy lock busy-waiting run=$id waited=${waited}s limit=${limit}s; $reason"
+    [ "$waited" -ge "$limit" ] || continue
+    # Persist intent BEFORE each side effect: uncertain requests are never
+    # repeated automatically. Leave the marker and log failures for operators.
+    if [ ! -e "$state/$key.cancel-attempted" ]; then
+      stamp "$key.cancel-attempted"
+      scan_started=$SECONDS
+      if api_post "https://api.github.com/repos/$repo/actions/runs/$id/cancel" '{}' >/dev/null; then
+        stamp "$key.cancelled"
+        log "heavy lock cancelled run=$id $url; $reason"
+      else
+        log "heavy lock cancel uncertain run=$id; inspect before retrying manually"
+      fi
+    fi
+    [ -e "$state/$key.cancelled" ] || continue
+    [ ! -e "$state/$key.comment-attempted" ] || continue
+    scan_started=$SECONDS
+    issue=$pr
+    if [ -z "$issue" ]; then
+      page=1 found=false
+      while :; do
+        response=$(api_get "https://api.github.com/repos/$repo/issues?state=open&per_page=100&page=$page") || return 1
+        jq -e 'type == "array"' <<<"$response" >/dev/null || return 1
+        issue=$(jq -r '[.[] | select(.title == "CI nightly: host busy / cancellations" and (has("pull_request") | not)) | .number][0] // empty' <<<"$response") || return 1
+        if [ -n "$issue" ]; then
+          found=true
+          break
+        fi
+        count=$(jq length <<<"$response") || return 1
+        [ "$count" -eq 100 ] || break
+        [ "$page" -lt 100 ] || return 1
+        page=$((page + 1))
+      done
+      if [ "$found" = false ]; then
+        response=$(api_post "https://api.github.com/repos/$repo/issues" '{"title":"CI nightly: host busy / cancellations","body":"CI runs cancelled because the shared mbp2607 heavy-CI host is busy are recorded here."}') || return 1
+        issue=$(jq -er '.number | select(type == "number" and . > 0 and . == floor)' <<<"$response") || return 1
+      fi
+    fi
+    [[ "$issue" =~ ^[1-9][0-9]*$ ]] || return 1
+    stamp "$key.comment-attempted"
+    response=$(jq -nc --arg body "$url: $reason" '{body:$body}') || return 1
+    if ! api_post "https://api.github.com/repos/$repo/issues/$issue/comments" "$response" >/dev/null; then
+      log "heavy lock comment uncertain run=$id; inspect before retrying manually"
+    fi
+  done < <(jq -sc 'unique_by([.repository,.id])[]' "$state/heavy-demand.jsonl")
+}
 
 # Scan all pages; malformed/failed/truncated responses mean UNKNOWN, not idle.
 # GitHub limits filtered workflow-run searches to 1000 results: refuse a full
@@ -369,7 +473,12 @@ demand_for_repo() {
             elif any(.jobs[]; .status == "queued" and (.labels | length > 0) and all(.labels[]; ascii_downcase as $label | $offered | index($label) != null)) then "queued"
             else "idle" end' <<<"$jobs") || return 2
           if [ "$match" = active ]; then return 0; fi
-          if [ "$match" = queued ]; then queued=true; fi
+          if [ "$match" = queued ]; then
+            queued=true
+            jq -c --argjson id "$run_id" --arg repo "$repo" '.workflow_runs[] | select(.id == $id) |
+              {id, repository:$repo, html_url:(.html_url // ("https://github.com/" + $repo + "/actions/runs/" + (.id|tostring))),
+               path:(.path // ""), pull_requests:(.pull_requests // [])}' <<<"$response" >>"$state/heavy-demand.jsonl" || return 2
+          fi
           job_count=$(jq '.jobs | length' <<<"$jobs") || return 2
           job_total=$(jq .total_count <<<"$jobs") || return 2
           if [ "$job_count" -lt 100 ] && [ "$(((jobs_page - 1) * 100 + job_count))" -lt "$job_total" ]; then return 2; fi
@@ -390,10 +499,18 @@ demand_for_repo() {
 }
 
 now=$(date +%s)
+: >"$state/heavy-demand.jsonl"
 case "$action" in
 start)
   vm_status
   if [ -n "${2:-}" ] && [ "$2" != --provision-only ]; then exit 2; fi
+  if [ "$running" = false ]; then
+    if heavy_acquire; then :; else
+      rc=$?
+      if [ "$rc" -eq 75 ]; then log 'heavy lock busy-waiting operator start'; fi
+      exit "$rc"
+    fi
+  fi
   if ! ensure_vm "${2:-}"; then
     failed_vm 'startup, provisioning, QoS or runner readiness failed'
   fi
@@ -444,6 +561,10 @@ while IFS= read -r repo; do
 done <<<"$repositories"
 now=$(date +%s)
 vm_status
+if [ "$running" = false ] && [ -d "$heavy_lock" ]; then
+  residue_hostagent=$(bounded 20 hostagent 2>/dev/null) || residue_hostagent=0
+  heavy_operation residue "$$" "" "$residue_hostagent"
+fi
 if [ "$active" = true ] || [ "$running" = false ]; then
   clear_stamp worker-without-api-demand-since
 elif worker_cap_reached; then
@@ -455,6 +576,16 @@ if [ "$active" = true ] || [ "$queued" = true ]; then
   clear_stamp unknown-since
   clear_stamp no-worker-since
   if [ "$running" = false ] && backoff_pending; then exit 0; fi
+  if [ "$running" = false ]; then
+    if heavy_acquire; then :; else
+      rc=$?
+      if [ "$rc" -eq 75 ]; then
+        busy_runs
+        exit 0
+      fi
+      exit "$rc"
+    fi
+  fi
   if ! ensure_vm; then failed_vm 'startup, provisioning, QoS or runner readiness failed'; fi
   now=$(date +%s)
   if [ "$active" = true ] || local_worker_active; then
