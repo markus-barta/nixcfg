@@ -82,7 +82,7 @@ class Fixture:
         self.old_system = root / "store/old-system"
         self.new_system = root / "store/new-system"
         self.old_version = "261123075451.0.0"
-        self.new_version = "261126125422.0.0"
+        self.new_version = "261126165633.0.0"  # hsb0 r67 readiness capture
         self.manifest_sha = hashlib.sha256((self.hnet / "capabilities.json").read_bytes()).hexdigest()
         self.executables = []
         for system, version in ((self.old_system, self.old_version), (self.new_system, self.new_version)):
@@ -107,8 +107,12 @@ class Fixture:
             "nixcfg_url": str(self.repo), "current_system": str(root / "current-system"),
             "system_profile": str(root / "profile"), "store_pattern": str(root / "store") + r"/[^/]+",
             "package_pattern": str(root / "store") + r"/[0-9a-z]{32}-hausnetz-([^/]+)/bin/hausnetz",
-            "require_readyz": True, "health_timeout": 1.25,
-            "backup_ack_timeout": 3, "telegram_file": str(self.credential),
+            # OPS-705: generous windows so a loaded CI runner cannot turn the
+            # expected outcome into an early 'manual' (#1326 flake: the ack
+            # missed a 3 s window). Failure cases still end at the deadline;
+            # the dedicated timeout tests set their own tiny values.
+            "require_readyz": True, "health_timeout": 4,
+            "backup_ack_timeout": 30, "telegram_file": str(self.credential),
         }
         self.orchestrator = {
             "enabled": True, "mode": "dry-run", "target": "mba@hsb0.lan",
@@ -849,6 +853,34 @@ class TestCD(unittest.TestCase):
         self.f.tick("live")
         self.assertEqual(self.f.terminal()["rollback"], "succeeded")
 
+    def test_capabilities_body_mismatch_rolls_back(self):
+        self.f.scenario["capabilities_mismatch"] = True
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["rollback"], "succeeded")
+
+    def test_capabilities_endpoint_missing_rolls_back(self):
+        self.f.scenario["capabilities_missing"] = True
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["rollback"], "succeeded")
+
+    def test_rollback_capabilities_body_must_match_old_proof(self):
+        self.f.scenario.update(health_fail=True, rollback_capabilities_mismatch=True)
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["status"], "rollback_failed")
+
+    def test_captured_readyz_and_capabilities_proof(self):
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["expected_version"], "261126165633.0.0")
+        self.assertTrue(self.f.events("http"))
+        urls = [event["url"] for event in self.f.events("http")]
+        self.assertIn("http://127.0.0.1:8377/api/host-capabilities", urls)
+        self.assertIn("http://127.0.0.1:8377/readyz", urls)
+        self.assertEqual(result["changed_paths"], [])
+        self.assertEqual(result["problems"], [])
+        self.assertIn("changed_paths=[] problems=[]", self.f.events("ticket")[0]["text"])
+
     def test_rollback_manifest_must_match_old_proof(self):
         self.f.scenario.update(health_fail=True, rollback_manifest_mismatch=True)
         self.f.tick("live")
@@ -860,17 +892,17 @@ class TestCD(unittest.TestCase):
         self.assertEqual(self.f.terminal()["rollback"], "succeeded")
 
     def test_readyz_check_false_rolls_back(self):
-        self.f.scenario["readyz"] = {"checks": {"engine": True, "site": False, "ui": True}}
+        self.f.scenario["readyz"] = {"checks": {"instance": True, "engine": True, "site": False, "ui": True}}
         self.f.tick("live")
         self.assertEqual(self.f.terminal()["rollback"], "succeeded")
 
     def test_readyz_checks_fail_closed(self):
         # Exercise each required check plus missing, malformed, empty and extra checks.
-        for checks in ({"engine": False, "site": True, "ui": True},
-                       {"engine": True, "site": False, "ui": True},
-                       {"engine": True, "site": True, "ui": False},
-                       {"engine": True, "site": True}, {}, [], None,
-                       {"engine": True, "site": True, "ui": True, "other": False}):
+        good = {"instance": True, "engine": True, "site": True, "ui": True}
+        invalid = [{**good, key: False} for key in good]
+        invalid += [{key: True for key in good if key != missing} for missing in good]
+        invalid += [{}, [], None, {**good, "other": True}]
+        for checks in invalid:
             with self.subTest(checks=checks), tempfile.TemporaryDirectory(prefix="t125-readyz-") as tmp:
                 fixture = Fixture(Path(tmp))
                 try:
@@ -879,6 +911,11 @@ class TestCD(unittest.TestCase):
                     self.assertEqual(fixture.terminal()["rollback"], "succeeded")
                 finally:
                     fixture.stop()
+
+    def test_three_check_readyz_rolls_back(self):
+        self.f.scenario["readyz"] = {"checks": {"engine": True, "site": True, "ui": True}}
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["rollback"], "succeeded")
 
     def test_readyz_missing_rolls_back(self):
         self.f.scenario["readyz_missing"] = True
@@ -923,16 +960,19 @@ class TestCD(unittest.TestCase):
         self.manual()
 
     def test_prepare_nonzero_records_problems(self):
-        self.f.scenario.update(prepare_exit=2, prepare={"problems": ["bad_usage"], "version": ""})
+        self.f.scenario.update(prepare_exit=2, prepare={"problems": ["bad_usage"], "version": "",
+                                                      "changed_paths": ["state.json"]})
         self.manual()
         self.assertEqual(self.f.terminal()["problems"], ["bad_usage"])
         self.assertEqual(self.f.terminal()["reason"], "G2_prepare_exit_2")
+        self.assertEqual(self.f.terminal()["changed_paths"], ["state.json"])
+        self.assertIn('changed_paths=["state.json"] problems=["bad_usage"]', self.f.events("ticket")[0]["text"])
 
     def test_prepare_exact_command(self):
         self.f.tick()
         clone = str(Path(self.f.orchestrator["cache_dir"]) / "hausnetz")
         self.assertEqual(self.f.events("prepare")[0]["args"],
-                         ["run", clone + "#cd-prepare", "--", "--repo", clone,
+                         ["run", "--offline", "git+file://" + clone + "?rev=" + self.f.old_hnet + "#cd-prepare", "--", "--repo", clone,
                           "--rev", self.f.new_hnet, "--running", self.f.old_hnet])
         self.assertEqual(self.f.events("prepare")[0]["checker_rev"], self.f.old_hnet)
 
@@ -968,21 +1008,64 @@ class TestCD(unittest.TestCase):
         self.f.scenario["prepare_extra_output"] = True
         self.manual()
 
+    def test_prepare_missing_checker_rev_is_manual(self):
+        self.f.scenario["prepare_omit"] = ["checker_rev"]
+        self.manual()
+        self.assertEqual(self.f.terminal()["reason"], "G2_prepare_schema")
+
+    def test_prepare_unknown_field_is_manual(self):
+        self.f.scenario["prepare"] = {"extra": True}
+        self.manual()
+        self.assertEqual(self.f.terminal()["reason"], "G2_prepare_schema")
+
+    def test_prepare_no_diff_is_manual(self):
+        self.f.scenario["prepare"] = {"changed_paths_total": -1}
+        self.manual()
+
+    def test_prepare_changed_paths_total_is_manual(self):
+        self.f.scenario["prepare"] = {"changed_paths_total": 1}
+        self.manual()
+
+    def test_prepare_checker_rev_mismatch_is_manual(self):
+        self.f.scenario["prepare"] = {"checker_rev": self.f.new_hnet}
+        self.manual()
+
+    def test_prepare_unsafe_diagnostics_are_retained(self):
+        self.f.scenario["prepare"] = {"changed_paths": ["devices.json"], "changed_paths_total": 1,
+                                      "problems": ["persisted_changed"]}
+        self.manual()
+        result = self.f.terminal()
+        self.assertEqual(result["changed_paths"], ["devices.json"])
+        self.assertEqual(result["problems"], ["persisted_changed"])
+        self.assertIn('changed_paths=["devices.json"] problems=["persisted_changed"]', self.f.events("ticket")[0]["text"])
+
     def test_prepare_schema_and_coordinates_fail_closed(self):
         value = {"rev": self.f.new_hnet, "narHash": "hash", "version": self.f.new_version,
                  "persisted_ok": True, "manifest_changed": False,
-                 "manifest_sha256": "a" * 64, "running_manifest_sha256": "a" * 64, "problems": []}
-        self.assertEqual(prepare_result(json.dumps(value), 0, self.f.new_hnet, "hash"), value)
+                 "manifest_sha256": "a" * 64, "running_manifest_sha256": "a" * 64, "problems": [],
+                 "checker_rev": self.f.old_hnet, "changed_paths": [], "changed_paths_total": 0}
+        def check(candidate):
+            return prepare_result(json.dumps(candidate), 0, self.f.new_hnet, "hash", self.f.old_hnet)
+        self.assertEqual(check(value), value)
         for field, bad in (("version", "26.13.99"), ("manifest_sha256", "z" * 64),
                            ("running_manifest_sha256", "b" * 64), ("persisted_ok", 1),
-                           ("manifest_changed", 0), ("problems", "")):
+                           ("manifest_changed", 0), ("problems", ""),
+                           ("changed_paths_total", False), ("changed_paths_total", 0.0),
+                           ("changed_paths_total", -2), ("changed_paths_total", "0"),
+                           ("changed_paths", ""), ("changed_paths", [1]),
+                           ("changed_paths", ["z", "a"]), ("changed_paths", ["a"] * 101)):
             with self.subTest(field=field), self.assertRaises(Manual):
-                prepare_result(json.dumps({**value, field: bad}), 0, self.f.new_hnet, "hash")
+                check({**value, field: bad})
+        for field in value:
+            with self.subTest(missing=field), self.assertRaises(Manual):
+                check({key: item for key, item in value.items() if key != field})
         with self.assertRaises(Manual):
-            prepare_result(json.dumps({**value, "extra": True}), 0, self.f.new_hnet, "hash")
+            check({**value, "extra": True})
         with self.assertRaises(Manual):
-            prepare_result(json.dumps({**value, "manifest_sha256": "z" * 64,
-                                       "running_manifest_sha256": "z" * 64}), 0, self.f.new_hnet, "hash")
+            check({**value, "manifest_sha256": "z" * 64, "running_manifest_sha256": "z" * 64})
+        # The brief supplies only this captured prefix, not a complete digest.
+        with self.assertRaises(Manual):
+            check({**value, "manifest_sha256": "782631fc5c0bb9e9"})
         for version in ("260229000000.0.0", "261131000000.0.0", "261126240000.0.0", "261126120508.0.0x"):
             with self.subTest(version=version), self.assertRaises(Manual):
                 coordinate(version)
@@ -1264,11 +1347,13 @@ class TestCD(unittest.TestCase):
                  "manifest_sha256": self.f.manifest_sha}
         def process(executable, _args, **_kwargs):
             return proof["exe"] if executable == "readlink" else "123"
-        for key in ("engine", "site", "ui", "extra"):
+        for key in ("instance", "engine", "site", "ui"):
             for value in (1, "true", [True], {"ok": True}):
-                checks = {"engine": True, "site": True, "ui": True, key: value}
+                checks = {"instance": True, "engine": True, "site": True, "ui": True, key: value}
                 ready = {"ok": True, "version": proof["version"], "checks": checks}
                 def response(url, _timeout):
+                    if url.endswith("/api/host-capabilities"):
+                        return (self.f.hnet / "capabilities.json").read_bytes()
                     return json.dumps(ready if url.endswith("/readyz") else {
                         "version": proof["version"], "capabilities_sha256": proof["manifest_sha256"]})
                 with self.subTest(key=key, value=value), \
@@ -1315,7 +1400,12 @@ def mutants():
         ("G2 expected revision", "common.py", [('value["rev"] == expected and value["narHash"]', 'True and value["narHash"]')], "test_prepare_rev_mismatch_is_manual"),
         ("G2 manifest byte identity", "common.py", [('value["manifest_changed"] is False', 'True'), ('value["manifest_sha256"] == value["running_manifest_sha256"]', 'True')], "test_g2_manifest_must_be_byte_identical"),
         ("G2 problems", "common.py", [('not value["problems"]', 'True')], "test_g2_manifest_missing"),
-        ("G2 schema", "common.py", [('isinstance(value, dict) and set(value) == fields', 'isinstance(value, dict)')], "test_prepare_schema_and_coordinates_fail_closed"),
+        ("G2 schema", "common.py", [('isinstance(value, dict) and set(value) == fields', 'isinstance(value, dict)')], "test_prepare_unknown_field_is_manual"),
+        ("G2 missing checker revision", "common.py", [('"changed_paths_total", "checker_rev", "problems"}', '"changed_paths_total", "problems"}'), ('value["checker_rev"] == running', 'True')], "test_prepare_missing_checker_rev_is_manual"),
+        ("G2 no diff taken", "common.py", [('value["changed_paths_total"] == 0', 'value["changed_paths_total"] in {-1, 0}')], "test_prepare_no_diff_is_manual"),
+        ("G2 changed path count", "common.py", [('value["changed_paths_total"] == 0', 'value["changed_paths_total"] in {0, 1}')], "test_prepare_changed_paths_total_is_manual"),
+        ("G2 checker revision binding", "common.py", [('value["checker_rev"] == running', 'True')], "test_prepare_checker_rev_mismatch_is_manual"),
+        ("G2 changed paths retained", "orchestrate.py", [('result["changed_paths"] = exc.changed_paths', 'result["changed_paths"] = []')], "test_prepare_unsafe_diagnostics_are_retained"),
         ("G2 calendar version", "common.py", [('    coordinate(value["version"])', '    pass')], "test_prepare_schema_and_coordinates_fail_closed"),
         ("G2 digest format", "common.py", [('    digest(value["manifest_sha256"])', '    pass'), ('    digest(value["running_manifest_sha256"])', '    pass')], "test_prepare_schema_and_coordinates_fail_closed"),
         ("G2 full-history clone", "common.py", [('git(path, "fetch", "--quiet", "--unshallow", "origin")', 'pass')], "test_full_history_clone_is_maintained"),
@@ -1343,7 +1433,10 @@ def mutants():
         ("metadata manifest digest proof", "execute.py", [('value.get("capabilities_sha256") == proof["manifest_sha256"]', 'True')], "test_meta_manifest_mismatch_rolls_back"),
         ("metadata manifest missing", "execute.py", [('value.get("capabilities_sha256") == proof["manifest_sha256"]', 'True')], "test_meta_manifest_missing_rolls_back"),
         ("readiness version proof", "execute.py", [('ready.get("version") == proof["version"]', 'True')], "test_readyz_version_mismatch_rolls_back"),
-        ("readiness checks proof", "execute.py", [('isinstance(checks, dict) and {"engine", "site", "ui"}.issubset(checks)\n                    and all(value is True for value in checks.values())', 'True')], "test_readyz_check_false_rolls_back"),
+        ("readiness checks proof", "execute.py", [('isinstance(checks, dict) and set(checks) == {"instance", "engine", "site", "ui"}\n                    and all(value is True for value in checks.values())', 'True')], "test_readyz_check_false_rolls_back"),
+        ("three-check readiness rejected", "execute.py", [('set(checks) == {"instance", "engine", "site", "ui"}', '{"engine", "site", "ui"}.issubset(checks)')], "test_three_check_readyz_rolls_back"),
+        ("capabilities body hash proof", "execute.py", [('hashlib.sha256(capabilities).hexdigest() == proof["manifest_sha256"]', 'True')], "test_capabilities_body_mismatch_rolls_back"),
+        ("rollback capabilities body proof", "execute.py", [('hashlib.sha256(capabilities).hexdigest() == proof["manifest_sha256"]', 'True')], "test_rollback_capabilities_body_must_match_old_proof"),
         ("readyz HTTP status", "common.py", [('separator and code == b"200"', 'separator')], "test_readyz_503_rolls_back"),
         ("readyz missing path", "common.py", [('separator and code == b"200"', 'separator')], "test_readyz_missing_rolls_back"),
         ("readyz JSON readiness", "execute.py", [('isinstance(ready, dict) and ready.get("ok") is True', 'True')], "test_readyz_false_rolls_back"),

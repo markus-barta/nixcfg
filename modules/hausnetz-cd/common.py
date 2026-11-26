@@ -15,9 +15,10 @@ import zipfile
 class Manual(Exception):
     """A value-free reason safe to put in deployment evidence."""
 
-    def __init__(self, reason, problems=None):
+    def __init__(self, reason, problems=None, changed_paths=None):
         super().__init__(reason)
         self.problems = problems
+        self.changed_paths = changed_paths
 
 
 REV = re.compile(r"[0-9a-f]{40}")
@@ -333,25 +334,43 @@ def gate_g1(repo, old, new):
     return a, b
 
 
-def prepare_result(stdout, returncode, expected, nar_hash):
+def prepare_result(stdout, returncode, expected, nar_hash, running):
     """The entire HNET-570 stdout contract lives here; schema drift is manual."""
     value = strict_json(stdout)  # rejects extra output and duplicate JSON keys
     fields = {"rev", "narHash", "version", "persisted_ok", "manifest_changed",
-              "manifest_sha256", "running_manifest_sha256", "problems"}
-    require(isinstance(value, dict) and set(value) == fields, "G2_prepare_schema")
-    require(isinstance(value["problems"], list)
-            and all(isinstance(p, str) for p in value["problems"]), "G2_prepare_schema")
-    if returncode != 0:
-        raise Manual("G2_prepare_exit_" + str(returncode), problems=value["problems"])
-    require(type(value["persisted_ok"]) is bool and type(value["manifest_changed"]) is bool,
-            "G2_prepare_schema")
-    coordinate(value["version"])
-    digest(value["manifest_sha256"])
-    digest(value["running_manifest_sha256"])
-    require(returncode == 0 and value["persisted_ok"] is True
-            and value["manifest_changed"] is False and not value["problems"]
-            and value["rev"] == expected and value["narHash"] == nar_hash
-            and value["manifest_sha256"] == value["running_manifest_sha256"], "G2_prepare_unsafe")
+              "manifest_sha256", "running_manifest_sha256", "changed_paths",
+              "changed_paths_total", "checker_rev", "problems"}
+    try:
+        require(isinstance(value, dict) and set(value) == fields, "G2_prepare_schema")
+        require(isinstance(value["problems"], list)
+                and all(isinstance(p, str) for p in value["problems"]), "G2_prepare_schema")
+        paths = value["changed_paths"]
+        require(isinstance(paths, list) and len(paths) <= 100
+                and all(isinstance(p, str) for p in paths) and paths == sorted(paths)
+                and type(value["changed_paths_total"]) is int
+                and value["changed_paths_total"] >= -1, "G2_prepare_schema")
+        if returncode != 0:
+            raise Manual("G2_prepare_exit_" + str(returncode))
+        require(type(value["persisted_ok"]) is bool and type(value["manifest_changed"]) is bool,
+                "G2_prepare_schema")
+        coordinate(value["version"])
+        digest(value["manifest_sha256"])
+        digest(value["running_manifest_sha256"])
+        require(returncode == 0 and value["persisted_ok"] is True
+                and value["manifest_changed"] is False and not value["problems"]
+                and value["changed_paths_total"] == 0 and not paths
+                and value["checker_rev"] == running
+                and value["rev"] == expected and value["narHash"] == nar_hash
+                and value["manifest_sha256"] == value["running_manifest_sha256"], "G2_prepare_unsafe")
+    except Manual as exc:
+        # Preserve well-formed diagnostics even when the rest of the schema
+        # drifts or the checker reports manual/bad usage.
+        if isinstance(value, dict):
+            for name in ("problems", "changed_paths"):
+                items = value.get(name)
+                if isinstance(items, list) and all(isinstance(p, str) for p in items):
+                    setattr(exc, name, items)
+        raise
     return value
 
 
@@ -364,12 +383,13 @@ def gate_g2(repo, old, new, nar_hash):
     # The running release supplies the checker; the candidate cannot grade itself.
     git(repo, "checkout", "--quiet", "--detach", old)
     try:
-        result = subprocess.run(["nix", "run", str(repo) + "#cd-prepare", "--",
+        checker = "git+file://" + str(repo) + "?rev=" + old + "#cd-prepare"
+        result = subprocess.run(["nix", "run", "--offline", checker, "--",
                                  "--repo", str(repo), "--rev", new, "--running", old],
                                 capture_output=True, timeout=600, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise Manual("G2_prepare_unavailable_or_timeout") from exc
-    return prepare_result(result.stdout, result.returncode, new, nar_hash)
+    return prepare_result(result.stdout, result.returncode, new, nar_hash, old)
 
 
 def gate_g4(repo, old, new):

@@ -2,6 +2,7 @@
 
 import argparse
 import fcntl
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -58,11 +59,16 @@ def health(config, proof):
                     "health_version_mismatch")
             require(value.get("capabilities_sha256") == proof["manifest_sha256"],
                     "health_capabilities_mismatch")
+            capabilities = http_get("http://127.0.0.1:8377/api/host-capabilities", remaining())
+            # Both the metadata and exact body must independently match the
+            # trusted prepare digest, which also proves they match each other.
+            require(hashlib.sha256(capabilities).hexdigest() == proof["manifest_sha256"],
+                    "health_capabilities_body_mismatch")
             ready = strict_json(http_get("http://127.0.0.1:8377/readyz", remaining()))
             require(isinstance(ready, dict) and ready.get("ok") is True, "health_not_ready")
             require(ready.get("version") == proof["version"], "health_readyz_version_mismatch")
             checks = ready.get("checks")
-            require(isinstance(checks, dict) and {"engine", "site", "ui"}.issubset(checks)
+            require(isinstance(checks, dict) and set(checks) == {"instance", "engine", "site", "ui"}
                     and all(value is True for value in checks.values()), "health_readyz_checks_failed")
             require(process() == pid and time.monotonic() < deadline, "health_process_changed")
             return True

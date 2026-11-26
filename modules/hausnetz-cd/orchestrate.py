@@ -2,6 +2,7 @@
 
 import argparse
 import fcntl
+import json
 from pathlib import Path
 import re
 import shlex
@@ -85,6 +86,8 @@ def log_line(result):
             + " gates=" + ",".join(key + ":" + gates.get(key, "not_run") for key in ("G1", "G2", "G3", "G4"))
             + " health=" + result.get("health", "not_run")
             + " rollback=" + result.get("rollback", "not_required")
+            + " changed_paths=" + json.dumps(result.get("changed_paths", []), separators=(",", ":"))
+            + " problems=" + json.dumps(result.get("problems", []), separators=(",", ":"))
             + " mode=" + result["mode"] + " status=" + result["status"])
 
 
@@ -240,6 +243,8 @@ def reconcile(config, state):
             matching = isinstance(result, dict) and result.get("run_id") == pending["run_id"]
             if matching:
                 validate_result(result, pending)
+                result["changed_paths"] = pending.get("changed_paths", [])
+                result["problems"] = pending.get("problems", [])
                 result["run_key"] = pending["run_key"]
                 if result["status"] in TERMINAL and (
                     result["status"] == "skipped"
@@ -324,7 +329,8 @@ def tick(config):
                   "run_key": key, "run_id": uuid.uuid4().hex,
                   "mode": config["mode"], "status": "manual", "phase": "preflight",
                   "gates": {"G1": "not_run", "G2": "not_run", "G3": "not_run", "G4": "not_run"},
-                  "health": "not_run", "rollback": "not_required", "generation": None}
+                  "health": "not_run", "rollback": "not_required", "generation": None,
+                  "changed_paths": [], "problems": []}
         try:
             result["hausnetz_rev"] = expected
             result["phase"] = "G1"
@@ -342,6 +348,8 @@ def tick(config):
             result["reason"] = str(exc) if isinstance(exc, Manual) else "input_error"
             if isinstance(exc, Manual) and exc.problems is not None:
                 result["problems"] = exc.problems
+            if isinstance(exc, Manual) and exc.changed_paths is not None:
+                result["changed_paths"] = exc.changed_paths
             if result["phase"] in result["gates"]:
                 result["gates"][result["phase"]] = "manual"
             finish(config, state, result)
@@ -350,6 +358,7 @@ def tick(config):
                    "running_nixcfg_rev": old,
                    "run_id": result["run_id"], "run_key": key, "reserved_at": now(),
                    "expected_version": prepared["version"], "manifest_sha256": prepared["manifest_sha256"],
+                   "changed_paths": prepared["changed_paths"], "problems": prepared["problems"],
                    "deadline": time.time() + fixture_limit(config, "poll_timeout", POLL_BUDGET)}
         state["sequence"] += 1
         state["attempted"][key] = {"status": "reserved", "order": state["sequence"]}
