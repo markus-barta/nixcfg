@@ -115,9 +115,10 @@ elif command == "readlink":
 elif command == "nix":
     if args[0] == "run":
         event("prepare", args=args)
-        assert args[1].endswith("#cd-prepare") and args[2:4] == ["--", "--rev"]
-        assert args[5] == "--running"
+        assert args[1].endswith("#cd-prepare") and args[2:4] == ["--", "--repo"]
+        assert args[5] == "--rev" and args[7] == "--running"
         repo = args[1].split("#")[0]
+        assert args[4] == repo
         assert subprocess.check_output(["git", "-C", repo, "rev-parse", "--is-shallow-repository"], text=True).strip() == "false"
         if scenario.get("prepare_missing"):
             raise SystemExit(1)
@@ -125,8 +126,8 @@ elif command == "nix":
             result = subprocess.run(["git", "-C", repo, "show", rev + ":capabilities.json"],
                                     capture_output=True, check=False)
             return result.stdout if result.returncode == 0 else b""
-        before, after = manifest(args[6]), manifest(args[4])
-        value = {"rev": args[4], "narHash": config["nar_hash"], "version": config["new_version"],
+        before, after = manifest(args[8]), manifest(args[6])
+        value = {"rev": args[6], "narHash": config["nar_hash"], "version": config["new_version"],
                  "persisted_ok": True, "manifest_changed": before != after,
                  "manifest_sha256": hashlib.sha256(after).hexdigest(),
                  "running_manifest_sha256": hashlib.sha256(before).hexdigest(),
@@ -229,7 +230,15 @@ elif command == "curl":
                     version = config["old_version"]
                 if not active_new() and scenario.get("rollback_health_fail") and (root / "rolled-back").exists():
                     version = config["new_version"]
-                print(json.dumps({"version": version}))
+                metadata = {"version": version, "capabilities_sha256": config["manifest_sha"]}
+                if active_new():
+                    if scenario.get("meta_manifest_missing"):
+                        metadata.pop("capabilities_sha256")
+                    if scenario.get("meta_manifest_mismatch"):
+                        metadata["capabilities_sha256"] = "0" * 64
+                elif scenario.get("rollback_manifest_mismatch") and (root / "rolled-back").exists():
+                    metadata["capabilities_sha256"] = "0" * 64
+                print(json.dumps(metadata))
         elif url.endswith("/readyz"):
             if active_new() and scenario.get("readyz_missing"):
                 status = 404
@@ -237,7 +246,12 @@ elif command == "curl":
                 status = 503
             bad = (active_new() and scenario.get("readyz_false")) or (
                 not active_new() and scenario.get("rollback_readyz_false") and (root / "rolled-back").exists())
-            print(json.dumps({"ok": not bad}))
+            version = config["new_version"] if active_new() else config["old_version"]
+            ready = {"ok": not bad, "version": version,
+                     "checks": {"engine": True, "site": True, "ui": True}}
+            if active_new():
+                ready.update(scenario.get("readyz", {}))
+            print(json.dumps(ready))
         else:
             raise AssertionError(url)
         assert "--write-out" in args

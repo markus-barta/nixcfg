@@ -315,6 +315,8 @@ def tick(config):
             result["gates"]["G2"] = "pass"
         except (Manual, OSError, KeyError, TypeError, ValueError) as exc:
             result["reason"] = str(exc) if isinstance(exc, Manual) else "input_error"
+            if isinstance(exc, Manual) and exc.problems is not None:
+                result["problems"] = exc.problems
             if result["phase"] in result["gates"]:
                 result["gates"][result["phase"]] = "manual"
             finish(config, state, result)

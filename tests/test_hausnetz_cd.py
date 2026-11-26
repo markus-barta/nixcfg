@@ -63,7 +63,7 @@ class Fixture:
         self.old_system = root / "store/old-system"
         self.new_system = root / "store/new-system"
         self.old_version = "261123075451.0.0"
-        self.new_version = "261126120508.0.0"
+        self.new_version = "261126125422.0.0"
         self.manifest_sha = hashlib.sha256((self.hnet / "capabilities.json").read_bytes()).hexdigest()
         self.executables = []
         for system, version in ((self.old_system, self.old_version), (self.new_system, self.new_version)):
@@ -81,6 +81,7 @@ class Fixture:
         self.credential = root / "fixture-credential"
         self.credential.write_text("123:fixture_token\n123\n")
         self.credential.chmod(0o600)
+        (root / "deploy.lock").touch(mode=0o644)
         self.executor = {
             "allow_live": True, "fixture_root": True, "state_dir": str(root / "remote-state"),
             "lock_file": str(root / "deploy.lock"), "evidence_file": str(root / "evidence.json"),
@@ -175,7 +176,7 @@ class Fixture:
             "new_hnet": self.new_hnet, "executor": str(self.executor_path),
             "old_version": self.old_version, "new_version": self.new_version,
             "old_exe": self.executables[0], "new_exe": self.executables[1],
-            "nar_hash": nar_hash}))
+            "nar_hash": nar_hash, "manifest_sha": self.manifest_sha}))
 
     @property
     def key(self):
@@ -763,6 +764,47 @@ class TestCD(unittest.TestCase):
         self.f.tick("live")
         self.assertEqual(self.f.terminal()["rollback"], "succeeded")
 
+    def test_meta_manifest_mismatch_rolls_back(self):
+        self.f.scenario["meta_manifest_mismatch"] = True
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["rollback"], "succeeded")
+
+    def test_meta_manifest_missing_rolls_back(self):
+        self.f.scenario["meta_manifest_missing"] = True
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["rollback"], "succeeded")
+
+    def test_rollback_manifest_must_match_old_proof(self):
+        self.f.scenario.update(health_fail=True, rollback_manifest_mismatch=True)
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["status"], "rollback_failed")
+
+    def test_readyz_version_mismatch_rolls_back(self):
+        self.f.scenario["readyz"] = {"version": self.f.old_version}
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["rollback"], "succeeded")
+
+    def test_readyz_check_false_rolls_back(self):
+        self.f.scenario["readyz"] = {"checks": {"engine": True, "site": False, "ui": True}}
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["rollback"], "succeeded")
+
+    def test_readyz_checks_fail_closed(self):
+        # Exercise each required check plus missing, malformed, empty and extra checks.
+        for checks in ({"engine": False, "site": True, "ui": True},
+                       {"engine": True, "site": False, "ui": True},
+                       {"engine": True, "site": True, "ui": False},
+                       {"engine": True, "site": True}, {}, [], None,
+                       {"engine": True, "site": True, "ui": True, "other": False}):
+            with self.subTest(checks=checks), tempfile.TemporaryDirectory(prefix="t125-readyz-") as tmp:
+                fixture = Fixture(Path(tmp))
+                try:
+                    fixture.scenario["readyz"] = {"checks": checks}
+                    fixture.tick("live")
+                    self.assertEqual(fixture.terminal()["rollback"], "succeeded")
+                finally:
+                    fixture.stop()
+
     def test_readyz_missing_rolls_back(self):
         self.f.scenario["readyz_missing"] = True
         self.f.tick("live")
@@ -796,6 +838,35 @@ class TestCD(unittest.TestCase):
     def test_prepare_nonzero_is_manual(self):
         self.f.scenario["prepare_exit"] = 1
         self.manual()
+
+    def test_prepare_usage_exit_is_manual(self):
+        self.f.scenario["prepare_exit"] = 2
+        self.manual()
+
+    def test_prepare_other_exit_is_manual(self):
+        self.f.scenario["prepare_exit"] = 17
+        self.manual()
+
+    def test_prepare_nonzero_records_problems(self):
+        self.f.scenario.update(prepare_exit=2, prepare={"problems": ["bad_usage"], "version": ""})
+        self.manual()
+        self.assertEqual(self.f.terminal()["problems"], ["bad_usage"])
+        self.assertEqual(self.f.terminal()["reason"], "G2_prepare_exit_2")
+
+    def test_prepare_exact_command(self):
+        self.f.tick()
+        clone = str(Path(self.f.orchestrator["cache_dir"]) / "hausnetz")
+        self.assertEqual(self.f.events("prepare")[0]["args"],
+                         ["run", clone + "#cd-prepare", "--", "--repo", clone,
+                          "--rev", self.f.new_hnet, "--running", self.f.old_hnet])
+
+    def test_executor_preserves_readable_lock_mode(self):
+        lock = Path(self.f.executor["lock_file"])
+        lock.chmod(0o444)
+        self.f.execute()
+        self.assertEqual(self.f.result()["status"], "dry-run")
+        self.assertEqual(lock.stat().st_mode & 0o777, 0o444)
+        self.assertEqual(lock.read_bytes(), b"")
 
     def test_prepare_manifest_changed_is_manual(self):
         self.f.scenario["prepare"] = {"manifest_changed": True}
@@ -951,7 +1022,7 @@ def mutants():
         ("G1 running baseline", "common.py", [('revision(old)\n    revision(new)', 'old = git(repo, "rev-parse", new + "^").strip()\n    revision(new)')], "test_g1_compares_running_not_merge_parent"),
         ("unchanged pin is silent", "orchestrate.py", [('if expected == running:', 'if False:')], "test_unchanged_running_pin_is_silent"),
         ("bounded state summaries", "orchestrate.py", [('state["failed"][-200:]', 'state["failed"][:]'), ('item[1]["order"])[-200:]', 'item[1]["order"])[:]')], "test_state_lists_keep_newest_200_across_reload"),
-        ("G2 exit status", "common.py", [('returncode == 0 and value["persisted_ok"] is True', 'True and value["persisted_ok"] is True')], "test_prepare_nonzero_is_manual"),
+        ("G2 exit status", "common.py", [('if returncode != 0:', 'if False:'), ('returncode == 0 and value["persisted_ok"] is True', 'True and value["persisted_ok"] is True')], "test_prepare_nonzero_is_manual"),
         ("G2 manifest changed", "common.py", [('value["manifest_changed"] is False and not value["problems"]', 'True and not value["problems"]')], "test_prepare_manifest_changed_is_manual"),
         ("G2 persisted data", "common.py", [('returncode == 0 and value["persisted_ok"] is True', 'returncode == 0 and True')], "test_prepare_persisted_false_is_manual"),
         ("G2 narHash", "common.py", [('value["narHash"] == nar_hash', 'True')], "test_prepare_narhash_mismatch_is_manual"),
@@ -979,7 +1050,14 @@ def mutants():
         ("dry-run isolation", "execute.py", [('if mode == "dry-run":', 'if False:')], "test_dry_run_success_and_limits"),
         ("binary store-path proof", "execute.py", [('require(executable == proof["exe"],', 'require(True,')], "test_exe_mismatch_rolls_back"),
         ("metadata version proof", "execute.py", [('isinstance(value, dict) and value.get("version") == proof["version"]', 'True')], "test_meta_version_mismatch_rolls_back"),
-        ("bare HTTP 200 rejected", "execute.py", [('isinstance(value, dict) and value.get("version") == proof["version"]', 'True')], "test_bare_200_is_not_revision_health"),
+        ("bare HTTP 200 rejected", "execute.py", [('isinstance(value, dict) and value.get("version") == proof["version"]', 'True'), ('value.get("capabilities_sha256") == proof["manifest_sha256"]', 'True')], "test_bare_200_is_not_revision_health"),
+        ("G2 usage exit status", "common.py", [('if returncode != 0:', 'if False:'), ('returncode == 0 and value["persisted_ok"] is True', 'returncode in {0, 2} and value["persisted_ok"] is True')], "test_prepare_usage_exit_is_manual"),
+        ("G2 unexpected exit status", "common.py", [('if returncode != 0:', 'if False:'), ('returncode == 0 and value["persisted_ok"] is True', 'True and value["persisted_ok"] is True')], "test_prepare_other_exit_is_manual"),
+        ("G2 problems retained", "orchestrate.py", [('result["problems"] = exc.problems', 'result["problems"] = []')], "test_prepare_nonzero_records_problems"),
+        ("metadata manifest digest proof", "execute.py", [('value.get("capabilities_sha256") == proof["manifest_sha256"]', 'True')], "test_meta_manifest_mismatch_rolls_back"),
+        ("metadata manifest missing", "execute.py", [('value.get("capabilities_sha256") == proof["manifest_sha256"]', 'True')], "test_meta_manifest_missing_rolls_back"),
+        ("readiness version proof", "execute.py", [('ready.get("version") == proof["version"]', 'True')], "test_readyz_version_mismatch_rolls_back"),
+        ("readiness checks proof", "execute.py", [('isinstance(checks, dict) and {"engine", "site", "ui"}.issubset(checks)\n                    and all(checks.values())', 'True')], "test_readyz_check_false_rolls_back"),
         ("readyz HTTP status", "common.py", [('separator and code == b"200"', 'separator')], "test_readyz_503_rolls_back"),
         ("readyz missing path", "common.py", [('separator and code == b"200"', 'separator')], "test_readyz_missing_rolls_back"),
         ("readyz JSON readiness", "execute.py", [('isinstance(ready, dict) and ready.get("ok") is True', 'True')], "test_readyz_false_rolls_back"),

@@ -15,6 +15,10 @@ import zipfile
 class Manual(Exception):
     """A value-free reason safe to put in deployment evidence."""
 
+    def __init__(self, reason, problems=None):
+        super().__init__(reason)
+        self.problems = problems
+
 
 REV = re.compile(r"[0-9a-f]{40}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -322,9 +326,12 @@ def prepare_result(stdout, returncode, expected, nar_hash):
     fields = {"rev", "narHash", "version", "persisted_ok", "manifest_changed",
               "manifest_sha256", "running_manifest_sha256", "problems"}
     require(isinstance(value, dict) and set(value) == fields, "G2_prepare_schema")
-    require(type(value["persisted_ok"]) is bool and type(value["manifest_changed"]) is bool
-            and isinstance(value["problems"], list)
+    require(isinstance(value["problems"], list)
             and all(isinstance(p, str) for p in value["problems"]), "G2_prepare_schema")
+    if returncode != 0:
+        raise Manual("G2_prepare_exit_" + str(returncode), problems=value["problems"])
+    require(type(value["persisted_ok"]) is bool and type(value["manifest_changed"]) is bool,
+            "G2_prepare_schema")
     coordinate(value["version"])
     digest(value["manifest_sha256"])
     digest(value["running_manifest_sha256"])
@@ -340,7 +347,7 @@ def gate_g2(repo, old, new, nar_hash):
     git(repo, "checkout", "--quiet", "--detach", new)
     try:
         result = subprocess.run(["nix", "run", str(repo) + "#cd-prepare", "--",
-                                 "--rev", new, "--running", old],
+                                 "--repo", str(repo), "--rev", new, "--running", old],
                                 capture_output=True, timeout=600, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise Manual("G2_prepare_unavailable_or_timeout") from exc

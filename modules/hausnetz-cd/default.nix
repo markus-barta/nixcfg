@@ -50,7 +50,7 @@ in
     requireReadyz = lib.mkOption {
       type = lib.types.bool;
       default = true;
-      description = "Require HTTP 200 and JSON ok=true from /readyz; false refuses live mode.";
+      description = "Require HTTP 200, expected version and healthy engine/site/ui checks from /readyz; false refuses live mode.";
     };
   };
   config = lib.mkIf cfg.enable {
@@ -61,6 +61,9 @@ in
       }
     ];
     environment.systemPackages = [ runner ];
-    systemd.tmpfiles.rules = [ "d /var/lib/hausnetz-cd 0700 root root - -" ];
+    systemd.tmpfiles.rules = [
+      "d /var/lib/hausnetz-cd 0700 root root - -"
+      "f /run/hsb0-deploy.lock 0644 root root -"
+    ];
   };
 }

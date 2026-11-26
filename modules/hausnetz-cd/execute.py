@@ -56,8 +56,14 @@ def health(config, proof):
             value = strict_json(http_get("http://127.0.0.1:8377/api/meta", remaining()))
             require(isinstance(value, dict) and value.get("version") == proof["version"],
                     "health_version_mismatch")
+            require(value.get("capabilities_sha256") == proof["manifest_sha256"],
+                    "health_capabilities_mismatch")
             ready = strict_json(http_get("http://127.0.0.1:8377/readyz", remaining()))
             require(isinstance(ready, dict) and ready.get("ok") is True, "health_not_ready")
+            require(ready.get("version") == proof["version"], "health_readyz_version_mismatch")
+            checks = ready.get("checks")
+            require(isinstance(checks, dict) and {"engine", "site", "ui"}.issubset(checks)
+                    and all(checks.values()), "health_readyz_checks_failed")
             require(process() == pid and time.monotonic() < deadline, "health_process_changed")
             return True
         except (Manual, KeyError, TypeError):
@@ -117,7 +123,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, run
     save()
     attempt = state / "attempted" / (new_rev + ".json")
     require(not attempt.exists(), "revision_already_attempted")
-    with open(config["lock_file"], "a", encoding="utf-8") as lock:
+    with open(config["lock_file"], "r", encoding="utf-8") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -172,6 +178,11 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, run
             result["old_proof"] = package_proof(config, old_system)
             if mode == "live":
                 credentials = telegram_credentials(config)
+                metadata = strict_json(http_get("http://127.0.0.1:8377/api/meta", 5))
+                require(isinstance(metadata, dict), "old_metadata_invalid")
+                old_manifest = validate_digest(metadata.get("capabilities_sha256"))
+                result["old_proof"]["manifest_sha256"] = old_manifest
+                require(old_manifest == manifest_sha, "running_manifest_disagrees_with_prepare")
                 require(health(config, result["old_proof"]), "old_health_failed")
             save("build")
             target = "git+file://" + str(repo) + "?rev=" + new_rev
@@ -182,6 +193,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, run
             require(Path(new_system, "bin/switch-to-configuration").is_file(), "missing_switch_program")
             result["new_system"] = new_system
             result["new_proof"] = package_proof(config, new_system)
+            result["new_proof"]["manifest_sha256"] = manifest_sha
             require(result["new_proof"]["version"] == expected_version, "built_version_disagrees_with_prepare")
             save("G3")
             gate_closures(run(["nix", "store", "diff-closures", old_system, new_system], timeout=G3_COMMAND_TIMEOUT),

@@ -2,6 +2,7 @@
 # OPS-705: entirely offline, bounded PATH-fake transactions; never a Nix build.
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+python3 -B "$repo/tests/test_hsb0_deploy_lock.py"
 python3 -B "$repo/tests/test_hausnetz_cd.py"
 python3 -B "$repo/tests/test_hausnetz_cd.py" --mutants
 for source in "$repo/modules/hausnetz-cd/default.nix" "$repo/hosts/mbp2607/hausnetz-cd.nix"; do
@@ -21,7 +22,8 @@ assert c["hostSettings"] == {"enable": True, "allowLive": False}
 assert c["hostAssertion"] is True and c["otherHostAssertion"] is False
 assert any(p.endswith("/modules/hausnetz-cd") for p in c["hostImports"])
 assert any(p.endswith("/hosts/mbp2607/hausnetz-cd.nix") for p in c["homeImports"])
-assert c["executorTmpfiles"] == ["d /var/lib/hausnetz-cd 0700 root root - -"]
+assert c["executorTmpfiles"] == ["d /var/lib/hausnetz-cd 0700 root root - -",
+                                  "f /run/hsb0-deploy.lock 0644 root root -"]
 assert c["agent"]["enable"] is False and c["agent"]["config"]["StartInterval"] == 120
 executor = json.loads(c["executorRunner"]["text"].split("--config ", 1)[1])
 assert executor["allow_live"] is False and executor["lock_file"] == "/run/hsb0-deploy.lock"

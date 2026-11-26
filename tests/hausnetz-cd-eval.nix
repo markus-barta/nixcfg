@@ -76,6 +76,8 @@ let
     inputs = { };
   };
 in
+assert builtins.elem "f /run/hsb0-deploy.lock 0644 root root -"
+  (executor "hsb0").config.systemd.tmpfiles.rules;
 {
   executorDefaults = defaults (executor "hsb0").options.inspr.hausnetzCd;
   executorRunner =
