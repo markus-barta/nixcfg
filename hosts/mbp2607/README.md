@@ -356,7 +356,7 @@ The hausnetz owner must also change explicitly selected `checks.x86_64-linux.*`
 to `checks.aarch64-linux.*`. That repository's workflows are maintained there.
 
 Only Colima profile `ci` is managed. It uses VZ, nested virtualization,
-**6 vCPUs, 16 GiB RAM and one 150 GiB disk** (`runtime: none`, no container
+**4 vCPUs, 16 GiB RAM and one 150 GiB disk** (`runtime: none`, no container
 engine). Nix stores and runner workspaces live inside that disk. The only
 host mount is `~/.local/state/ci-vm/secrets`, mode 0700, mounted read-only at
 `/etc/ci-vm-private/secrets`; its root-owned guest parent is 0700 so virtiofs
@@ -408,7 +408,7 @@ with `sysctl --system`, and requires a read-back value of `0` before writing the
 boot readiness marker. The readiness helper checks the live value again before
 opening the runner gate, including during provision-only inspection. A failed
 apply, missing sysctl or value other than `0` refuses readiness. This relaxation
-applies only inside the capped **6-vCPU, 16-GiB CI guest**; the runner unit,
+applies only inside the capped **4-vCPU, 16-GiB CI guest**; the runner unit,
 firewall, resource limits, host-mount isolation and Mac configuration retain
 their existing hardening.
 
@@ -456,14 +456,17 @@ the immutable helper, including the configured XDG home.
 The dispatcher lock remains in a parent process so detached Lima daemons cannot
 inherit it. Logs: `~/.local/share/ops-qa/state/ci-vm-dispatcher.log`.
 
-The agent uses `ProcessType=Background`, low-priority I/O, and
-`taskpolicy -b -c background` for the starter. `host.py` verifies the ci
+The agent uses `ProcessType=Standard` and starts ci at standard priority.
+Decision: HNET-569, Markus 2026-11-26 (C): background QoS favored efficiency
+cores and throttled I/O, making CI about twice as slow; standard priority with
+4 vCPUs accepts competition for performance cores. `host.py` verifies the ci
 hostagent's PID, owner and executable, finds its Virtualization XPC service
 in **that PID's launchd domain**, and requires that service to hold **that
-instance's disk** open. It applies `taskpolicy -b -p` only to those two PIDs
-and verifies Darwin's background flags with `proc_pidinfo`. Failure stops
-`ci`. Background QoS lets macOS favor efficiency cores; it is a scheduler
-policy, not a hard CPU-affinity mask. Runner services also use `Nice=10`,
+instance's disk** open. It requires Darwin's background flags to be absent
+on both PIDs, clears a leftover flag once with `taskpolicy -B -p`, and
+re-verifies with `proc_pidinfo`. A remaining flag or failed verification stops
+`ci`. The `/run/ci-vm-host-qos-ready` marker means host policy verified.
+Runner services retain `Nice=10`,
 `CPUWeight=10` and `IOWeight=10` inside the VM.
 
 Colima can say READY after a failed provision, so a successful provision must

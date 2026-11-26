@@ -21,6 +21,29 @@ jq -e '.checks | all' "$work/module.json" >/dev/null || fail 'module evaluation'
 jq .colima "$work/module.json" >"$work/declared.yaml"
 jq .repos "$work/module.json" >"$work/repos.json"
 echo "ok module: $(jq '.checks | length' "$work/module.json") evaluated contracts"
+# Mutate only disposable copies: the eval contract must reject either regression.
+mutant_root="$work/eval-mutant"
+mkdir -p "$mutant_root/hosts/mbp2607/files"
+cp -R "$root/hosts/mbp2607/files/ci-vm" "$mutant_root/hosts/mbp2607/files/"
+cp "$root/hosts/mbp2607/README.md" "$mutant_root/hosts/mbp2607/README.md"
+for mutation in cpu background; do
+  python3 - "$root/hosts/mbp2607/ci-vm.nix" "$mutant_root/hosts/mbp2607/ci-vm.nix" "$mutation" <<'PY'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+old, new = ('cpu = 4;', 'cpu = 6;') if sys.argv[3] == 'cpu' else ('ProcessType = "Standard";', 'ProcessType = "Background";')
+assert source.count(old) == 1
+Path(sys.argv[2]).write_text(source.replace(old, new))
+PY
+  if nix-instantiate --eval --strict --json --arg root "$mutant_root" "$root/tests/mbp2607-ci-vm-eval.nix" >"$work/$mutation.json" 2>"$work/$mutation.err"; then
+    fail "$mutation eval mutant survived"
+  fi
+  contract=hardCaps
+  if [[ "$mutation" == background ]]; then contract=standardPolicy; fi
+  grep -q "OPS-669 eval failed: $contract" "$work/$mutation.err" || fail "$mutation eval failed for the wrong reason"
+done
+echo 'ok eval must-fail: cpu=6 and ProcessType=Background are rejected by their contracts'
+python3 "$root/tests/ci-vm-host-test.py"
 python3 "$root/tests/ci-vm-guest-test.py" "$root" "$work" "$work/module.json"
 mkdir -p "$work/bin"
 export CI_TEST_REAL_JQ
@@ -181,11 +204,8 @@ printf 'limactl %s\n' "$*" >>"$CI_TEST_CALLS"
 STUB
 cat >"$work/bin/taskpolicy" <<'STUB'
 #!/usr/bin/env bash
-set -euo pipefail
-[[ "$1 $2 $3" == '-b -c background' ]] || exit 85
-shift 3
-printf 'taskpolicy background\n' >>"$CI_TEST_CALLS"
-exec "$@"
+printf 'unexpected taskpolicy %s\n' "$*" >>"$CI_TEST_CALLS"
+exit 85
 STUB
 cat >"$work/bin/qos" <<'STUB'
 #!/usr/bin/env bash
@@ -378,14 +398,14 @@ new_case
 export CI_TEST_SCENARIO=queued
 run_tick
 started || fail 'matching queued demand did not start ci'
-[[ "$(calls 'taskpolicy background')" == 1 && "$(calls 'qos ci')" == 1 ]] || fail 'background enforcement'
+[[ "$(calls 'taskpolicy')" == 0 && "$(calls 'qos ci')" == 1 ]] || fail 'standard-policy enforcement'
 [[ "$(<"$case_dir/state/last-demand")" == 1000 ]] || fail 'demand timestamp'
 [[ "$(python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777))' "$case_dir/state/secrets")" == 0o700 ]] || fail 'secret directory mode'
 # Start again after Colima rewrote the file: starter must replace it with a copy.
 echo stopped >"$case_dir/vm"
 run_tick
 [[ "$(calls 'colima start')" == 2 ]] || fail 'copied config did not survive a Colima rewrite'
-echo 'ok demand: queued jobs start ci under background QoS; writable config is refreshed for each start'
+echo 'ok demand: queued jobs start ci under standard QoS; writable config is refreshed for each start'
 
 new_case
 printf 'export GH_TOKEN=fixture-agent-value\n' >"$case_dir/agent.env"
@@ -710,6 +730,14 @@ for failure in qos ready start; do
   [[ "$(<"$case_dir/state/backoff")" == '2 1180' ]] || fail "$failure backoff did not double"
 done
 echo 'ok failures: start/QoS/readiness failures persist and double retry backoff'
+
+new_case
+echo running >"$case_dir/vm"
+export CI_TEST_QOS_FAIL=1
+if run_tick; then fail 'running VM with failed standard policy passed'; fi
+[[ "$(calls 'colima stop')" == 1 && "$(calls 'host-ready')" == 0 ]] || fail 'failed standard policy retained ci or opened the guest gate'
+grep -q 'standard policy could not be verified' "$case_dir/out" || fail 'standard policy failure was not reported'
+echo 'ok standard-policy failure: running ci stops before guest readiness'
 
 new_case
 export CI_TEST_SCENARIO=stale-runner CI_TEST_ENROLLED=hausnetz
