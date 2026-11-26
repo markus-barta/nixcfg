@@ -369,8 +369,18 @@ hausnetz reads only that copy via a supplementary group. Limits: 512M memory, 50
 The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
-The private flake input is pinned to `9431bd2da3348d87e400ecda95bdcad029221c3d`
-(`v261123075451.0.0`, HNET pin 64, release sequence 134; HNET-539).
+The private flake input is pinned to `65ba40f2bfb47e6ae1a41aee2c17fb8263dea79c`
+(`v261126120508.0.0`, HNET pin 65, release sequence 135; OPS-703).
+Since pin 65, hausnetz reads floors, areas and devices from Home Assistant on
+hsb1 (`services.hausnetz.homeAssistant`, http to the literal LAN IP inside
+`localNetworks`; Markus's go recorded on HNET-556). It authenticates as the
+non-admin HA user `hausnetz` (group system-read-only, local_only, OPS-673)
+with agenix `hsb0-hausnetz-ha-token` (root 0400, LoadCredential only).
+Acceptance after each switch that changes this link: a write with that token
+(`POST /api/services/light/turn_on` on a non-existent entity) must get 401.
+Any other status means: roll back to the previous generation and revoke the
+token. Roll back pin 65 with the previous generation. A re-pin below 65 must
+drop the `homeAssistant` block in the same change (older modules lack the option).
 Rollback 62 -> 61 (pin `fd85516a`) has two data caveats (HNET-528 gate):
 pin 61 refuses to start if pin 62 left an interrupted import
 (`/var/lib/private/hausnetz/.import-commit` staging `mesh-follow.json`), and
@@ -431,8 +441,10 @@ For each pin bump, update the explicit revision in `flake.nix` and only the
 hausnetz node in `flake.lock`; verify the release revision and NAR hash and
 run the local contracts and full CI evaluation below. On hsb0, after the
 reviewed change is merged and pulled, run `just nix-build` first (root fetch
-and build), then `just switch`. Roll back this bump by reverting its reviewed
-commit(s), restoring pin 59
+and build), then `just switch`. Rollback of the current pin: see the pin
+paragraph above (previous generation; a re-pin below 65 drops the
+`homeAssistant` block). Historical, for the pin 60 bump only: roll back by
+reverting its reviewed commit(s), restoring pin 59
 `429d590760b0cb8b5742a68991714111163155fb` (`v261102165603.0.0`), its lock
 node and the T99 pin/hash/time expectations. Remove `sheetsDir` and mba's
 `hausnetz-sheets` membership, and restore the previous reader-group contract

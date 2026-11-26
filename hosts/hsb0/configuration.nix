@@ -226,6 +226,17 @@ assert joeSet.pusher != null && joeSet.executor != null;
     # OPS-582 / HNET-469: static HTML sheets; publish HTML first, sheets.json last by atomic rename.
     # Writers join hausnetz-sheets and publish 0640 files.
     sheetsDir = "/var/lib/hausnetz-sheets";
+    # OPS-703 / HNET-556 (pin 65; Markus 2026-11-26 07:10Z, go record on HNET-556): read-only link to
+    # Home Assistant on hsb1 for floors, areas and devices. The client sends only the auth message and
+    # three registry list commands (module :344-375). HA user "hausnetz" is non-admin (system-read-only,
+    # local_only, OPS-673). Plain http only to this literal LAN IP inside localNetworks; no hostname.
+    # Writes, admin rights, other hosts or networks need a new go. Rollback below pin 65 must also
+    # remove this block (r64's module has no homeAssistant options).
+    homeAssistant = {
+      url = "http://192.168.1.101:8123";
+      localNetworks = [ "192.168.1.0/24" ];
+      tokenFile = config.age.secrets.hsb0-hausnetz-ha-token.path;
+    };
   };
   # HNET-431 / OPS-582: mba publishes the Smarthome automations file and static sheets above.
   users.users.mba.extraGroups = [
@@ -255,6 +266,12 @@ assert joeSet.pusher != null && joeSet.executor != null;
   };
   age.secrets.hsb0-hausnetz-shelly-allow = {
     file = ../../secrets/hsb0-hausnetz-shelly-allow.age;
+    mode = "400";
+  };
+  # OPS-703: HA token of the non-admin user "hausnetz" (OPS-673), root 0400, handed to the unit only
+  # through LoadCredential (hausnetz-ha-token); never in the store.
+  age.secrets.hsb0-hausnetz-ha-token = {
+    file = ../../secrets/hsb0-hausnetz-ha-token.age;
     mode = "400";
   };
 

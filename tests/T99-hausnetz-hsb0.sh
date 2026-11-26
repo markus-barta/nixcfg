@@ -14,11 +14,13 @@ nix-instantiate --eval --strict --json --expr '
   let
     # HNET-45: the Shelly recovery credentials are agenix runtime paths.
     healSecrets = [ "wifi-psk" "mqtt-password" "telegram" "shelly-allow" ];
+    # OPS-703: the read-only Home Assistant token is one more runtime agenix path.
+    runtimeSecrets = healSecrets ++ [ "ha-token" ];
     host = import ./hosts/hsb0/configuration.nix {
       config.age.secrets = builtins.listToAttrs (map (n: {
         name = "hsb0-hausnetz-" + n;
         value.path = "/run/agenix/hsb0-hausnetz-" + n;
-      }) healSecrets);
+      }) runtimeSecrets);
       pkgs.stdenv.hostPlatform.system = "fixture";
       inputs.hostdash.packages.fixture.hsb0.overrideAttrs = _: "hostdash-fixture";
       lib.mkBefore = x: x;
@@ -39,7 +41,7 @@ nix-instantiate --eval --strict --json --expr '
     healSecretModes = builtins.listToAttrs (map (n: {
       name = n;
       value = (builtins.getAttr ("hsb0-hausnetz-" + n) host.age.secrets).mode;
-    }) healSecrets);
+    }) runtimeSecrets);
   }
 ' | python3 -c '
 import json, sys
@@ -56,7 +58,9 @@ assert s["shellyHeal"] == {"mode": "heal", "interface": "wlp0s26f7u1u3", "addres
     "wifiPskFile": "/run/agenix/hsb0-hausnetz-wifi-psk", "mqttServer": "192.168.1.101:1883", "mqttUser": "smarthome",
     "mqttPasswordFile": "/run/agenix/hsb0-hausnetz-mqtt-password", "telegramCredentialFile": "/run/agenix/hsb0-hausnetz-telegram",
     "allowMacsFile": "/run/agenix/hsb0-hausnetz-shelly-allow", "mqttPresence": True}, s["shellyHeal"]  # HNET-44: Desk b12218e9
-assert c["healSecretModes"] == {n: "400" for n in ("wifi-psk", "mqtt-password", "telegram", "shelly-allow")}, c["healSecretModes"]
+assert c["healSecretModes"] == {n: "400" for n in ("wifi-psk", "mqtt-password", "telegram", "shelly-allow", "ha-token")}, c["healSecretModes"]
+# OPS-703 (HNET pin 65; Markus go on HNET-556 2026-11-26): read-only HA reader, literal LAN IP inside localNetworks, token only as a runtime agenix path.
+assert s["homeAssistant"] == {"url": "http://192.168.1.101:8123", "localNetworks": ["192.168.1.0/24"], "tokenFile": "/run/agenix/hsb0-hausnetz-ha-token"}, s["homeAssistant"]
 assert fw["enable"] and 8377 not in fw["allowedTCPPorts"] and all(p not in fw["allowedUDPPorts"] for p in (5353, 1901))
 assert c["limits"] == {"MemoryMax": "512M", "CPUQuota": "50%", "Nice": 10}
 assert home.get("network_mode", "bridge") == "bridge"
@@ -224,7 +228,7 @@ assert 'location / {' not in vhost  # only the included app snippet owns the roo
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in vhost
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in Path('modules/files/hostdash-nginx.conf').read_text()
 
-pin = '9431bd2da3348d87e400ecda95bdcad029221c3d'  # HNET pin 64 (v261123075451.0.0); repo in inspr-at
+pin = '65ba40f2bfb47e6ae1a41aee2c17fb8263dea79c'  # HNET pin 65 (v261126120508.0.0); repo in inspr-at
 assert f'git+ssh://git@github.com/inspr-at/hausnetz?rev={pin}' in Path('flake.nix').read_text()
 lock = json.loads(Path('flake.lock').read_text())
 assert lock['nodes'][lock['root']]['inputs']['hausnetz'] == 'hausnetz'
@@ -233,9 +237,9 @@ assert node['inputs'] == {'nixpkgs': ['nixpkgs']}
 for source in ('locked', 'original'):
     assert node[source]['type'] == 'git' and node[source]['rev'] == pin
     assert node[source]['url'] == 'ssh://git@github.com/inspr-at/hausnetz'
-assert node['locked']['narHash'] == 'sha256-Ng9ddrlLIVRZnpp2egllo2awKBcijy+pHSO3Fr+iUwo='
-assert node['locked']['lastModified'] == 1795424308
-assert node['locked']['revCount'] == 1624  # git rev-list --count of the pin (pin 63: 1602 + 22)
+assert node['locked']['narHash'] == 'sha256-hZmI8G7xdffcq22AqIwQDrtCyxcsd0vjcL+9hj67iMM='
+assert node['locked']['lastModified'] == 1795694792
+assert node['locked']['revCount'] == 1742  # git rev-list --count of the pin (pin 64: 1624 + 118)
 imports = [p for p in Path('hosts').rglob('*.nix') if 'inputs.hausnetz.nixosModules.default' in p.read_text()]
 assert imports == [Path('hosts/hsb0/configuration.nix')], imports
 
