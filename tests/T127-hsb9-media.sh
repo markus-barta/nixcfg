@@ -69,31 +69,44 @@ for directive in ('enable = true;', 'host = "hsb9";', '"compose-hsb9-update.time
                   'hsb9-media = "http://127.0.0.1/fernsehen/healthz";'):
     assert directive in status.group(1), directive
 assert "mqttEnvFile" not in status.group(1) and "mqttExtras" not in status.group(1)
-# Each shipped app asset must change media's compose hash; nginx-only changes
-# must leave it alone so a status/cache fix does not interrupt playback.
-assert any(re.fullmatch(r"nixcfg\.media-source-sha256=[a-f0-9]{64}", label)
+# The label is the store path of the WHOLE media directory, the same source as
+# /etc/hsb9-media: every file (including ones only deployed, like test_app.py),
+# a new file and a mode change must recreate media; nginx-only changes must not.
+assert any(re.fullmatch(r"nixcfg\.media-source=[0-9a-z]{32}-media", label)
            for label in media["labels"])
 with tempfile.TemporaryDirectory(prefix="t127-compose-") as temporary:
     fixture = Path(temporary)
     shutil.copy(repo / "hosts/hsb9/docker/compose-spec.nix", fixture)
     shutil.copy(repo / "hosts/hsb9/docker/home.conf", fixture)
-    (fixture / "media").mkdir()
-    for asset in ("app.py", "app.js", "app.css", "index.html"):
-        shutil.copy(repo / "hosts/hsb9/docker/media" / asset, fixture / "media")
+    shutil.copytree(repo / "hosts/hsb9/docker/media", fixture / "media")
     baseline = eval_spec(fixture / "compose-spec.nix")
     assert baseline == spec
     with (fixture / "home.conf").open("a") as config:
         config.write("\n# nginx-only change\n")
     assert eval_spec(fixture / "compose-spec.nix") == baseline
-    for asset in ("app.py", "app.js", "app.css", "index.html"):
-        path = fixture / "media" / asset
+
+    def assert_recreates(reason):
+        changed = eval_spec(fixture / "compose-spec.nix")
+        assert changed["services"]["hsb9-media"]["labels"] != media["labels"], reason
+        changed["services"]["hsb9-media"]["labels"] = media["labels"]
+        assert changed == baseline, reason
+
+    deployed = sorted(p for p in (fixture / "media").iterdir() if p.is_file())
+    assert {p.name for p in deployed} >= {"app.py", "app.js", "app.css", "index.html", "test_app.py"}
+    for path in deployed:
         original = path.read_bytes()
         path.write_bytes(original + b"\n")
-        changed = eval_spec(fixture / "compose-spec.nix")
-        assert changed["services"]["hsb9-media"]["labels"] != media["labels"], asset
-        changed["services"]["hsb9-media"]["labels"] = media["labels"]
-        assert changed == baseline, asset
+        assert_recreates(path.name)
         path.write_bytes(original)
+    extra = fixture / "media" / "new_module.py"
+    extra.write_text("# new file\n")
+    assert_recreates("new file")
+    extra.unlink()
+    mode_target = fixture / "media" / "app.py"
+    mode_target.chmod(mode_target.stat().st_mode | 0o111)
+    assert_recreates("mode change")
+    mode_target.chmod(mode_target.stat().st_mode & ~0o111)
+    assert eval_spec(fixture / "compose-spec.nix") == baseline
 nginx = (repo / "hosts/hsb9/docker/home.conf").read_text()
 
 def location(declaration):

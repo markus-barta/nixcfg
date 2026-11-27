@@ -36,18 +36,12 @@
 # and reconciled by compose-hsb9.service — never `docker compose up` by hand;
 # the file compose actually runs is /etc/compose/hsb9/docker-compose.yml.
 let
-  # The /etc bind has a stable path; compose needs a content change to notice
-  # updated app code without recreating media for unrelated dashboard changes.
-  mediaSourceHash = builtins.hashString "sha256" (
-    builtins.concatStringsSep "\n" (
-      map builtins.readFile [
-        ./media/app.py
-        ./media/app.js
-        ./media/app.css
-        ./media/index.html
-      ]
-    )
-  );
+  # /etc/hsb9-media has a stable path, but Docker resolves that symlink once at
+  # container start. Label media with the store path of the whole directory (the
+  # same source as environment.etc."hsb9-media"): any content, mode or new-file
+  # change recreates it, so it never runs from an outdated (later GC'd) copy,
+  # while board-only changes leave playback alone.
+  mediaSource = builtins.unsafeDiscardStringContext (baseNameOf "${./media}");
 in
 {
   services = {
@@ -227,7 +221,7 @@ in
         retries = 3;
       };
       labels = [
-        "nixcfg.media-source-sha256=${mediaSourceHash}"
+        "nixcfg.media-source=${mediaSource}"
         "com.centurylinklabs.watchtower.enable=true"
         "com.centurylinklabs.watchtower.scope=weekly"
       ];
