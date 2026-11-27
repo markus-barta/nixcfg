@@ -65,8 +65,9 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # HNET pin 77: v261127105834.0.0 (sequence 147; hausnetz main 95e263e8 = merge of release PR #481; the tag is on
-    # the merge). Since 76: clearer Devices column menu (HNET-613); the HNET-611 acceptance script and its just recipe;
-    # QA/CI and release bookkeeping. Only non-test Go change: hostcaps.DeployGate (stricter: the acceptance script is
+    # the merge). Since 76: clearer Devices column menu (HNET-613); the plan view ends its image lifecycle even when a
+    # paint throws (HNET-604/606); the HNET-611 acceptance script and its just recipe; QA/CI and release bookkeeping.
+    # Only non-test Go change: hostcaps.DeployGate (stricter: the acceptance script is
     # never host-inert). CSP header and index.html unchanged; capability manifest unchanged (1a85d9dd…); no nix/,
     # flake or Go-dependency change (check on HNET-615). Rollback: previous generation (pin 76); a re-pin below 65
     # must drop the homeAssistant block.
