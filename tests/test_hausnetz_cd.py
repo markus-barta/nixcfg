@@ -119,7 +119,10 @@ class Fixture:
             "release_ticket": "HNET-570", "nixcfg_url": str(self.repo), "hausnetz_url": str(self.hnet),
             "state_file": str(root / "local/state.json"), "fixture_root": True,
             "cache_dir": str(root / "cache"), "export_dir": str(root / "exports"),
-            "alarm_file": str(root / "local/alarm.json"), "poll_timeout": 12, "poll_interval": 0.02,
+            # OPS-705: passing runs return as soon as the executor finishes; 12 s no longer covered two 4 s health
+            # timeouts (rollback-readiness cases) on loaded CI runners. Crash cases wait for this deadline, so it
+            # must stay well below tick()'s subprocess timeout (36 s).
+            "alarm_file": str(root / "local/alarm.json"), "poll_timeout": 24, "poll_interval": 0.02,
             "ssh_retry_timeout": 0.4,
             "alarm_command": [str(self.bin / "alarm")],
             "secondary_telegram_command": [str(self.bin / "secondary-telegram")],
@@ -214,7 +217,7 @@ class Fixture:
             self.orchestrator["mode"] = mode
         self.save()
         result = subprocess.run([str(self.orchestrator_path)], env=self.env, capture_output=True,
-                                text=True, timeout=18, check=False)
+                                text=True, timeout=36, check=False)
         if expect_ok and result.returncode:
             raise AssertionError(result.stderr)
         return result
