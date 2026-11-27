@@ -22,6 +22,7 @@ PREFIX = "/fernsehen/"
 CHUNK_SIZE = 1024 * 1024
 EXTENSIONS = {".mp4", ".m4v", ".mov"}
 STATIC = Path(__file__).parent
+DATA_DIR = Path("/data")
 MIN_RESERVE_BYTES = 20 * 1024 ** 3
 SPACE_ERROR = "Auf dem Gerät ist nicht genug Platz für dieses Video. Bitte die Betreuung verständigen."
 
@@ -408,5 +409,5 @@ def make_server(directory, address=("0.0.0.0", 8080)):
 
 if __name__ == "__main__":
     os.umask(0o027)
-    with make_server(os.environ.get("MEDIA_DIR", "/data")) as httpd:
+    with make_server(DATA_DIR) as httpd:
         httpd.serve_forever()

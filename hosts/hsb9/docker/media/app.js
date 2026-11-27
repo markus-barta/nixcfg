@@ -12,7 +12,7 @@ let reserveBytes = 0;
 
 function unreadableResponse(status) {
   return status >= 500 && status < 600
-    ? "Die Aufnahmen sind gerade nicht erreichbar. Bitte die Betreuung verständigen."
+    ? "Die Aufnahmen sind gerade nicht erreichbar. Bitte in einem Moment erneut versuchen. Wenn es so bleibt, bitte die Betreuung verständigen."
     : "Die Antwort konnte nicht gelesen werden. Bitte erneut versuchen.";
 }
 function element(tag, text, className) {

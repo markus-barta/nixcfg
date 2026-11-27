@@ -105,7 +105,8 @@ No router forwarding or live firewall state was checked as part of this build.
 
 ### Files and metadata
 
-Data lives at `/srv/media/fernsehaufnahmen`, with `.trash` beneath it. tmpfiles
+Data lives at `/srv/media/fernsehaufnahmen`, with `.trash` beneath it. The app
+always uses the container mount `/data` as its data root. tmpfiles
 creates both directories as `0750`, UID `10429`, GID `101`. The app runs as
 `10429:101`; GID 101 also lets nginx's worker read recordings through its
 read-only data mount. Uploaded videos and metadata are `0640`. No setuid or

@@ -1,20 +1,36 @@
 // OPS-729: exercise upload failures without launching a native browser.
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
 const test = require("node:test");
-const vm = require("node:vm");
 
-const source = fs.readFileSync(
-  path.join(__dirname, "../hosts/hsb9/docker/media/app.js"),
-  "utf8",
+const appPath = require.resolve("../hosts/hsb9/docker/media/app.js");
+const browserGlobals = [
+  "document",
+  "navigator",
+  "XMLHttpRequest",
+  "window",
+  "location",
+  "history",
+  "fetch",
+];
+const originalGlobals = new Map(
+  browserGlobals.map((name) => [
+    name,
+    Object.getOwnPropertyDescriptor(globalThis, name),
+  ]),
 );
+test.afterEach(() => {
+  delete require.cache[appPath];
+  for (const [name, descriptor] of originalGlobals) {
+    if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+    else delete globalThis[name];
+  }
+});
 const spaceError =
   "Auf dem Gerät ist nicht genug Platz für dieses Video. Bitte die Betreuung verständigen.";
 const unreadable =
   "Die Antwort konnte nicht gelesen werden. Bitte erneut versuchen.";
 const serverError =
-  "Die Aufnahmen sind gerade nicht erreichbar. Bitte die Betreuung verständigen.";
+  "Die Aufnahmen sind gerade nicht erreichbar. Bitte in einem Moment erneut versuchen. Wenn es so bleibt, bitte die Betreuung verständigen.";
 
 async function page({
   available = 100,
@@ -95,12 +111,10 @@ async function page({
       this.sent = file;
     }
   }
-  vm.runInNewContext(source, {
+  const globals = {
     document,
     navigator,
     XMLHttpRequest,
-    URLSearchParams,
-    Intl,
     window: node("window"),
     location: { search: "?add=1" },
     history: { replaceState() {} },
@@ -113,7 +127,17 @@ async function page({
         return { videos: [], free_bytes: available + 20, reserve_bytes: 20 };
       },
     }),
-  });
+  };
+  for (const [name, value] of Object.entries(globals)) {
+    Object.defineProperty(globalThis, name, {
+      value,
+      configurable: true,
+      writable: true,
+      enumerable: true,
+    });
+  }
+  delete require.cache[appPath];
+  require(appPath);
   await new Promise(setImmediate);
   const status = document.getElementById("status");
   return {
