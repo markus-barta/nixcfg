@@ -3011,6 +3011,32 @@ class TestCD(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.f.state(), state)
 
+    def test_clear_failed_matches_exact_attempt_keys_and_ledger_stems(self):
+        from common import atomic_json
+        target = self.f.new_hnet
+        matching = [self.f.key, "trial-" + self.f.key, "a" * 40 + "-" + target]
+        preserved = ["other", target, "g" * 40 + "-" + target,
+                     "a" * 39 + "-" + target, "a" * 41 + "-" + target,
+                     "trial-trial-" + self.f.key, self.f.key + "-extra",
+                     self.f.key + "0", self.f.key[:-1],
+                     self.f.old_hnet + "-" + self.f.old_hnet]
+        state = copy.deepcopy(self.f.live_state)
+        state["failed"] = [target, self.f.old_hnet]
+        state["attempted"] = {key: {"status": "failed", "order": order}
+                              for order, key in enumerate(matching + preserved)}
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        for key in matching + preserved:
+            atomic_json(ledger(self.f.orchestrator, "attempted", key), {"status": "failed"})
+        for key in (target, self.f.old_hnet, target + "0"):
+            atomic_json(ledger(self.f.orchestrator, "failed", key), {"status": "failed"})
+        self.f.tick(args=("--clear-failed", target, "--reason", "inspected"))
+        self.assertEqual(set(self.f.state()["attempted"]), set(preserved))
+        self.assertEqual(self.f.state()["failed"], [self.f.old_hnet])
+        for key in matching + preserved:
+            self.assertEqual(ledger(self.f.orchestrator, "attempted", key).exists(), key in preserved, key)
+        for key in (target, self.f.old_hnet, target + "0"):
+            self.assertEqual(ledger(self.f.orchestrator, "failed", key).exists(), key != target, key)
+
     def test_clear_failed_covers_evicted_tombstones_and_persists_reason_first(self):
         import orchestrate
         from common import atomic_json
@@ -3349,7 +3375,7 @@ def mutants():
         ("forward failed-unit recheck missing", "execute.py", [('                failed_units()\n                save("switch")', '                save("switch")')], "test_failed_units_are_rechecked_after_backup"),
         ("missing acceptance entry point has no backoff", "orchestrate.py", [('if not acceptance_entrypoint(hausnetz, a):\n                evaluated_tick()', 'if not acceptance_entrypoint(hausnetz, a):\n                pass')], "test_acceptance_entrypoint_missing_is_retryable_before_switch"),
         ("unresolved rehearsal pin uses nixcfg revision", "orchestrate.py", [('if result.get("old_hausnetz_rev") else "unknown"', 'if result.get("old_hausnetz_rev") else result["nixcfg_rev"]')], "test_rehearsal_alarm_without_resolved_pin_is_unknown"),
-        ("clear failed leaves failed tombstone", "orchestrate.py", [('ledger(config, "failed", target).unlink(missing_ok=True)', 'pass')], "test_clear_failed_requires_reason_and_allows_vm_test_retry"),
+        ("clear failed leaves failed tombstone", "orchestrate.py", [('if path.stem == target:\n                    path.unlink(missing_ok=True)', 'if path.stem == target:\n                    pass')], "test_clear_failed_requires_reason_and_allows_vm_test_retry"),
     ]
 
     def check_mutant(case):

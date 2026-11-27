@@ -617,18 +617,24 @@ def tick(config):
         if config.get("clear_failed"):
             require(not state["pending"], "pending_refuses_clear_failed")
             target = revision(config["clear_failed"])
+            def matches_attempt(key):
+                parts = key.removeprefix("trial-").split("-", 1)
+                return (len(parts) == 2 and re.fullmatch(r"[0-9a-f]{40}", parts[0])
+                        and parts[1] == target)
             state["failed"] = [rev for rev in state["failed"] if rev != target]
             state["attempted"] = {key: entry for key, entry in state["attempted"].items()
-                                  if not re.fullmatch(r"(?:trial-)?[0-9a-f]{40}-" + target, key)}
+                                  if not matches_attempt(key)}
             state.pop("evaluated", None)
             state.setdefault("failed_cleared", []).append({"at": now(), "rev": target, "reason": config["clear_reason"]})
             state["failed_cleared"] = state["failed_cleared"][-200:]
             save_state(config, state)
             # Persist the operator's reason before opening any retry path.
             for path in ledger(config, "attempted", "unused").parent.glob("*.json"):
-                if re.fullmatch(r"(?:trial-)?[0-9a-f]{40}-" + target, path.stem):
+                if matches_attempt(path.stem):
                     path.unlink()
-            ledger(config, "failed", target).unlink(missing_ok=True)
+            for path in ledger(config, "failed", "unused").parent.glob("*.json"):
+                if path.stem == target:
+                    path.unlink(missing_ok=True)
             return
         if config.get("clear_disable"):
             require(not state["pending"], "pending_refuses_clear_disable")
