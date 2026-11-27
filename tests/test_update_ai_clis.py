@@ -8,7 +8,6 @@ import json
 import os
 from pathlib import Path
 import runpy
-import shutil
 import signal
 import subprocess
 import sys
@@ -133,13 +132,14 @@ def offline_processes(root):
         if executable == "/bin/ps":
             raise AssertionError("offline test attempted unredirected /bin/ps")
         if name in ("ps", "lsof"):
-            environment = kwargs.get("env")
-            path = (os.environ if environment is None else environment).get("PATH", os.defpath)
-            resolved = shutil.which(executable, path=path)
-            if resolved is None:
-                raise FileNotFoundError(executable)
-            if Path(resolved).resolve() != (root / name).resolve():
-                raise AssertionError(f"offline test attempted non-fixture {name}: {resolved}")
+            fixture = root / name
+            if executable != str(fixture):
+                environment = kwargs.get("env")
+                path = (os.environ if environment is None else environment).get("PATH", os.defpath)
+                if executable != name or path.split(os.pathsep, 1)[0] != str(root):
+                    raise AssertionError(f"offline test attempted non-fixture {name}: fixture must be first in PATH")
+            if not fixture.exists():
+                raise AssertionError(f"offline test attempted {name} without its fixture")
         return REAL_POPEN(command, *args, **kwargs)
 
     with mock.patch.object(subprocess, "run", side_effect=offline_run):
@@ -225,9 +225,19 @@ class UpdateTests(unittest.TestCase):
     def test_offline_process_guard_rejects_host_scans(self):
         for command in (["/bin/ps"], ["/usr/sbin/lsof"], ["/usr/bin/ps"]):
             with self.subTest(command=command):
-                with mock.patch.object(shutil, "which", return_value=command[0]):
-                    with self.assertRaisesRegex(AssertionError, "offline test attempted"):
-                        subprocess.Popen(command)
+                with self.assertRaisesRegex(AssertionError, "offline test attempted"):
+                    subprocess.Popen(command)
+
+    def test_offline_process_guard_requires_fixture_first_in_path(self):
+        for name in ("ps", "lsof"):
+            for path in ("", os.defpath, f"{os.defpath}{os.pathsep}{self.root}",
+                         f"{self.root}-other{os.pathsep}{self.root}"):
+                with self.subTest(name=name, path=path):
+                    with self.assertRaisesRegex(AssertionError, "fixture must be first in PATH"):
+                        subprocess.Popen([name], env=dict(self.env, PATH=path))
+                    with mock.patch.dict(os.environ, PATH=path):
+                        with self.assertRaisesRegex(AssertionError, "fixture must be first in PATH"):
+                            subprocess.Popen([name])
 
     def calls(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()]
@@ -865,10 +875,18 @@ class UpdateTests(unittest.TestCase):
         def scan(command, **kwargs):
             if command[0] in ("ps", "/bin/ps"):
                 ps_calls.append(command[0])
+                if command[0] == "ps":
+                    if not procps:
+                        raise FileNotFoundError("fixture procps is absent")
+                    command = [str(self.root / "ps"), *command[1:]]
                 if command[0] == "/bin/ps":
                     # Supply fixture output only; retain and assert the fixed
                     # production command, independent of the activation PATH.
                     return real_run([sys.executable, str(self.root / "ps"), *command[1:]], **kwargs)
+            elif command[0] == "lsof":
+                # This restricted PATH intentionally omits the guard's fixture
+                # root; route its known runtime input explicitly.
+                command = [str(self.lsof), *command[1:]]
             return real_run(command, **kwargs)
         for platform_name, procps, prunes in (("darwin", False, True),
                                               ("linux", True, True),
