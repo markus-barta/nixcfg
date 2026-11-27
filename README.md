@@ -218,8 +218,10 @@ update leaves each CLI on a complete old or new version.
 Before publication, the updater prints a rollback receipt path. From this
 checkout, `python3 scripts/update-ai-clis.py --rollback RECEIPT` atomically
 restores the previous launch links, refusing if another update changed them.
-Rollback works per receipt and requires a previous installation for every affected CLI. It makes no
-registry calls. To hold a rollback across switches, pin the affected version
+Rollback works per receipt and requires a previous installation for every affected CLI.
+A receipt covering several CLIs is refused once any of them has moved on, so another
+CLI's kept previous version must then be restored by hand by pointing its link at the kept generation.
+It makes no registry calls. To hold a rollback across switches, pin the affected version
 in `modules/uzumaki/ai-clis-npm-packages.json` through the normal reviewed
 configuration change. Restore CLI receipts before activating a pre-NIX-524
 Home Manager generation, whose updater still writes into the legacy prefix.
@@ -230,9 +232,12 @@ Both `lsof` and `ps` must pass their canaries before pruning. Literal argument
 paths under the state directory (or its resolved form) keep that generation.
 When `lsof` attributes no state-directory file to a PID, it holds all generations
 of a CLI if an argument contains its literal launch-link path, or its first
-argument equals the link name or ends with `/<link-name>` (including `pi` and `pi-rpc`).
+argument equals the bare link name (for example, `pi`).
 Unknown stages are also kept while a CLI is held. Attributed PIDs keep their
 in-use generations. Argument aliases are not resolved on disk.
+A JS process whose title is not a link name and that holds no file in state is
+not detected. This accepted fail-unsafe case is known for pi's `rpc-entry` export,
+which nothing on this fleet uses.
 A wrapper such as `timeout`, `nohup` or `bash -c` carrying a launch-link path also holds that CLI until a later run.
 A skipped or incomplete prune warns with the remaining
 generation count and total size. Unrelated global commands are preserved. Unsupported

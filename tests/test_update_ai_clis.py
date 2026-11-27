@@ -695,7 +695,6 @@ class UpdateTests(unittest.TestCase):
             {"name": name, "version": "latest", "bin": binary}
             for name, binary in self.fixture["bins"].items()
         ]))
-        (self.prefix / "bin/pi-rpc").symlink_to(self.prefix / "bin/pi")
 
     def assert_pi_hold(self, output):
         self.configure_pi()
@@ -724,25 +723,47 @@ class UpdateTests(unittest.TestCase):
     def test_ps_pi_process_title_holds_all_pi_generations(self):
         self.assert_pi_hold("123 pi\n")
 
-    def test_ps_pi_rpc_and_path_titles_hold_all_pi_generations(self):
+    def test_ps_pi_rpc_mode_holds_all_pi_generations(self):
+        self.assert_pi_hold("124 pi --mode rpc\n")
+
+    def test_ps_unrelated_pi_paths_and_unpublished_titles_do_not_hold(self):
         self.configure_pi()
         oldest = self.advance("2.0.0")
         self.advance("3.0.0")
+        unknown = self.stage()
         self.fixture["versions"] = dict.fromkeys(self.fixture["bins"], "4.0.0")
-        for arguments in ("pi --mode rpc", "pi-rpc", "/some/path/pi", "/some/path/pi-rpc"):
-            with self.subTest(arguments=arguments):
-                self.fixture["ps_output"] = f"124 {arguments}\n"
-                result = self.run_update()
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertNotIn("warning", result.stderr)
-                self.assertIn("holding all generations of pi", result.stdout)
-                self.assertTrue(oldest["pi"].exists())
-                self.assertFalse(oldest["codex"].exists())
-        self.fixture["ps_output"] = "124 node pi pi-rpc\n125 pi-helper\n126 /some/not-pi\n"
+        self.fixture["ps_output"] = (
+            "124 /some/path/pi\n125 pi-rpc\n126 /some/path/pi-rpc\n"
+            "127 node pi pi-rpc\n128 pi-helper\n129 /some/not-pi\n")
         result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("warning", result.stderr)
         self.assertNotIn("holding all generations", result.stdout)
-        self.assertFalse(oldest["pi"].exists())
+        self.assertTrue(all(not path.exists() for path in oldest.values()))
+        self.assertFalse(unknown.exists())
+
+    def assert_unrelated_program_path_does_not_hold(self, arguments):
+        oldest = self.advance("2.0.0")
+        self.advance("3.0.0")
+        unknown = self.stage()
+        self.fixture["versions"] = dict.fromkeys(self.fixture["bins"], "4.0.0")
+        self.fixture["ps_output"] = f"123 {arguments}\n"
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("warning", result.stderr)
+        self.assertNotIn("holding all generations", result.stdout)
+        self.assertTrue(all(not path.exists() for path in oldest.values()))
+        self.assertFalse(unknown.exists())
+
+    def test_ps_unrelated_icloud_bird_path_does_not_hold(self):
+        (self.prefix / "bin/bird").symlink_to(self.prefix / "bin/claude")
+        program = (self.root / "System/Library/PrivateFrameworks/iCloudDriveCore.framework"
+                   / "Versions/A/Support/bird")
+        self.assert_unrelated_program_path_does_not_hold(program)
+
+    def test_ps_unrelated_codex_app_server_daemon_path_does_not_hold(self):
+        program = self.root / ".codex/packages/app-server-daemon/releases/1.0.0/bin/codex"
+        self.assert_unrelated_program_path_does_not_hold(program)
 
     def test_ps_mixed_pid_coverage_holds_all_generations_of_same_cli(self):
         busy = self.advance("2.0.0")
@@ -1136,8 +1157,11 @@ class UpdateTests(unittest.TestCase):
     def test_prune_guard_removal_mutants_must_fail(self):
         original = SCRIPT.read_text()
         cases = [
-            ('named_cli = tokens[0] == link.name or tokens[0].endswith("/" + link.name)',
+            ('named_cli = tokens[0] == link.name',
              'named_cli = False', "test_ps_pi_process_title_holds_all_pi_generations"),
+            ('named_cli = tokens[0] == link.name',
+             'named_cli = tokens[0] == link.name or tokens[0].endswith("/" + link.name)',
+             "test_ps_unrelated_pi_paths_and_unpublished_titles_do_not_hold"),
             ('ps_command = "/bin/ps" if sys.platform == "darwin" else "ps"',
              'ps_command = "ps"', "test_prune_with_wrapper_only_activation_path"),
             ('result.stdout.removesuffix("\\n").split("\\n")',

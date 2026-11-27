@@ -268,7 +268,7 @@ def process_generations(prefix, state, paths_by_pid):
         if paths_by_pid.get(pid):
             continue
         for link in links:
-            named_cli = tokens[0] == link.name or tokens[0].endswith("/" + link.name)
+            named_cli = tokens[0] == link.name
             if (named_cli
                     or re.search(r"(?<!\S)" + re.escape(str(link)) + r"(?=\s|$)", arguments)):
                 metadata = package_at_link(link, None, state)
