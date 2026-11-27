@@ -16,13 +16,17 @@ def heredoc(text, tag):
 
 def check(text):
     unit = [l.strip() for l in heredoc(text, "DAEMON_UNIT").splitlines() if l.strip() and not l.strip().startswith("#")]
-    delegate = [l for l in unit if l.startswith("Delegate=")]
-    assert delegate, "nix-daemon drop-in must set Delegate"
-    assert delegate[0] == "Delegate=", "the first Delegate= must be empty (reset the stock Delegate=yes)"
-    final = set(delegate[-1].split("=", 1)[1].split())
-    assert final == {"cpu", "io", "memory", "pids"}, f"final Delegate controllers {sorted(final)}"
-    assert all("cpuset" not in l for l in delegate), "cpuset must not be delegated"
-    assert all(l.split("=", 1)[1].strip().lower() not in ("yes", "true", "1") for l in delegate), "no blanket Delegate=yes"
+    section, delegate = None, []
+    for line in unit:
+        if line.startswith("[") and line.endswith("]"):
+            section = line
+        elif line.split("=", 1)[0].strip() == "Delegate":
+            # systemd reads Delegate= only in [Service]; elsewhere it is ignored and the stock Delegate=yes stays.
+            assert section == "[Service]", f"Delegate outside [Service] (in {section})"
+            delegate.append(line)
+    # Exactly the reset and the intended list: any other assignment (yes/on/true/a list with cpuset) would
+    # re-enable or accumulate controllers.
+    assert delegate == ["Delegate=", "Delegate=cpu io memory pids"], f"Delegate lines {delegate}"
     nixconf = heredoc(text, "NIX_CONFIG")
     assert not re.search(r"^\s*use-cgroups\s*=\s*true", nixconf, re.M), "use-cgroups needs delegation; revisit OPS-719"
     assert not re.search(r"^\s*(extra-)?experimental-features\s*=.*\bcgroups\b", nixconf, re.M), "cgroups feature needs delegation; revisit OPS-719"
@@ -35,6 +39,8 @@ mutants = {
     "blanket yes": text.replace("Delegate=\nDelegate=cpu io memory pids\n", "Delegate=yes\n", 1),
     "drop-in removed": text.replace("Delegate=\nDelegate=cpu io memory pids\n", "", 1),
     "use-cgroups on": text.replace("sandbox = true\n", "sandbox = true\nuse-cgroups = true\n", 1),
+    "in [Unit]": text.replace("Delegate=\nDelegate=cpu io memory pids\n", "[Unit]\nDelegate=\nDelegate=cpu io memory pids\n[Service]\n", 1),
+    "on between": text.replace("Delegate=\nDelegate=cpu io memory pids\n", "Delegate=\nDelegate=on\nDelegate=cpu io memory pids\n", 1),
 }
 for name, mutant in mutants.items():
     assert mutant != text, f"mutant {name} did not apply"

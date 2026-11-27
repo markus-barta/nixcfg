@@ -68,8 +68,9 @@ bash tests/T126-ci-vm-cgroup-delegation.sh
 Offline text check of `hosts/mbp2607/files/ci-vm/provision.sh`: the guest's
 nix-daemon drop-in resets the stock `Delegate=yes` and delegates only cpu, io,
 memory and pids (no cpuset in `/system.slice`, which hausnetz's nightly host
-sampler refuses), and Nix is not configured to use cgroups. Five guard-removal
-mutants must fail.
+sampler refuses), and Nix is not configured to use cgroups. The Delegate lines
+must be exactly the reset and that list, inside `[Service]`. Seven
+guard-removal mutants must fail.
 
 ## Retired csb1 HAUSV runner (T123 / OPS-678)
 
