@@ -240,6 +240,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: bash tests/T126-ci-vm-cgroup-delegation.sh
 
+      - name: Verify hsb9 recording library and isolation (OPS-729)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p python3 --run "bash tests/T127-hsb9-media.sh"
+
       - name: Verify night-levels retired-host loop (OPS-595)
         if: steps.pin.outputs.pin_only != 'true'
         run: bash tests/night-levels-loop-test.sh
