@@ -229,7 +229,10 @@ def generation_for(path, state):
 
 def process_generations(prefix, state, paths_by_pid):
     """Hold a link-started CLI only when that PID has no lsof state paths."""
-    result = subprocess.run(["ps", "-axww", "-o", "pid=,args="],
+    # HM activation omits system directories from PATH. Linux's wrapper supplies
+    # procps; Darwin uses the fixed system command, never a prefix-selected one.
+    ps_command = "/bin/ps" if sys.platform == "darwin" else "ps"
+    result = subprocess.run([ps_command, "-axww", "-o", "pid=,args="],
                             capture_output=True, text=True, errors="surrogateescape",
                             timeout=60, check=False)
     if result.returncode or result.stderr:
@@ -239,9 +242,10 @@ def process_generations(prefix, state, paths_by_pid):
     kept, held = set(), {}
     ps_canary = False
     seen = set()
+    state_roots = {str(state), str(state.resolve()), str(prefix / state.name)}
     if not result.stdout or not result.stdout.endswith("\n"):
         raise UpdateError("unparsable ps output")
-    for line in result.stdout.splitlines():
+    for line in result.stdout.removesuffix("\n").split("\n"):
         match = re.fullmatch(r"\s*([0-9]+)\s+(\S.*)", line, flags=re.ASCII)
         if not match or int(match[1]) in seen:
             raise UpdateError("unparsable ps output")
@@ -251,19 +255,10 @@ def process_generations(prefix, state, paths_by_pid):
         # ps joins argv without shell quoting; quote/backslash bytes are literal.
         tokens = arguments.split()
         direct_kept = set()
-        token_paths = set()
-        for token in tokens:
-            try:
-                path = Path(token)
-                resolved = path.resolve()
-                direct_kept.add(generation_for(resolved, state))
-                token_paths.update((path.absolute(), resolved))
-            except (OSError, ValueError):
-                # Unrelated argv can contain oversized or otherwise invalid paths.
-                continue
         # ps flattens argv without quoting paths containing spaces. Also match
-        # known absolute paths literally, bounded by argument separators.
-        for root in {str(state), str(prefix / state.name)}:
+        # known absolute paths literally, bounded by argument separators. Never
+        # resolve argv paths: an unrelated network mount could block activation.
+        for root in state_roots:
             for direct in re.finditer(r"(?<!\S)" + re.escape(root)
                                       + r"/([^/\s]+)(?=/|\s|$)", arguments):
                 direct_kept.add(state / direct[1])
@@ -273,7 +268,8 @@ def process_generations(prefix, state, paths_by_pid):
         if paths_by_pid.get(pid):
             continue
         for link in links:
-            if (link.absolute() in token_paths or link.resolve() in token_paths
+            named_cli = tokens[0] == link.name or tokens[0].endswith("/" + link.name)
+            if (named_cli
                     or re.search(r"(?<!\S)" + re.escape(str(link)) + r"(?=\s|$)", arguments)):
                 metadata = package_at_link(link, None, state)
                 held[link.name] = metadata["name"] if metadata else None

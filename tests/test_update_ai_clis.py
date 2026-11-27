@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Offline publication/rollback (NIX-524) and bounded generation GC (OPS-723)."""
 
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, ExitStack, redirect_stderr, redirect_stdout
+import fcntl
 import io
 import json
 import os
 from pathlib import Path
 import runpy
+import shutil
 import signal
 import subprocess
 import sys
@@ -113,6 +115,48 @@ sys.stdout.buffer.write(fixture.get("ps_output", "").encode("utf-8", errors="sur
 sys.stderr.write(fixture.get("ps_stderr", ""))
 sys.exit(fixture.get("ps_status", 0))
 '''
+REAL_RUN = subprocess.run
+REAL_POPEN = subprocess.Popen
+
+
+@contextmanager
+def offline_processes(root):
+    """Route Darwin ps to the fixture; reject host scans before spawning."""
+    def offline_run(command, *args, **kwargs):
+        if command[0] == "/bin/ps":
+            command = [str(root / "ps"), *command[1:]]
+        return REAL_RUN(command, *args, **kwargs)
+
+    def guarded_popen(command, *args, **kwargs):
+        executable = os.fsdecode(kwargs.get("executable") or command[0])
+        name = Path(executable).name
+        if executable == "/bin/ps":
+            raise AssertionError("offline test attempted unredirected /bin/ps")
+        if name in ("ps", "lsof"):
+            environment = kwargs.get("env")
+            path = (os.environ if environment is None else environment).get("PATH", os.defpath)
+            resolved = shutil.which(executable, path=path)
+            if resolved is None:
+                raise FileNotFoundError(executable)
+            if Path(resolved).resolve() != (root / name).resolve():
+                raise AssertionError(f"offline test attempted non-fixture {name}: {resolved}")
+        return REAL_POPEN(command, *args, **kwargs)
+
+    with mock.patch.object(subprocess, "run", side_effect=offline_run):
+        with mock.patch.object(subprocess, "Popen", side_effect=guarded_popen):
+            yield
+
+
+# Use the same routing and launch guard in updater subprocesses and in-process
+# tests. Keep production's fixed Darwin command observable to command mocks.
+OFFLINE_DRIVER = '''
+import os, runpy, sys
+from pathlib import Path
+helpers = runpy.run_path(sys.argv[1])
+sys.argv = sys.argv[2:]
+with helpers["offline_processes"](Path(os.environ["FIXTURE"]).parent):
+    runpy.run_path(sys.argv[0], run_name="__main__")
+'''
 
 
 class UpdateTests(unittest.TestCase):
@@ -150,6 +194,9 @@ class UpdateTests(unittest.TestCase):
                         LSOF_CALLS=str(self.lsof_log),
                         SLEEP_PID=str(self.root / "sleep-pid"),
                         READY=str(self.ready), GROK_HOME=str(self.root / "live-grok"))
+        self.process_guards = ExitStack()
+        self.addCleanup(self.process_guards.close)
+        self.process_guards.enter_context(offline_processes(self.root))
         self.command = [sys.executable, str(SCRIPT), "--prefix", str(self.prefix),
                         "--packages", str(self.packages), "--allow-scripts",
                         str(self.approvals)]
@@ -167,8 +214,20 @@ class UpdateTests(unittest.TestCase):
 
     def run_update(self, *args):
         self.data.write_text(json.dumps(self.fixture))
-        return subprocess.run(self.command + list(args), env=self.env,
+        return subprocess.run(self.offline_command + list(args), env=self.env,
                               capture_output=True, text=True, timeout=20)
+
+    @property
+    def offline_command(self):
+        return [sys.executable, "-c", OFFLINE_DRIVER, str(Path(__file__).resolve()),
+                *self.command[1:]]
+
+    def test_offline_process_guard_rejects_host_scans(self):
+        for command in (["/bin/ps"], ["/usr/sbin/lsof"], ["/usr/bin/ps"]):
+            with self.subTest(command=command):
+                with mock.patch.object(shutil, "which", return_value=command[0]):
+                    with self.assertRaisesRegex(AssertionError, "offline test attempted"):
+                        subprocess.Popen(command)
 
     def calls(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()]
@@ -281,7 +340,7 @@ class UpdateTests(unittest.TestCase):
     def start_slow_update(self):
         self.fixture["delay"] = 0.5
         self.data.write_text(json.dumps(self.fixture))
-        process = subprocess.Popen(self.command, env=self.env, stdout=subprocess.PIPE,
+        process = subprocess.Popen(self.offline_command, env=self.env, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True, start_new_session=True)
         self.addCleanup(lambda: process.poll() is None and os.killpg(process.pid, signal.SIGKILL))
         deadline = time.monotonic() + 5
@@ -628,7 +687,7 @@ class UpdateTests(unittest.TestCase):
         self.assertNotIn("warning", result.stderr)
         self.assertNotIn("holding all generations of claude", result.stdout)
 
-    def test_ps_pi_launch_link_without_lsof_holds_all_pi_generations(self):
+    def configure_pi(self):
         (self.prefix / "bin/claude").rename(self.prefix / "bin/pi")
         self.old_targets["pi"] = self.old_targets.pop("claude")
         self.fixture["bins"]["@test/one"] = "pi"
@@ -636,9 +695,14 @@ class UpdateTests(unittest.TestCase):
             {"name": name, "version": "latest", "bin": binary}
             for name, binary in self.fixture["bins"].items()
         ]))
+        (self.prefix / "bin/pi-rpc").symlink_to(self.prefix / "bin/pi")
+
+    def assert_pi_hold(self, output):
+        self.configure_pi()
         oldest = self.advance("2.0.0")
         previous = self.advance("3.0.0")
-        self.fixture["ps_output"] = f"123 node {self.prefix / 'bin/pi'}\n"
+        unknown = self.stage()
+        self.fixture["ps_output"] = output
         live = self.advance("4.0.0")
         self.assertTrue(oldest["pi"].is_dir())
         self.assertFalse(oldest["codex"].exists())
@@ -647,6 +711,38 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("warning", result.stderr)
         self.assertIn("holding all generations of pi", result.stdout)
+        self.assertTrue(unknown.exists())
+        self.fixture["ps_output"] = ""
+        result = self.run_update()
+        self.assertNotIn("warning", result.stderr)
+        self.assertFalse(oldest["pi"].exists())
+        self.assertFalse(unknown.exists())
+
+    def test_ps_pi_launch_link_without_lsof_holds_all_pi_generations(self):
+        self.assert_pi_hold(f"123 node {self.prefix / 'bin/pi'}\n")
+
+    def test_ps_pi_process_title_holds_all_pi_generations(self):
+        self.assert_pi_hold("123 pi\n")
+
+    def test_ps_pi_rpc_and_path_titles_hold_all_pi_generations(self):
+        self.configure_pi()
+        oldest = self.advance("2.0.0")
+        self.advance("3.0.0")
+        self.fixture["versions"] = dict.fromkeys(self.fixture["bins"], "4.0.0")
+        for arguments in ("pi --mode rpc", "pi-rpc", "/some/path/pi", "/some/path/pi-rpc"):
+            with self.subTest(arguments=arguments):
+                self.fixture["ps_output"] = f"124 {arguments}\n"
+                result = self.run_update()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("warning", result.stderr)
+                self.assertIn("holding all generations of pi", result.stdout)
+                self.assertTrue(oldest["pi"].exists())
+                self.assertFalse(oldest["codex"].exists())
+        self.fixture["ps_output"] = "124 node pi pi-rpc\n125 pi-helper\n126 /some/not-pi\n"
+        result = self.run_update()
+        self.assertNotIn("warning", result.stderr)
+        self.assertNotIn("holding all generations", result.stdout)
+        self.assertFalse(oldest["pi"].exists())
 
     def test_ps_mixed_pid_coverage_holds_all_generations_of_same_cli(self):
         busy = self.advance("2.0.0")
@@ -675,27 +771,101 @@ class UpdateTests(unittest.TestCase):
         self.assertTrue(busy["claude"].is_dir())
         self.assertFalse(obsolete["claude"].exists())
 
-    def test_ps_literal_direct_path_with_spaces_and_alias_keep_generation(self):
+    def test_ps_literal_direct_paths_with_spaces_and_state_alias_keep_generation(self):
         self.advance("2.0.0")
         busy = self.stage()
-        alias = self.root / "generation-alias"
-        alias.symlink_to(busy / "payload")
-        for argument in [str(busy / "payload"), str(alias)]:
+        alias = self.root / "prefix-alias"
+        alias.symlink_to(self.prefix, target_is_directory=True)
+        self.command[self.command.index("--prefix") + 1] = str(alias)
+        for argument in [str(busy / "payload"), str(alias / self.state.name / busy.name / "payload")]:
             with self.subTest(argument=argument):
                 self.fixture["ps_output"] = f"123 node {argument}\n"
                 result = self.run_update()
                 self.assertNotIn("warning", result.stderr)
                 self.assertTrue(busy.exists())
 
-    def test_ps_link_alias_resolves_through_launch_link(self):
+    def test_ps_arbitrary_aliases_are_not_resolved(self):
         oldest = self.advance("2.0.0")
         self.advance("3.0.0")
         alias = self.root / "alias"
         alias.symlink_to(self.prefix / "bin/claude")
         self.fixture["ps_output"] = f"123 node {alias}\n"
         self.advance("4.0.0")
+        self.assertFalse(oldest["claude"].exists())
+        self.assertFalse(oldest["codex"].exists())
+
+    def test_ps_scan_never_resolves_process_arguments(self):
+        self.advance("2.0.0")
+        module = runpy.run_path(str(SCRIPT))
+        arguments = ["node", "/Volumes/stale-mount/payload", "relative-path", "x" * 10000]
+        output = f"{os.getpid()} python updater\n123 {' '.join(arguments)}\n"
+        real_resolve = Path.resolve
+        def resolve(path, *args, **kwargs):
+            self.assertNotIn(str(path), arguments, "process argument accessed on disk")
+            return real_resolve(path, *args, **kwargs)
+        result = subprocess.CompletedProcess([], 0, output, "")
+        with mock.patch.object(Path, "resolve", resolve):
+            with mock.patch.object(subprocess, "run", return_value=result):
+                self.assertEqual(module["process_generations"](self.prefix, self.state, {}), set())
+
+    def test_ps_unicode_line_separator_does_not_block_prune(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        self.fixture["ps_output"] = "123 agent pasted\u2028prompt\n"
+        result = self.run_update()
+        self.assertNotIn("warning", result.stderr)
+        self.assertFalse(stale.exists())
+
+    def test_ps_wrapper_with_literal_link_holds_cli(self):
+        oldest = self.advance("2.0.0")
+        self.advance("3.0.0")
+        self.fixture["ps_output"] = f"123 bash -c echo starting; {self.prefix / 'bin/claude'} --mode rpc; wait\n"
+        self.advance("4.0.0")
         self.assertTrue(oldest["claude"].exists())
         self.assertFalse(oldest["codex"].exists())
+
+    def test_prune_with_wrapper_only_activation_path(self):
+        self.advance("2.0.0")
+        module = runpy.run_path(str(SCRIPT))
+        runtime = self.root / "runtime-inputs"
+        for package, executable, target in (
+                ("python3", "python3", Path(sys.executable)),
+                ("lsof", "lsof", self.lsof),
+                ("coreutils", "sleep", self.root / "sleep"),
+                ("procps", "ps", self.root / "ps")):
+            directory = runtime / package / "bin"
+            directory.mkdir(parents=True)
+            (directory / executable).symlink_to(target)
+        activation = self.root / "activation-bin"
+        activation.mkdir()
+        base_path = [runtime / name / "bin" for name in ("python3", "lsof", "coreutils")]
+        real_run = subprocess.run
+        ps_calls = []
+        def scan(command, **kwargs):
+            if command[0] in ("ps", "/bin/ps"):
+                ps_calls.append(command[0])
+                if command[0] == "/bin/ps":
+                    # Supply fixture output only; retain and assert the fixed
+                    # production command, independent of the activation PATH.
+                    return real_run([sys.executable, str(self.root / "ps"), *command[1:]], **kwargs)
+            return real_run(command, **kwargs)
+        for platform_name, procps, prunes in (("darwin", False, True),
+                                              ("linux", True, True),
+                                              ("linux", False, False)):
+            stale = self.stage()
+            directories = base_path + ([runtime / "procps/bin"] if procps else []) + [activation]
+            restricted = dict(self.env, PATH=os.pathsep.join(map(str, directories)))
+            before = len(self.lsof_log.read_text().splitlines())
+            with mock.patch.dict(os.environ, restricted), mock.patch.object(sys, "platform", platform_name):
+                with mock.patch.object(subprocess, "run", side_effect=scan):
+                    with (self.state / "lock").open("r+") as lock:
+                        fcntl.flock(lock, fcntl.LOCK_EX)
+                        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
+                            module["prune_generations"](self.prefix, self.state, [])
+            self.assertEqual(ps_calls[-1], "/bin/ps" if platform_name == "darwin" else "ps")
+            self.assertEqual(len(self.lsof_log.read_text().splitlines()), before + 1)
+            self.assertEqual(stale.exists(), not prunes)
+            self.assertEqual("warning:" in stderr.getvalue(), not prunes, stderr.getvalue())
 
     def test_ps_unrelated_argument_content_does_not_block_prune_or_link_hold(self):
         # Each is literal argv content, never a shell program to parse. The
@@ -774,7 +944,7 @@ class UpdateTests(unittest.TestCase):
         real_run = subprocess.run
         for error in [FileNotFoundError("ps"), subprocess.TimeoutExpired("ps", 60)]:
             def scan(command, **kwargs):
-                if command[0] == "ps":
+                if command[0] in ("ps", "/bin/ps"):
                     raise error
                 return real_run(command, **kwargs)
             with self.subTest(error=error), mock.patch.dict(os.environ, self.env):
@@ -937,11 +1107,14 @@ class UpdateTests(unittest.TestCase):
         self.data.write_text(json.dumps(self.fixture))
         module = runpy.run_path(str(SCRIPT))
         with mock.patch.dict(os.environ, self.env), mock.patch.object(sys, "argv", self.command[1:]):
-            with mock.patch.object(module["shutil"], "rmtree", side_effect=PermissionError("fixture refusal")):
+            with mock.patch.object(module["shutil"], "rmtree",
+                                   side_effect=PermissionError("fixture refusal")) as remove:
                 with redirect_stderr(io.StringIO()) as error, redirect_stdout(io.StringIO()) as output:
                     status = module["main"]()
+        remove.assert_called_once_with(stale.resolve())
         self.assertEqual(status, 0)
         self.assertIn("warning", error.getvalue())
+        self.assertIn("fixture refusal", error.getvalue())
         self.assertIn("published", output.getvalue())
         self.assertTrue(stale.exists())
         for binary in self.old_targets:
@@ -963,6 +1136,12 @@ class UpdateTests(unittest.TestCase):
     def test_prune_guard_removal_mutants_must_fail(self):
         original = SCRIPT.read_text()
         cases = [
+            ('named_cli = tokens[0] == link.name or tokens[0].endswith("/" + link.name)',
+             'named_cli = False', "test_ps_pi_process_title_holds_all_pi_generations"),
+            ('ps_command = "/bin/ps" if sys.platform == "darwin" else "ps"',
+             'ps_command = "ps"', "test_prune_with_wrapper_only_activation_path"),
+            ('result.stdout.removesuffix("\\n").split("\\n")',
+             'result.stdout.splitlines()', "test_ps_unicode_line_separator_does_not_block_prune"),
             ("tokens = arguments.split()", 'tokens = __import__("shlex").split(arguments)',
              "test_ps_unbalanced_quote_does_not_block_prune"),
             ("kept.add(generation_for(link, state))", "pass",

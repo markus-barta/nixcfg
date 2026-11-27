@@ -218,7 +218,7 @@ update leaves each CLI on a complete old or new version.
 Before publication, the updater prints a rollback receipt path. From this
 checkout, `python3 scripts/update-ai-clis.py --rollback RECEIPT` atomically
 restores the previous launch links, refusing if another update changed them.
-Rollback requires a previous installation for every affected CLI. It makes no
+Rollback works per receipt and requires a previous installation for every affected CLI. It makes no
 registry calls. To hold a rollback across switches, pin the affected version
 in `modules/uzumaki/ai-clis-npm-packages.json` through the normal reviewed
 configuration change. Restore CLI receipts before activating a pre-NIX-524
@@ -226,10 +226,15 @@ Home Manager generation, whose updater still writes into the legacy prefix.
 Do not delete old package directories while any
 process may use them, or run a plain `npm install -g` over these managed CLIs.
 Failed staging directories remain until the next successful update prunes them.
-Both `lsof` and `ps` must pass their canaries before pruning. A process using a
-launch link holds all generations of that CLI only when `lsof` attributes no
-file in the updater state directory to that same PID. Attributed processes keep
-their in-use generations. A skipped or incomplete prune warns with the remaining
+Both `lsof` and `ps` must pass their canaries before pruning. Literal argument
+paths under the state directory (or its resolved form) keep that generation.
+When `lsof` attributes no state-directory file to a PID, it holds all generations
+of a CLI if an argument contains its literal launch-link path, or its first
+argument equals the link name or ends with `/<link-name>` (including `pi` and `pi-rpc`).
+Unknown stages are also kept while a CLI is held. Attributed PIDs keep their
+in-use generations. Argument aliases are not resolved on disk.
+A wrapper such as `timeout`, `nohup` or `bash -c` carrying a launch-link path also holds that CLI until a later run.
+A skipped or incomplete prune warns with the remaining
 generation count and total size. Unrelated global commands are preserved. Unsupported
 packages are skipped on that platform;
 other failures keep the prior files and are reported (Home Manager continues,

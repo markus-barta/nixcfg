@@ -1610,7 +1610,9 @@ pixoo-logs:
 # verified CLI is published through an atomic symlink replacement; old package
 # files remain available to running processes and for receipt-based rollback.
 # Pruning keeps every live generation, at most one previous per declared CLI,
-# and in-use generations. Obsolete updater stages (including failed ones) are
+# and lsof/argv holds: a PID without lsof state files holds a CLI when argv
+# contains its literal launch link or argv[0] equals its name or ends in /<name>.
+# Obsolete updater stages (including failed ones) are
 # deleted directly; legacy prefix packages are untouched.
 # After the bump, scripts/codex-doctor.sh checks that the Codex app-server daemon,
 # the package it starts from, and ~/.codex/models_cache.json are not older than
