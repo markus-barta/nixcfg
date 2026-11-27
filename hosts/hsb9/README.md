@@ -62,6 +62,23 @@ Then deploy. Gateway at parents-in-law is confirmed `192.168.1.1` (Fritz!Box);
 DNS via Cloudflare (`1.1.1.1` / `1.0.0.1`). Live at `192.168.1.200` since
 2026-05-31 (NIX-138).
 
+## HostDash status and caching (OPS-746)
+
+`hostdash-status.service` atomically writes `/var/lib/hostdash-status/status.json`
+every minute for host `hsb9`. It enumerates containers, reports
+`compose-hsb9-update.timer`, Docker and SSH, and probes Home Assistant and the
+media app over loopback. No MQTT extras are configured. `hsb9-home` mounts the
+status directory read-only outside its immutable app root and serves it at
+`/status/status.json` with `Cache-Control: no-store`.
+
+HostDash files, including `config.js`, also use `no-store`, with ETag and
+If-Modified-Since validation disabled: Nix store mtimes can be 1970 and
+equal-sized changed files can otherwise receive a stale 304. These rules stay
+inside `location /`; the sibling video and thumbnail locations keep their
+existing private cache and `nosniff` headers. Only `hsb9-home` is force-recreated
+after reconciliation; media app changes instead update a compose content-hash
+label. Introducing that label also recreates media once on the first reconcile.
+
 ## Fernsehaufnahmen (OPS-729, OPS-739)
 
 Open `http://hsb9.lan/fernsehen/` on the home network (or use the host's

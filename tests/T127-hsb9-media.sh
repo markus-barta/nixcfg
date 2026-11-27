@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# OPS-729/OPS-739: offline app/UI tests, host isolation and real nginx config parsing.
+# OPS-729/OPS-739/OPS-746: app/UI, status/cache contracts and real nginx parsing.
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# Eval-free HostDash wiring contract; no NixOS configuration is evaluated.
+grep -Fq '    ../../modules/hostdash-status.nix' "$repo/hosts/hsb9/configuration.nix"
+grep -Fq '    host = "hsb9";' "$repo/hosts/hsb9/configuration.nix"
 python3 -B -m unittest discover -s "$repo/hosts/hsb9/docker/media" -p 'test_*.py' -v
 node --test "$repo/tests/hsb9-media-ui.cjs"
 python3 -B - "$repo" <<'PY'
@@ -15,10 +18,13 @@ import sys
 import tempfile
 
 repo = Path(sys.argv[1])
-spec = json.loads(subprocess.check_output([
-    "nix-instantiate", "--eval", "--strict", "--json",
-    str(repo / "hosts/hsb9/docker/compose-spec.nix"),
-], text=True))
+
+def eval_spec(path):
+    return json.loads(subprocess.check_output([
+        "nix-instantiate", "--eval", "--strict", "--json", str(path),
+    ], text=True))
+
+spec = eval_spec(repo / "hosts/hsb9/docker/compose-spec.nix")
 services = spec["services"]
 media = services["hsb9-media"]
 assert re.fullmatch(r"python:3\.13-alpine3\.23(?:@sha256:[a-f0-9]{64})?", media["image"])
@@ -37,6 +43,9 @@ home = services["hsb9-home"]
 assert "depends_on" not in home
 assert home["ports"] == ["80:80"]
 assert "/etc/hostdash/hsb9/share/hostdash-hsb9:/usr/share/nginx/html:ro" in home["volumes"]
+assert [mount for mount in home["volumes"] if mount.startswith("/var/lib/hostdash-status:")] == [
+    "/var/lib/hostdash-status:/srv/hostdash-status:ro"
+]
 assert "/etc/hsb9-home.conf:/etc/nginx/conf.d/default.conf:ro" in home["volumes"]
 assert "/srv/media/fernsehaufnahmen:/data:ro" in home["volumes"]
 for name, service in services.items():
@@ -49,8 +58,74 @@ for path in ("/srv/media/fernsehaufnahmen", "/srv/media/fernsehaufnahmen/.trash"
 assert 'environment.etc."hsb9-media".source = ./docker/media;' in host
 assert 'environment.etc."hsb9-home.conf".source = ./docker/home.conf;' in host
 assert "./docker/media" in host.split("extraRestartTriggers = [", 1)[1].split("];", 1)[0]
-assert '"hsb9-media"' in host.split("postRecreate = [", 1)[1].split("];", 1)[0]
+assert re.findall(r'"([^"]+)"', host.split("postRecreate = [", 1)[1].split("];", 1)[0]) == [
+    "hsb9-home"
+]
+status = re.search(r"services\.hostdash\.status = \{(.*?)\n  \};", host, re.DOTALL)
+assert status, "hsb9 status configuration missing"
+for directive in ('enable = true;', 'host = "hsb9";', '"compose-hsb9-update.timer"',
+                  '"docker.service"', '"sshd.service"',
+                  'homeassistant = "http://127.0.0.1:8123/";',
+                  'hsb9-media = "http://127.0.0.1/fernsehen/healthz";'):
+    assert directive in status.group(1), directive
+assert "mqttEnvFile" not in status.group(1) and "mqttExtras" not in status.group(1)
+# The label is the store path of the WHOLE media directory, the same source as
+# /etc/hsb9-media: every file (including ones only deployed, like test_app.py),
+# a new file and a mode change must recreate media; nginx-only changes must not.
+assert any(re.fullmatch(r"nixcfg\.media-source=[0-9a-z]{32}-media", label)
+           for label in media["labels"])
+with tempfile.TemporaryDirectory(prefix="t127-compose-") as temporary:
+    fixture = Path(temporary)
+    shutil.copy(repo / "hosts/hsb9/docker/compose-spec.nix", fixture)
+    shutil.copy(repo / "hosts/hsb9/docker/home.conf", fixture)
+    shutil.copytree(repo / "hosts/hsb9/docker/media", fixture / "media")
+    baseline = eval_spec(fixture / "compose-spec.nix")
+    assert baseline == spec
+    with (fixture / "home.conf").open("a") as config:
+        config.write("\n# nginx-only change\n")
+    assert eval_spec(fixture / "compose-spec.nix") == baseline
+
+    def assert_recreates(reason):
+        changed = eval_spec(fixture / "compose-spec.nix")
+        assert changed["services"]["hsb9-media"]["labels"] != media["labels"], reason
+        changed["services"]["hsb9-media"]["labels"] = media["labels"]
+        assert changed == baseline, reason
+
+    deployed = sorted(p for p in (fixture / "media").iterdir() if p.is_file())
+    assert {p.name for p in deployed} >= {"app.py", "app.js", "app.css", "index.html", "test_app.py"}
+    for path in deployed:
+        original = path.read_bytes()
+        path.write_bytes(original + b"\n")
+        assert_recreates(path.name)
+        path.write_bytes(original)
+    extra = fixture / "media" / "new_module.py"
+    extra.write_text("# new file\n")
+    assert_recreates("new file")
+    extra.unlink()
+    mode_target = fixture / "media" / "app.py"
+    mode_target.chmod(mode_target.stat().st_mode | 0o111)
+    assert_recreates("mode change")
+    mode_target.chmod(mode_target.stat().st_mode & ~0o111)
+    assert eval_spec(fixture / "compose-spec.nix") == baseline
 nginx = (repo / "hosts/hsb9/docker/home.conf").read_text()
+
+def location(declaration):
+    match = re.search(r"^    " + re.escape(declaration) + r" \{\n(.*?)^    \}\n",
+                      nginx, re.MULTILINE | re.DOTALL)
+    assert match, f"missing nginx {declaration}"
+    return match.group(1)
+
+# These are sibling locations: no server-level header or validator settings may
+# leak HostDash's policy into the media proxy, video or thumbnail responses.
+assert not re.search(r"^    (?:add_header|etag|if_modified_since)\s", nginx, re.MULTILINE)
+root_block = location("location /")
+for directive in ("try_files $uri $uri/ =404;", "etag off;", "if_modified_since off;",
+                  'add_header Cache-Control "no-store" always;'):
+    assert directive in root_block, directive
+status_block = location("location /status/")
+for directive in ("alias /srv/hostdash-status/;", "autoindex off;",
+                  'add_header Cache-Control "no-store" always;', "default_type application/json;"):
+    assert directive in status_block, directive
 for directive in ("root /usr/share/nginx/html;", "try_files $uri $uri/ =404;", "alias /data/$1;",
                   "disable_symlinks on;", "autoindex off;", "client_max_body_size 0;",
                   "proxy_request_buffering off;", "proxy_set_header Host $http_host;",
@@ -58,6 +133,14 @@ for directive in ("root /usr/share/nginx/html;", "try_files $uri $uri/ =404;", "
                   "proxy_send_timeout 3600s;", "proxy_intercept_errors on;",
                   "location /fernsehen/video/ {\n        return 404;"):
     assert directive in nginx, directive
+# Preserve video hardening and its own cache/security headers.
+video_block = location(r"location ~ ^/fernsehen/video/(?!\.)([^/]+\.(?i:mp4|m4v|mov))$")
+for directive in ("alias /data/$1;", "disable_symlinks on;", "autoindex off;",
+                  "limit_except GET { deny all; }", "types { video/mp4 mp4 m4v; video/quicktime mov; }",
+                  "default_type application/octet-stream;", "access_log off;",
+                  "add_header X-Content-Type-Options nosniff always;",
+                  'add_header Cache-Control "private, no-store" always;'):
+    assert directive in video_block, directive
 # OPS-739: sidecar thumbnails are flat, read-only, GET/HEAD-only, symlink-free files
 # from /data/.thumbs; every other /fernsehen/thumb/ path is a 404 (never the app).
 thumb = re.search(r"\n    location ~ \^/fernsehen/thumb/\(\?!\\\.\)\(\[\^/\]\+\\\.jpg\)\$ \{\n(.*?)\n    \}\n",
@@ -68,10 +151,13 @@ for directive in ("alias /data/.thumbs/$1;", "disable_symlinks on;", "autoindex 
                   "limit_except GET { deny all; }", "types { image/jpeg jpg; }",
                   "add_header X-Content-Type-Options nosniff always;", "access_log off;"):
     assert directive in thumb_block, directive
-assert re.search(r'add_header Cache-Control "private, max-age=\d+" always;', thumb_block)
+assert 'add_header Cache-Control "private, max-age=86400" always;' in thumb_block
 assert "proxy_pass" not in thumb_block and "client_max_body_size" not in thumb_block
 assert "location /fernsehen/thumb/ {\n        return 404;" in nginx
 assert nginx.index("location ~ ^/fernsehen/thumb/") < nginx.index("location /fernsehen/ {")
+for media_block in (video_block, thumb_block, location("location /fernsehen/")):
+    assert "etag off;" not in media_block and "if_modified_since off;" not in media_block
+    assert 'add_header Cache-Control "no-store" always;' not in media_block
 # Preserve app JSON 503 errors while retaining nginx's offline lookup/connect/timeout page.
 assert re.findall(r"^\s*error_page\s+([^;]+);", nginx, re.MULTILINE) == [
     "502 504 /fernsehen-offline.html"
