@@ -1305,6 +1305,71 @@ function toast(message, { action, error = false } = {}) {
   return node;
 }
 
+// ------------------------------------------------- per-recording mutations
+
+// Invariant, per filename, for every request that changes a recording
+// (PATCH edit, DELETE to the Papierkorb, POST restore, PUT thumbnail):
+// 1. One chain: a request is sent only after the previous one settled
+//    (success or failure), so the server applies and answers in user order.
+// 2. Latest wins: only the newest mutation's answer may touch state.videos,
+//    state.trash or the player. An older success is kept aside and applied
+//    only if the newest fails, because it is then what the server holds.
+// 3. A thumbnail PUT changes only thumb_url: merged at once, supersedes none.
+// The editSession token is a separate layer: which dialog, not which data.
+const mutations = new Map(); // filename -> { tail, latest, kept }
+let mutationSeq = 0;
+// send() runs when it is this mutation's turn; apply(result) runs only when
+// the answer is authoritative (see above). Resolves to { result, latest }.
+function mutate(filename, send, apply, { supersedes = true } = {}) {
+  let queue = mutations.get(filename);
+  if (!queue) {
+    queue = { tail: Promise.resolve(), latest: 0, kept: [] };
+    mutations.set(filename, queue);
+  }
+  const seq = ++mutationSeq;
+  if (supersedes) queue.latest = seq;
+  // Decided and applied in one step, before the next mutation is sent.
+  const run = queue.tail
+    .then(() => send())
+    .then(
+      (result) => {
+        const step = () => apply(result);
+        if (!supersedes) {
+          step();
+          // Replayed after an older answer that is still kept aside.
+          if (queue.kept.length) queue.kept.push(step);
+          return { result, latest: true };
+        }
+        if (queue.latest !== seq) {
+          queue.kept = [step];
+          return { result, latest: false };
+        }
+        queue.kept = [];
+        step();
+        return { result, latest: true };
+      },
+      (error) => {
+        if (supersedes && queue.latest === seq) {
+          const kept = queue.kept;
+          queue.kept = [];
+          for (const step of kept) step();
+        }
+        throw error;
+      },
+    );
+  const tail = run.then(
+    () => {},
+    () => {},
+  );
+  queue.tail = tail;
+  // Nothing newer was queued meanwhile: this filename is idle again.
+  void tail.then(() => {
+    if (mutations.get(filename) === queue && queue.tail === tail)
+      mutations.delete(filename);
+  });
+  return run;
+}
+
 // ----------------------------------------------------------------- actions
 
 function replaceIn(list, entry) {
@@ -1312,38 +1377,61 @@ function replaceIn(list, entry) {
 }
 async function trashVideo(video) {
   if (!(await confirmTrash(video))) return;
-  const result = await request("videos/" + encodeURIComponent(video.filename), {
-    method: "DELETE",
-  });
-  state.videos = state.videos.filter(
-    (item) => item.filename !== video.filename,
+  const { result } = await mutate(
+    video.filename,
+    () =>
+      request("videos/" + encodeURIComponent(video.filename), {
+        method: "DELETE",
+      }),
+    (result) => {
+      state.videos = state.videos.filter(
+        (item) => item.filename !== video.filename,
+      );
+      state.trash = [
+        result,
+        ...state.trash.filter((item) => item.filename !== result.filename),
+      ];
+      if (state.playing === video.filename) closePlayer();
+      render();
+    },
   );
-  state.trash = [
-    result,
-    ...state.trash.filter((item) => item.filename !== result.filename),
-  ];
-  if (state.playing === video.filename) closePlayer();
-  render();
   const focused = document.activeElement;
   if (!focused || focused === document.body || focused.isConnected === false)
     ui.libraryTitle.focus();
+  // Shown even when superseded: it reports this action and offers its undo.
   toast(t("toast.trashed"), {
     action: { label: t("toast.undo"), run: () => restoreVideo(result, true) },
   });
 }
 async function restoreVideo(video, undo) {
-  const result = await request(
-    "restore/" + encodeURIComponent(video.filename),
-    {
-      method: "POST",
-    },
-  );
-  state.trash = state.trash.filter((item) => item.filename !== video.filename);
-  state.videos = [
-    result,
-    ...state.videos.filter((item) => item.filename !== result.filename),
-  ];
-  render();
+  try {
+    await mutate(
+      video.filename,
+      () =>
+        request("restore/" + encodeURIComponent(video.filename), {
+          method: "POST",
+        }),
+      (result) => {
+        state.trash = state.trash.filter(
+          (item) => item.filename !== video.filename,
+        );
+        state.videos = [
+          result,
+          ...state.videos.filter((item) => item.filename !== result.filename),
+        ];
+        render();
+      },
+    );
+  } catch (error) {
+    // Rückgängig and Wiederherstellen both pressed: the earlier restore (now
+    // applied) already brought it back, which is all the user wanted.
+    if (
+      error.code === "not_found" &&
+      state.videos.some((item) => item.filename === video.filename)
+    )
+      return;
+    throw error;
+  }
   toast(undo ? t("toast.restored") : t("toast.restoredTrash"));
 }
 function confirmTrash(video) {
@@ -1385,34 +1473,36 @@ async function saveEdit(event) {
   const sameSession = () => session === editSession;
   // Still this save's dialog: same edit session and not closed meanwhile.
   const showing = () => sameSession() && ui.edit.open;
+  // Read the form now: the request may wait for an earlier mutation of this
+  // recording, and by then the dialog can show another draft.
+  const fields = {
+    title: ui.editTitle.value,
+    description: ui.editDescription.value,
+  };
   ui.editSave.disabled = true;
   ui.editSaveLabel.textContent = t("edit.saving");
   ui.editError.hidden = true;
   try {
-    const updated = await request(
-      "videos/" + encodeURIComponent(video.filename),
-      {
-        method: "PATCH",
-        json: {
-          title: ui.editTitle.value,
-          description: ui.editDescription.value,
-        },
+    const { latest } = await mutate(
+      video.filename,
+      () =>
+        request("videos/" + encodeURIComponent(video.filename), {
+          method: "PATCH",
+          json: fields,
+        }),
+      (updated) => {
+        // Serialised, so the answer already carries any stored thumbnail.
+        state.videos = replaceIn(state.videos, updated);
+        if (state.playing === updated.filename) fillPlayer(updated);
+        render();
       },
     );
-    const current = state.videos.find(
-      (item) => item.filename === updated.filename,
-    );
-    // Keep a thumbnail captured while the dialog was open.
-    if (current && current.thumb_url && !updated.thumb_url)
-      updated.thumb_url = current.thumb_url;
-    state.videos = replaceIn(state.videos, updated);
     if (showing()) {
       editVideo = null;
       closeDialog(ui.edit);
     }
-    if (state.playing === updated.filename) fillPlayer(updated);
-    render();
-    toast(t("toast.saved"));
+    // A newer change of this recording reports for itself.
+    if (latest) toast(t("toast.saved"));
   } catch (error) {
     if (showing()) {
       ui.editError.textContent = error.message;
@@ -1719,19 +1809,29 @@ async function captureThumbnail(file) {
 async function storeThumbnail(file, entry, capture = captureThumbnail) {
   try {
     const blob = await capture(file);
-    const updated = await request(
-      "videos/" + encodeURIComponent(entry.filename) + "/thumb",
-      { method: "PUT", raw: blob, type: "image/jpeg" },
+    const { result } = await mutate(
+      entry.filename,
+      () =>
+        request("videos/" + encodeURIComponent(entry.filename) + "/thumb", {
+          method: "PUT",
+          raw: blob,
+          type: "image/jpeg",
+        }),
+      (updated) => {
+        if (!updated.thumb_url) return;
+        // Only thumb_url: a thumbnail supersedes nothing, so the rest of its
+        // answer must neither overwrite newer fields nor resurrect an entry.
+        state.videos = state.videos.map((item) =>
+          item.filename === updated.filename
+            ? { ...item, thumb_url: updated.thumb_url }
+            : item,
+        );
+        renderContinue();
+        renderLibrary();
+      },
+      { supersedes: false },
     );
-    if (!updated.thumb_url) return false;
-    state.videos = state.videos.map((item) =>
-      item.filename === updated.filename
-        ? { ...item, thumb_url: updated.thumb_url }
-        : item,
-    );
-    renderContinue();
-    renderLibrary();
-    return true;
+    return Boolean(result.thumb_url);
   } catch (_) {
     return false; // Non-fatal: the fallback poster stays.
   }

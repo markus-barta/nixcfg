@@ -1411,6 +1411,291 @@ test("a finishing upload never replaces an edit in progress", async () => {
   assert.match(ui.lastToast(), /Video wurde hinzugefügt/);
 });
 
+// ------------------------------------------------ per-recording mutations
+
+// One recording on a fake server. Like the real one, it processes each request
+// when it arrives (arrival order) and answers with the record as it stood
+// then; the answer is delivered only when the test says so, in any order the
+// client allows. `log` is what reached the server, in order.
+function recordingServer(initial) {
+  const name = encodeURIComponent(initial.filename);
+  const server = { record: { ...initial }, trashed: false, pending: [], log: [] };
+  const reply = (status, body) => ({ ok: status < 300, status, json: async () => body });
+  const missing = () => reply(404, { error: "Diese Aufnahme wurde nicht gefunden.", code: "not_found" });
+  const entry = () => ({ ...server.record, trash: server.trashed });
+  const route = (label, process) => (options) => {
+    server.log.push(label(options));
+    const response = process(options);
+    return new Promise((resolve) => server.pending.push(() => resolve(response)));
+  };
+  server.routes = {
+    [`PATCH /fernsehen/api/videos/${name}`]: route(
+      (options) => "PATCH " + JSON.parse(options.body).title,
+      (options) => {
+        const fields = JSON.parse(options.body);
+        if (server.trashed) return missing();
+        if (!fields.title.trim())
+          return reply(400, { error: "Bitte einen Titel eingeben.", code: "title_required" });
+        Object.assign(server.record, fields);
+        return reply(200, entry());
+      },
+    ),
+    [`DELETE /fernsehen/api/videos/${name}`]: route(
+      () => "DELETE",
+      () => {
+        if (server.trashed) return missing();
+        server.trashed = true;
+        return reply(200, entry());
+      },
+    ),
+    [`POST /fernsehen/api/restore/${name}`]: route(
+      () => "POST restore",
+      () => {
+        if (!server.trashed) return missing();
+        server.trashed = false;
+        return reply(200, entry());
+      },
+    ),
+    [`PUT /fernsehen/api/videos/${name}/thumb`]: route(
+      () => "PUT thumb",
+      () => {
+        if (server.trashed) return missing();
+        server.record.thumb_url = `/fernsehen/thumb/${name}.jpg?v=1`;
+        return reply(200, entry());
+      },
+    ),
+  };
+  const answer = async (index) => {
+    server.pending.splice(index, 1)[0]();
+    await settle();
+  };
+  // Deliver every answer, newest (or oldest) pending first, until none is left.
+  server.drain = async (order) => {
+    while (server.pending.length)
+      await answer(order === "newest" ? server.pending.length - 1 : 0);
+  };
+  server.answerOldest = () => answer(0);
+  server.answerNewest = () => answer(server.pending.length - 1);
+  return server;
+}
+async function mutationPage(video = sample(1)) {
+  const server = recordingServer(video);
+  const ui = await page({ videos: [video], routes: server.routes });
+  const edit = ui.dialog("sheet");
+  const form = findAll(edit, (node) => node.localName === "form")[0];
+  const title = ui.document.getElementById("edit-title");
+  const save = findAll(edit, (node) => node.localName === "button" && node.getAttribute("type") === "submit")[0];
+  const error = byClass(edit, "form-error")[0];
+  const card = () => ui.cards().find((node) => node.getAttribute("data-filename") === video.filename);
+  const cardTitle = () => byClass(card(), "card-title-text")[0].textContent;
+  const cardImage = () => findAll(card(), (node) => node.localName === "img")[0];
+  const saveAs = async (value) => {
+    buttonByText(card(), "Bearbeiten")[0].click();
+    title.value = value;
+    form.dispatch("submit");
+    await settle();
+  };
+  const saved = () => ui.toasts().filter((text) => text === "Die Angaben wurden gespeichert.").length;
+  return { ui, video, server, edit, title, save, error, card, cardTitle, cardImage, saveAs, saved };
+}
+const thumbBlob = { size: 1234, type: "image/jpeg" };
+const thumbUrl = "/fernsehen/thumb/Beispielaufnahme%201.mp4.jpg?v=1";
+
+// Gate 3: save A, close, reopen the same recording, save B. However the answers
+// come back, B's fields win and A's never reach the library or B's dialog.
+// "newest" answers the newest pending request first: B before A on a client
+// that sends both at once; a serialising client only ever has one pending.
+for (const order of ["newest", "oldest"]) {
+  test(`same recording: save A, reopen, save B (${order} answer first) ends with B's fields`, async () => {
+    const run = await mutationPage();
+    const { ui, server, edit, save } = run;
+    await run.saveAs("Beispiel A");
+    buttonByText(edit, "Abbrechen")[0].click();
+    await settle();
+    await run.saveAs("Beispiel B");
+    const sentBeforeFirstSettled = [...server.log];
+    const dialogWhilePending = [];
+    while (server.pending.length) {
+      await (order === "newest" ? server.answerNewest() : server.answerOldest());
+      assert.notEqual(run.cardTitle(), "Beispiel A", "a superseded answer never reaches the library");
+      if (server.pending.length) dialogWhilePending.push({ open: edit.open, saving: save.disabled });
+    }
+    assert.equal(run.cardTitle(), "Beispiel B", "B's fields win");
+    assert.equal(server.record.title, "Beispiel B");
+    assert.equal(edit.open, false);
+    assert.deepEqual(dialogWhilePending, [{ open: true, saving: true }], "A's answer leaves B's saving dialog alone");
+    assert.equal(run.saved(), 1, "one Gespeichert, from B");
+    assert.equal(ui.toasts().length, 1, "no error");
+    assert.deepEqual(sentBeforeFirstSettled, ["PATCH Beispiel A"], "the second PATCH waits until the first settled");
+    assert.deepEqual(server.log, ["PATCH Beispiel A", "PATCH Beispiel B"], "the server sees user order");
+  });
+}
+
+test("same recording: if the newer save fails, the older success is what the library shows", async () => {
+  const run = await mutationPage();
+  const { ui, server, edit, save, error } = run;
+  await run.saveAs("Beispiel A");
+  buttonByText(edit, "Abbrechen")[0].click();
+  await settle();
+  await run.saveAs(" ");
+  const sentBeforeFirstSettled = [...server.log];
+  await server.drain("newest");
+  assert.equal(run.cardTitle(), "Beispiel A", "the server holds A, so the library shows A");
+  assert.equal(edit.open, true, "the failed save keeps its dialog");
+  assert.equal(error.hidden, false);
+  assert.equal(error.textContent, "Bitte einen Titel eingeben.");
+  assert.equal(save.disabled, false);
+  assert.deepEqual(sentBeforeFirstSettled, ["PATCH Beispiel A"]);
+  assert.deepEqual(server.log, ["PATCH Beispiel A", "PATCH  "]);
+  assert.equal(run.saved(), 0, "the superseded success stays quiet; the error speaks");
+  assert.equal(ui.toasts().length, 0);
+});
+
+test("Löschen then Rückgängig in quick succession: requests in order, the recording is back", async () => {
+  const run = await mutationPage();
+  const { ui, server, video } = run;
+  const confirm = ui.dialog("sheet-small");
+  const segment = (label) =>
+    findAll(ui.root, (node) => hasClass(node, "segment") && node.textContent.startsWith(label))[0];
+  buttonByText(run.card(), "Löschen")[0].click();
+  await settle();
+  buttonByText(confirm, "In den Papierkorb")[0].click();
+  await settle();
+  assert.deepEqual(server.log, ["DELETE"]);
+  await server.answerOldest();
+  assert.equal(ui.cards().length, 0);
+  assert.equal(ui.lastToast(), "In den Papierkorb gelegt");
+  buttonByText(ui.root, "Rückgängig")[0].click();
+  await settle();
+  // The restore is still in flight; the Papierkorb still lists the recording
+  // and its Wiederherstellen is pressed right away as well.
+  segment("Papierkorb").click();
+  await settle();
+  buttonByText(run.card(), "Wiederherstellen")[0].click();
+  await settle();
+  const sentWhileRestoring = [...server.log];
+  await server.drain("newest");
+  assert.equal(server.trashed, false);
+  assert.equal(ui.cards().length, 0, "nothing left in the Papierkorb");
+  segment("Alle").click();
+  await settle();
+  assert.equal(ui.cards().length, 1, "the recording is back in the library");
+  assert.equal(run.cardTitle(), video.title);
+  assert.deepEqual(
+    ui.toasts(),
+    ["Die Aufnahme ist wieder da."],
+    "one confirmation; the second restore found it back already, so no error",
+  );
+  assert.deepEqual(sentWhileRestoring, ["DELETE", "POST restore"], "the second restore waits for the first");
+  assert.deepEqual(server.log, ["DELETE", "POST restore", "POST restore"]);
+});
+
+test("Löschen right after Speichern waits for the save; Rückgängig brings back the saved title", async () => {
+  const run = await mutationPage();
+  const { ui, server, edit } = run;
+  const confirm = ui.dialog("sheet-small");
+  await run.saveAs("Beispiel A");
+  buttonByText(edit, "Abbrechen")[0].click();
+  await settle();
+  buttonByText(run.card(), "Löschen")[0].click();
+  await settle();
+  buttonByText(confirm, "In den Papierkorb")[0].click();
+  await settle();
+  const sentWhileSaving = [...server.log];
+  await server.drain("newest");
+  assert.equal(ui.cards().length, 0, "the recording is in the Papierkorb");
+  assert.equal(ui.app.state.trash[0].title, "Beispiel A", "with the saved title");
+  assert.deepEqual(ui.toasts(), ["In den Papierkorb gelegt"], "the superseded save stays quiet");
+  buttonByText(ui.root, "Rückgängig")[0].click();
+  await settle();
+  await server.drain("newest");
+  assert.equal(run.cardTitle(), "Beispiel A");
+  assert.deepEqual(sentWhileSaving, ["PATCH Beispiel A"], "the DELETE waits for the PATCH");
+  assert.deepEqual(server.log, ["PATCH Beispiel A", "DELETE", "POST restore"]);
+});
+
+for (const order of ["newest", "oldest"]) {
+  test(`Speichern while a thumbnail PUT is pending keeps the title and the thumbnail (${order} first)`, async () => {
+    const run = await mutationPage();
+    const { ui, server, video } = run;
+    const stored = ui.app.storeThumbnail({ name: "local.mp4" }, video, async () => thumbBlob);
+    await settle();
+    assert.deepEqual(server.log, ["PUT thumb"]);
+    await run.saveAs("Beispiel neu");
+    const sentWhileStoring = [...server.log];
+    await server.drain(order);
+    assert.equal(await stored, true);
+    assert.equal(run.cardTitle(), "Beispiel neu", "the edit's title survives");
+    assert.equal(run.cardImage().src, thumbUrl, "the PUT's thumb_url survives");
+    assert.equal(run.saved(), 1);
+    assert.deepEqual(sentWhileStoring, ["PUT thumb"], "the PATCH waits for the thumbnail PUT");
+    assert.deepEqual(server.log, ["PUT thumb", "PATCH Beispiel neu"]);
+  });
+}
+
+test("a thumbnail captured during a pending save waits for it and neither hides the save nor its title", async () => {
+  const run = await mutationPage();
+  const { ui, server, video } = run;
+  await run.saveAs("Beispiel neu");
+  const stored = ui.app.storeThumbnail({ name: "local.mp4" }, video, async () => thumbBlob);
+  await settle();
+  const sentWhileSaving = [...server.log];
+  await server.drain("newest");
+  assert.equal(await stored, true);
+  assert.equal(run.cardTitle(), "Beispiel neu");
+  assert.equal(run.cardImage().src, thumbUrl);
+  assert.equal(run.saved(), 1, "a thumbnail does not supersede the save's Gespeichert");
+  assert.deepEqual(sentWhileSaving, ["PATCH Beispiel neu"]);
+  assert.deepEqual(server.log, ["PATCH Beispiel neu", "PUT thumb"]);
+});
+
+test("save A, thumbnail, failing save B: the library shows A's title and the thumbnail", async () => {
+  const run = await mutationPage();
+  const { ui, server, video, edit, error } = run;
+  await run.saveAs("Beispiel A");
+  const stored = ui.app.storeThumbnail({ name: "local.mp4" }, video, async () => thumbBlob);
+  buttonByText(edit, "Abbrechen")[0].click();
+  await settle();
+  await run.saveAs(" ");
+  const sentBeforeFirstSettled = [...server.log];
+  await server.drain("oldest");
+  assert.equal(await stored, true);
+  assert.equal(run.cardTitle(), "Beispiel A");
+  assert.equal(run.cardImage().src, thumbUrl, "the thumbnail is replayed after the older answer");
+  assert.equal(error.textContent, "Bitte einen Titel eingeben.");
+  assert.deepEqual(sentBeforeFirstSettled, ["PATCH Beispiel A"]);
+  assert.deepEqual(server.log, ["PATCH Beispiel A", "PUT thumb", "PATCH  "]);
+});
+
+for (const thumbFirst of [false, true]) {
+  test(`a thumbnail PUT never resurrects a recording moved to the Papierkorb (${thumbFirst ? "PUT" : "DELETE"} first)`, async () => {
+    const run = await mutationPage();
+    const { ui, server, video } = run;
+    const confirm = ui.dialog("sheet-small");
+    let stored;
+    const storeThumb = async () => {
+      stored = ui.app.storeThumbnail({ name: "local.mp4" }, video, async () => thumbBlob);
+      await settle();
+    };
+    if (thumbFirst) await storeThumb();
+    buttonByText(run.card(), "Löschen")[0].click();
+    await settle();
+    buttonByText(confirm, "In den Papierkorb")[0].click();
+    await settle();
+    if (!thumbFirst) await storeThumb();
+    const sentFirst = [...server.log];
+    await server.drain("newest");
+    assert.equal(await stored, thumbFirst, "a PUT after the move fails silently");
+    assert.equal(ui.cards().length, 0, "nothing is resurrected in the library");
+    assert.equal(ui.app.state.videos.length, 0);
+    assert.equal(ui.app.state.trash.length, 1);
+    assert.equal(ui.app.state.trash[0].thumb_url, thumbFirst ? thumbUrl : undefined);
+    assert.deepEqual(ui.toasts(), ["In den Papierkorb gelegt"], "no error toast");
+    assert.deepEqual(sentFirst, [thumbFirst ? "PUT thumb" : "DELETE"]);
+    assert.deepEqual(server.log, thumbFirst ? ["PUT thumb", "DELETE"] : ["DELETE", "PUT thumb"]);
+  });
+}
+
 // ------------------------------------------------------------ listing (OPS-729)
 
 test("non-JSON listing responses show the existing German error", async () => {
