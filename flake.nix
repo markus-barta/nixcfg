@@ -64,14 +64,14 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 74: v261127030049.0.0 (sequence 144; hausnetz main 110e5208 = merge of release PR #464; the tag is on
-    # the merge). Since 73: maintenance and reliability; the only non-test Go change is the CD checker's empty
-    # open-call allowlist (cmd/cd-prepare, not part of the service); UI, tests and CI files. Capability manifest
-    # unchanged (1a85d9dd…); no nix/, flake or Go-dependency change; no new listener, outbound call, credential or
-    # write path (capability review HNET-599). Rollback: previous generation (pin 73); a re-pin below 65 must drop
-    # the homeAssistant block.
+    # HNET pin 76: v261127062553.0.0 (sequence 146; hausnetz main 1b90188c = merge of release PR #472; the tag is on
+    # the merge). Since 75: steadier floor plans; front-end runtime changes only (web/src/plan/view.ts,
+    # web/src/image-load.ts), plus tests, QA/CI and release bookkeeping; no non-test Go; CSP header and index.html
+    # unchanged; capability manifest unchanged
+    # (1a85d9dd…); no nix/, flake or Go-dependency change (check on HNET-607). Rollback: previous generation (pin 75);
+    # a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=110e52080faf3c40f36c45528ceb2ef9c5eecc39";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=1b90188cbabc40a63637fb2de8ddb49b4dbfd63b";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
