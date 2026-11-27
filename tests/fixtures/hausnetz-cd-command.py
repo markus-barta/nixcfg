@@ -73,6 +73,19 @@ if command == "sudo":
 elif command == "ssh":
     script = sys.stdin.read()
     call = shlex.split(args[-1])
+    if args[-2] == "mba@fixture-csb1":
+        if call == ["true"]:
+            assert script == ""
+            event("alarm-route-probe", route="csb1", args=args, text=script)
+            raise SystemExit(1 if scenario.get("probe_fail") == "csb1" else 0)
+        assert args[-1] == "sudo -n /run/current-system/sw/bin/hausnetz-cd-alert"
+        event("secondary-telegram", text=script)
+        raise SystemExit(1 if scenario.get("secondary_telegram_fail") else 0)
+    if call == ["true"]:
+        assert args[-2] == "agents@fixture-agents" and args[-4:-2] == ["-p", "2222"]
+        assert script == ""
+        event("alarm-route-probe", route="remote mailbox", args=args, text=script)
+        raise SystemExit(1 if scenario.get("probe_fail") == "remote mailbox" else 0)
     if call[:3] == ["PATH=$HOME/.local/bin:$PATH", "mbx", "send"]:
         call = call[1:]
         assert args[-2] == "agents@fixture-agents" and args[-4:-2] == ["-p", "2222"]
@@ -245,7 +258,10 @@ elif command == "switch-to-configuration":
                                     for name in ("old-system", "new-system")
                                     if (Path(config["state_dir"]) / name).is_symlink()})
         if scenario.get("activation") is not None:
-            print(scenario["activation"])
+            output = scenario["activation"]
+            if "rehearsal_rollback_output" in scenario and (root / "rolled-back").exists():
+                output = scenario["rehearsal_rollback_output"]
+            print(output, file=sys.stderr if scenario.get("activation_stderr") else sys.stdout)
         else:
             print("would stop the following units: hausnetz.service, polkit.service")
             print("would activate the configuration...")
