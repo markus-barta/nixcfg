@@ -129,6 +129,7 @@ def log_line(result):
             + " problems=" + json.dumps(diagnostics(result.get("problems", [])), separators=(",", ":"))
             + " removed_stale_boot_entries=" + json.dumps(result.get("removed_stale_boot_entries", []), separators=(",", ":"))
             + " acceptance=" + result.get("acceptance", "not_run")
+            + " failed_units_after_activation=" + json.dumps(diagnostics(result.get("failed_units_after_activation", [])), separators=(",", ":"))
             + " memory_peak_bytes=" + str(result.get("memory_peak_bytes") or "unknown")
             + " mode=" + result["mode"] + " status=" + result["status"])
 
@@ -184,17 +185,18 @@ def alarm_ticket_args(config):
 
 def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False):
     if result["mode"] != "live" and not pre_pair and not test and not result.get("rehearsal"):
-        return
+        return False
     ticket_args = alarm_ticket_args(config)
     result = {**result, "changed_paths": diagnostics(result.get("changed_paths")),
               "problems": diagnostics(result.get("problems"))}
-    if result.get("rehearsal") and result.get("old_hausnetz_rev"):
+    if result.get("rehearsal"):
         # Rehearsal transport identity uses the running nixcfg rev in both
         # slots; operator messages identify the actual running hausnetz pin.
-        result["hausnetz_rev"] = revision(result["old_hausnetz_rev"])
+        result["hausnetz_rev"] = revision(result["old_hausnetz_rev"]) if result.get("old_hausnetz_rev") else "unknown"
     message = (label + " nixcfg=" + result["nixcfg_rev"] + " hausnetz=" + result["hausnetz_rev"]
                + " generation=" + str(result.get("generation") or "unknown")[:200]
                + " reason=" + str(result.get("reason") or "unknown")[:200])
+    message += " failed_units_after_activation=" + json.dumps(diagnostics(result.get("failed_units_after_activation", [])), separators=(",", ":"))
     if result.get("ack_command"):
         message += " run_token=" + result["run_id"] + " ack_command=" + result["ack_command"]
     if result.get("alarm_id"):
@@ -202,6 +204,7 @@ def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False
     if not test:
         atomic_json(Path(config["alarm_file"]), {"at": now(), "message": message, "result": result})
     fallback = False
+    delivered = False
     try:
         host, port, user = mailbox_target(config["mailbox_remote_file"])
     except (Manual, OSError, UnicodeError, KeyError, TypeError, ValueError):
@@ -215,6 +218,7 @@ def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False
                 run("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
                             "-o", "StrictHostKeyChecking=yes", "-p", str(port), user + "@" + host,
                             command], data=message, timeout=45)
+                delivered = True
             except Manual:
                 fallback = True
                 alarm_route_failed("remote mailbox " + recipient)
@@ -223,6 +227,7 @@ def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False
             try:
                 run(config["local_mailbox_command"], ["send", recipient, "-f", "mac-ops",
                     *ticket_args, "-m", "-"], data=message, timeout=45)
+                delivered = True
             except (Manual, KeyError):
                 alarm_route_failed("local mailbox " + recipient)
     # Exactly one csb1 attempt, including when remote delivery needed fallback.
@@ -234,8 +239,10 @@ def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False
             continue
         try:
             run(command[0], command[1:], data=message, timeout=45)
+            delivered = True
         except Manual:
             alarm_route_failed(route)
+    return delivered
 
 
 def copy_export(config, result):
@@ -292,10 +299,10 @@ def save_state(config, state):
     atomic_json(config["state_file"], state)
 
 
-def queue_alarm(config, state, key, result, label):
+def queue_alarm(config, state, key, result, label, *, pre_pair=False):
     if ledger(config, "alarms", key).exists():
         return
-    state.setdefault("pending_alarms", {}).setdefault(key, {"result": {**result, "alarm_id": key}, "label": label})
+    state.setdefault("pending_alarms", {}).setdefault(key, {"result": {**result, "alarm_id": key}, "label": label, "pre_pair": pre_pair})
     save_state(config, state)
 
 
@@ -305,7 +312,8 @@ def deliver_alarms(config, state):
     for key, entry in list(state.get("pending_alarms", {}).items()):
         receipt = ledger(config, "alarms", key)
         if not receipt.exists():
-            alarm(config, entry["result"], entry["label"])
+            if not alarm(config, entry["result"], entry["label"], pre_pair=entry.get("pre_pair", False)):
+                continue
             atomic_json(receipt, {"at": now()})
         state["pending_alarms"].pop(key)
         save_state(config, state)
@@ -314,7 +322,8 @@ def deliver_alarms(config, state):
 def report(config, state, key):
     entry = state["reports"][key]
     result = entry["result"]
-    if result["status"] in {"rollback_failed", "unknown", "rehearsal_aborted"} and not entry["alarm"]:
+    if (result["status"] in {"rollback_failed", "unknown", "rehearsal_aborted"}
+            and (result["mode"] == "live" or result.get("rehearsal")) and not entry["alarm"]):
         prefix = "TEST (no action): " if result.get("rehearsal") else ""
         label = "ROLLBACK STATUS UNKNOWN" if result["status"] == "unknown" else ("ROLLBACK FAILED" if result["status"] == "rollback_failed" else "REHEARSAL ABORTED")
         queue_alarm(config, state, result["run_id"] + "-terminal", result, prefix + label)
@@ -374,7 +383,8 @@ def finish(config, state, result):
     if result["status"] not in {"fetch_failed", "vm_test_wait", "preflight_refused"} and not result.get("trial") and not result.get("rehearsal"):
         state["attempted"][key] = {"status": result["status"], "order": order}
         atomic_json(ledger(config, "attempted", key), {"status": result["status"], "at": now()})
-    if result["status"] in {"rollback_failed", "unknown"} or result.get("rollback") == "failed" or result.get("disable_reason"):
+    if (result["status"] == "rollback_failed" or (result["status"] == "unknown" and result["mode"] != "dry-run")
+            or result.get("rollback") == "failed" or result.get("disable_reason")):
         print("hausnetz-cd: disabled latch set after " + result["status"], flush=True)
         state.setdefault("disabled", {"at": now(), "run_id": result["run_id"],
                                       "reason": result.get("disable_reason") or result.get("rollback_reason") or result.get("reason") or result["status"], "alarmed": False,
@@ -383,7 +393,7 @@ def finish(config, state, result):
         if result["mode"] == "live" and state.get("attended_remaining", 3) > 0:
             state["attended_remaining"] -= 1
         state["last_deployed"] = result["nixcfg_rev"]
-    elif result["status"] in {"failed", "rollback_failed", "manual", "unknown"} and not result.get("trial") and not result.get("rehearsal"):
+    elif result["status"] in {"failed", "rolled_back", "rollback_failed", "manual", "unknown"} and not result.get("trial") and not result.get("rehearsal"):
         target = result["hausnetz_rev"]
         if re.fullmatch(r"[0-9a-f]{40}", target):
             state["failed"] = [rev for rev in state["failed"] if rev != target] + [target]
@@ -604,6 +614,22 @@ def tick(config):
             state = {"schema": "inspr.hausnetz-cd-state.v1", "last_deployed": None,
                      "failed": [], "attempted": {}, "pending": None, "reports": {}, "sequence": 0}
         deliver_alarms(config, state)
+        if config.get("clear_failed"):
+            require(not state["pending"], "pending_refuses_clear_failed")
+            target = revision(config["clear_failed"])
+            state["failed"] = [rev for rev in state["failed"] if rev != target]
+            state["attempted"] = {key: entry for key, entry in state["attempted"].items()
+                                  if not re.fullmatch(r"(?:trial-)?[0-9a-f]{40}-" + target, key)}
+            state.pop("evaluated", None)
+            state.setdefault("failed_cleared", []).append({"at": now(), "rev": target, "reason": config["clear_reason"]})
+            state["failed_cleared"] = state["failed_cleared"][-200:]
+            save_state(config, state)
+            # Persist the operator's reason before opening any retry path.
+            for path in ledger(config, "attempted", "unused").parent.glob("*.json"):
+                if re.fullmatch(r"(?:trial-)?[0-9a-f]{40}-" + target, path.stem):
+                    path.unlink()
+            ledger(config, "failed", target).unlink(missing_ok=True)
+            return
         if config.get("clear_disable"):
             require(not state["pending"], "pending_refuses_clear_disable")
             state.pop("disabled", None)
@@ -618,12 +644,17 @@ def tick(config):
                     if (entry["result"].get("run_id") == state["disabled"].get("run_id")
                             and not entry["alarm"]):
                         report(config, state, key)
-                        return
+                        if entry["alarm"]:
+                            return
+                        break  # a legacy dry-run report still needs CD DISABLED
+                prefix = "TEST (no action): " if state["disabled"].get("test") else ""
+                key = state["disabled"].setdefault("alarm_id", uuid.uuid4().hex + "-disabled")
+                queue_alarm(config, state, key,
+                      {"mode": config["mode"], "nixcfg_rev": "unknown", "hausnetz_rev": "unknown"},
+                      prefix + "CD DISABLED", pre_pair=True)
                 state["disabled"]["alarmed"] = True
                 save_state(config, state)
-                prefix = "TEST (no action): " if state["disabled"].get("test") else ""
-                alarm(config, {"mode": config["mode"], "nixcfg_rev": "unknown", "hausnetz_rev": "unknown"},
-                      prefix + "CD DISABLED", pre_pair=True)
+                deliver_alarms(config, state)
             for key in list(state["reports"]):
                 report(config, state, key)
             return
@@ -673,6 +704,8 @@ def tick(config):
             old = evidence(remote(config, "evidence"))
             cache_repo(repo, config["nixcfg_url"], old, new)
             running = lock_pin(blob(repo, old, "flake.lock"))[0]
+            generation = remote(config, "generation", new, run_id=uuid.uuid4().hex).strip()
+            require(generation and len(generation) <= 200, "running_generation_unavailable")
         except (Manual, OSError, KeyError, TypeError, ValueError):
             pre_pair_failure(config, state)
             print("hausnetz-cd: tick skipped; source or running evidence unavailable", flush=True)
@@ -743,11 +776,10 @@ def tick(config):
         if config["mode"] == "live":
             acceptance_settings(config)
             if not acceptance_entrypoint(hausnetz, a):
+                evaluated_tick()
                 finish(config, state, {**result, "status": "preflight_refused",
                                       "reason": "trusted_acceptance_entrypoint_missing", "trial": False})
                 return
-        generation = remote(config, "generation", new, run_id=result["run_id"]).strip()
-        require(generation and len(generation) <= 200, "running_generation_unavailable")
         pending = {"nixcfg_rev": new, "hausnetz_rev": expected, "mode": config["mode"],
                    "running_nixcfg_rev": old, "trusted_hausnetz_rev": a,
                    "trial": bool(config.get("manual_dry_run")),
@@ -781,16 +813,18 @@ def main():
     parser.add_argument("command", nargs="?", choices=["rehearse"])
     parser.add_argument("--variant", choices=["A", "B"])
     parser.add_argument("--clear-disable", action="store_true")
+    parser.add_argument("--clear-failed")
     parser.add_argument("--reason")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--test-alarm", action="store_true")
     args = parser.parse_args()
+    clear_failed = args.clear_failed is not None
     if bool(args.command) != bool(args.variant):
         parser.error("rehearse requires --variant A|B")
-    if args.clear_disable != bool(args.reason and args.reason.strip()):
-        parser.error("--clear-disable requires --reason <text>")
-    if sum((bool(args.command), args.clear_disable, args.test_alarm, args.once or args.dry_run)) > 1:
+    if bool(args.clear_disable or clear_failed) != bool(args.reason and args.reason.strip()):
+        parser.error("--clear-disable or --clear-failed requires --reason <text>")
+    if sum((bool(args.command), args.clear_disable, args.test_alarm, args.once or args.dry_run, clear_failed)) > 1:
         parser.error("operator commands cannot be combined")
     if args.once != args.dry_run:
         parser.error("manual execution requires both --once and --dry-run")
@@ -805,6 +839,8 @@ def main():
             config = {**config, "enabled": True, "mode": "rehearse", "rehearsal": args.variant}
         if args.clear_disable:
             config = {**config, "enabled": True, "clear_disable": True, "clear_reason": args.reason.strip()[:500]}
+        if clear_failed:
+            config = {**config, "enabled": True, "clear_failed": revision(args.clear_failed), "clear_reason": args.reason.strip()[:500]}
         if args.once:
             config = {**config, "enabled": True, "mode": "dry-run", "manual_dry_run": True}
         tick(config)

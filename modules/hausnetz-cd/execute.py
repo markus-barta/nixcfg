@@ -3,6 +3,7 @@
 import argparse
 import fcntl
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -15,7 +16,7 @@ import urllib.parse
 
 from common import (ACCEPTANCE_TIMEOUT, ACK_TIMEOUT, BUILD_TIMEOUT, G3_COMMAND_TIMEOUT, HEALTH_TIMEOUT, Manual, RESULT_SCHEMA,
                     atomic_bytes, atomic_json, blob, cache_repo, coordinate, digest as validate_digest,
-                    evidence, gate_closures, gate_g1, gate_units, http_get, now,
+                    diagnostics, evidence, gate_closures, gate_g1, gate_units, http_get, now,
                     lock_pin, parse_export, private_dir, require, revision, run,
                     run_id as validate_run_id, state_path, strict_json)
 
@@ -205,10 +206,12 @@ def rehearsal_unchanged(before, after, result):
     return True
 
 
-def failed_units():
+def failed_units(*, diagnostic=False):
     units = run("systemctl", ["--failed", "--no-legend", "--plain", "--no-pager"]).splitlines()
     names = [line.split()[0] for line in units if line.strip()]
-    require(not names, "preexisting_failed_units:" + ",".join(names))
+    if not diagnostic:
+        require(not names, "preexisting_failed_units:" + ",".join(names))
+    return diagnostics(names)
 
 
 def rehearsal_units(text):
@@ -385,6 +388,8 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                     result["manifest_sha256"] = old_manifest
                 require(old_manifest == manifest_sha, "running_manifest_disagrees_with_prepare")
                 require(health(config, result["old_proof"]), "old_health_failed")
+            if mode == "live":
+                failed_units()  # refuse before the build, export and backup copy
             if mode == "rehearse":
                 result["readback_before"] = rehearsal_readback(config)
                 new_system = old_system
@@ -513,18 +518,21 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                         require(check.returncode == 0, "rehearsal_rollback_dry_activate_failed")
                         rehearsal_units(check.stdout)
                         require(rehearsal_unchanged(result["readback_before"], rehearsal_readback(config), result), "rehearsal_changed_before_rollback")
-                    failed_units()
                     switching = True
                     try:
                         run(result["old_system"] + "/bin/switch-to-configuration", ["switch"], timeout=None)
                     finally:
                         switching = False
+                        try:
+                            result["failed_units_after_activation"] = failed_units(diagnostic=True)
+                        except Exception:
+                            result["failed_units_after_activation"] = ["unavailable"]
                     require(str(Path(config["current_system"]).resolve(strict=True)) == result["old_system"],
                             "rollback_system_mismatch")
                     require(health(config, result["old_proof"]), "rollback_health_failed")
                     result["rollback"] = "succeeded"
                     result["rollback_health"] = "pass"
-                    if mode == "rehearse":
+                    if mode == "rehearse" or result.get("failed_units_after_activation"):
                         result["status"] = "rolled_back"
                 except Exception as rollback_exc:
                     result["rollback_reason"] = str(rollback_exc) if isinstance(rollback_exc, Manual) else "rollback_execution_error"
@@ -537,6 +545,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                     message = "TEST (no action): " + message
                 message += " hsb0 nixcfg=" + new_rev + " hausnetz=" + (a if mode == "rehearse" else expected)
                 message += " generation=" + os.readlink(config["system_profile"]) + " reason=" + result["reason"]
+                message += " failed_units_after_activation=" + json.dumps(result.get("failed_units_after_activation", []), separators=(",", ":"))
                 result["telegram"] = "sent" if telegram(credentials, message) else "failed"
             result["generation"] = os.readlink(config["system_profile"]) if Path(config["system_profile"]).is_symlink() else None
         if mode == "rehearse":

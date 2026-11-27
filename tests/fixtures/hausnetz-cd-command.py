@@ -136,6 +136,8 @@ elif command == "systemctl":
     if args[0] == "--failed":
         event("failed-units")
         failed = scenario.get("failed_units", "")
+        if scenario.get("failed_units_on_recheck") and occurrence("failed-units") > 1:
+            failed = "broken.service loaded failed failed Broken unit"
         if scenario.get("failed_units_after_switch") and (active_new() or (root / "rolled-back").exists()):
             failed = "broken.service loaded failed failed Broken unit"
         print(failed)
@@ -272,6 +274,8 @@ elif command == "switch-to-configuration":
         if not scenario.get("stale_evidence"):
             Path(config["evidence_file"]).write_text(json.dumps({
                 "schema": "inspr.pharos.nix-deployment-evidence.v1", "source_revision": rev}))
+        if target == config["old_system"] and scenario.get("rollback_exit4"):
+            raise SystemExit(4)  # activation completed, systemd reports failed units
         if target == config["new_system"] and scenario.get("partial_switch_fail"):
             raise SystemExit(1)
     else:
@@ -377,6 +381,9 @@ elif command == "acceptance":
     assert len(args) == 6 and args[1:3] == ["just", "acceptance"]
     assert args[0] == config["old_hnet"] and args[0] != config["new_hnet"]
     assert args[3:] == ["http://fixture.invalid", config["new_version"], config["manifest_sha"]]
+    if scenario.get("acceptance_orphan"):
+        subprocess.Popen([sys.executable, "-c", "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(12)"])
+        time.sleep(12)
     if scenario.get("acceptance_hang"):
         time.sleep(10)
     if scenario.get("acceptance_missing"):

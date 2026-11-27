@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import tempfile
 from urllib.parse import quote
@@ -98,22 +99,52 @@ def run(executable, args, *, timeout=60, data=None, binary=False):
     # select it from literals, the Nix-baked config, or a proved store output.
     # Diagnostics can contain credential-bearing URLs; never return them.
     try:
-        with subprocess.Popen([str(executable), *[str(a) for a in args]],
+        process = subprocess.Popen([str(executable), *[str(a) for a in args]],
                               stdin=subprocess.PIPE if data is not None else None,
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=not binary) as process:
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=not binary,
+                              start_new_session=True)
+        try:
             try:
                 stdout, _ = process.communicate(input=data, timeout=timeout)
             except subprocess.TimeoutExpired as exc:
                 # Give VM adapters time to forward cancellation to their child.
-                process.terminate()
+                def cancel_group(sig):
+                    try:
+                        os.killpg(process.pid, sig)
+                    except ProcessLookupError:
+                        pass
+                    except OSError:
+                        # Some hosts refuse signalling a group whose leader
+                        # already exited. Still reap our child within bounds.
+                        try:
+                            process.send_signal(sig)
+                        except OSError:
+                            pass
+                cancel_group(signal.SIGTERM)
                 try:
                     process.communicate(timeout=3)
                 except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.communicate()
+                    pass
+                # The adapter may exit while a descendant that closed its
+                # pipes still survives. Always finish cancelling the group.
+                cancel_group(signal.SIGKILL)
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    raise Manual("command_unavailable_or_timeout") from exc
+                try:
+                    process.communicate(timeout=1)
+                except subprocess.TimeoutExpired:
+                    # An escaped descendant can still own a pipe. Closing
+                    # our ends must never wait for that descendant to exit.
+                    pass
                 raise Manual("command_unavailable_or_timeout") from exc
             require(process.returncode == 0, "command_failed")
             return stdout
+        finally:
+            for pipe in (process.stdin, process.stdout, process.stderr):
+                if pipe is not None:
+                    pipe.close()
     except OSError as exc:
         raise Manual("command_unavailable_or_timeout") from exc
 

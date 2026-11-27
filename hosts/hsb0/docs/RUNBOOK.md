@@ -578,8 +578,19 @@ The gates compare with the **running** `source_revision` from
 - G5 vm-test reads the hosted `vm-test.yml` workflow via the existing `gh` auth
   on mbp2607 (`gh api`, GET only, no new token). The newest returned workflow run
   must be for the exact candidate hausnetz revision, completed with conclusion
-  `success`. Missing, pending, failed, mismatched or unavailable API evidence
-  refuses live execution before starting the executor. A G5 outage is retryable:
+  `success`. A completed run with `failure`, `cancelled`, `timed_out`,
+  `action_required`, `neutral`, `skipped`, `stale` or `startup_failure` permanently
+  fails that hausnetz revision in the controller, before starting the executor.
+  After inspecting the cause and verifying a successful workflow rerun for that
+  exact revision, an operator can run:
+  `hausnetz-cd --clear-failed <40-character-hausnetz-rev> --reason 'operator verified successful workflow rerun'`.
+  This requires no pending executor, records time/revision/reason, and clears
+  the controller's failed revision and associated attempted-pair tombstones,
+  including entries outside the newest-200 summaries. It preserves reports,
+  other revisions, the disable latch and executor-side attempt tombstones.
+  The next tick reevaluates all gates; this command grants no live approval.
+  Missing, pending, mismatched or unavailable API evidence refuses live
+  execution before starting the executor. A G5 outage is retryable:
   `vm_test_wait` never reserves the pair or marks the hausnetz revision failed.
   Later ticks retry the bounded API call; after `vmTestWaitTimeout` (1800 s by
   default), one alarm reports the continuing wait. A successful G5 resets the
@@ -836,14 +847,20 @@ ticket result line and never reserves a production revision pair.
 
 #### Persistent disable latch and attended live releases (gate 7)
 
-The first `rollback_failed`, including B, every controller `unknown` outcome
+The first `rollback_failed`, including B, every live/rehearsal controller `unknown` outcome
 (interrupted switch, executor crash, status unavailable or poll timeout), and
 any rehearsal drift/unreadable readback after a switch durably write `disabled`
 with the reason in the Mac state **before** reporting the alarm. Every later
 tick, including
 `--once --dry-run` and operator rehearsal, refuses to start work while latched
 and logs the refusal. The triggering failure is the one alarm event; subsequent
-ticks do not repeat it. An unannounced persisted latch alarms once. Disable
+ticks do not repeat it. Dry-run `unknown`, including `--once --dry-run`, does
+not set a latch or send an alarm. An unannounced persisted latch alarms once.
+Alarms are durably queued before marking them announced. A receipt is written
+only after at least one delivery route succeeds; total delivery failure keeps
+the alarm pending for the next tick. This also applies to `CD DISABLED`.
+A crash between delivery and receipt can repeat a message with the same stable
+`alarm_id`. Disable
 cannot clear itself after a restart, success, dry-run or a changed revision.
 Before clearing an uncertain result, the operator must read the executor's
 **final** root-owned result on hsb0, including `status`, `phase`, `rollback`,
@@ -892,20 +909,32 @@ The persistent latch and attended operator-ack policy are **controller-only**.
 The executor requires a controller-provided run ack, but a direct root invocation
 can supply it and is an operator action outside CD. The one-shot rehearsal token
 also binds the controller invocation; it is not protection against root on hsb0.
-Before every switch, including rehearsal rollback, the executor requires
-`systemctl --failed` to be empty. Existing failed unit names are recorded and
-refuse the switch: `rehearsal_aborted` for rehearsal, retryable
+Before the forward switch, the executor requires `systemctl --failed` to be
+empty. Live mode checks before the build/export/backup and again immediately
+before the forward switch. Existing failed unit names are recorded and
+refuse activation: `rehearsal_aborted` for rehearsal, retryable
 `preflight_refused` before live activation, without failing or reserving the pair.
 Fix the units through the normal operator process before retrying. Failed units
-found after activation also block a rollback switch; `rollback_reason` retains
-the unit names, and the disabled latch requires operator recovery.
+after activation never prevent the rollback switch, live or rehearsal; there
+is no failed-unit preflight before rollback. After that switch the executor
+records `failed_units_after_activation` as diagnostics in the result, ticket
+and rollback alarm. Successful rollback with these diagnostics is `rolled_back`
+and sets no latch. For rehearsal A, including a unit that fails during its
+deliberate health failure, the counts remain **1 hsb0-bot Telegram, 0 csb1,
+0 mailbox**. A nonzero rollback switch (including exit 4 after activation),
+failed rollback health or mismatched readbacks is a real rollback failure;
+`rollback_failed` retains diagnostics and sets the latch (rehearsal counts:
+**1 hsb0-bot Telegram, 1 csb1, 2 mailbox**, as for B). Readback drift still
+aborts rehearsal and latches after a switch under the readback safety rules.
 
 #### Trusted acceptance invocation (gate 3 / HNET-611)
 
 The checker belongs to hausnetz (HNET-611); nixcfg supplies only the call and
 rollback contract. Configure `acceptanceCommand` as an argv array for the Mac's
 CI-VM adapter, and `acceptanceUrl` as the service URL. Defaults are `[]` and an
-empty URL: live mode refuses before starting an executor. The array must
+empty URL: live mode refuses before starting an executor. A missing acceptance
+entry point in the trusted revision uses the same 30-minute evaluation shortcut
+as other refusals; a changed main revision triggers fresh checks. The array must
 include `{trusted_rev}`, `{url}`, `{version}` and `{caps_sha256}` placeholders.
 The first value is the **pre-switch running hausnetz revision** validated by G1
 and G2, persisted in the pending run, never the candidate revision. The VM
@@ -926,8 +955,12 @@ bootstrap its own trusted checker.
 
 The adapter is an operator-configured invocation, not a generic checker. It
 must forward stdout/exit status and handle SIGTERM by terminating its VM-side
-child. On timeout the controller sends SIGTERM, allows a three-second grace
-period, then sends SIGKILL if the adapter still runs; SIGKILL cannot be trapped.
+child. Commands start in a new process group. On timeout the controller sends
+SIGTERM to the entire group, allows up to three seconds for pipe cleanup, then
+sends SIGKILL to the group even if the adapter already exited. Reaping the
+adapter and draining its pipes each have a one-second bound; pipes still held
+by an escaped descendant are closed. No timeout path waits indefinitely.
+SIGKILL cannot be trapped.
 Cancellation cleanup therefore must complete within that grace period. The
 adapter must emit exactly one JSON object with literal `"ok": true` for green. Log
 chatter, duplicate JSON keys, missing/malformed JSON, missing checker, red,
