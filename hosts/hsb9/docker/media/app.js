@@ -749,8 +749,19 @@ function guarded(node, action) {
   };
 }
 function setDialogOpen(dialog) {
+  // Re-opening an open dialog (e.g. switching recordings) keeps the element
+  // that opened it, so focus returns there rather than into the dialog.
+  if (dialog.open) return;
   dialog.returnFocus = document.activeElement || null;
-  if (!dialog.open) dialog.showModal();
+  dialog.showModal();
+}
+// Browsers deliver a dialog's "close" event as a queued task. If the dialog
+// was opened again before it arrives, the event is stale and must not tear
+// down what is showing now.
+function onDialogClosed(dialog, handler) {
+  dialog.addEventListener("close", () => {
+    if (!dialog.open) handler();
+  });
 }
 function closeDialog(dialog) {
   if (dialog.open) dialog.close();
@@ -1441,9 +1452,13 @@ function hideResume() {
   ui.resumeSeconds = 0;
 }
 function openPlayer(video, { resume = false, push = true } = {}) {
-  if (state.playing && state.playing !== video.filename)
-    closePlayer({ keepHistory: true });
   if (state.playing === video.filename && ui.player.open) return;
+  // Switching recordings keeps the dialog open: closing and re-opening it
+  // would queue a "close" event that arrives after the new recording.
+  if (state.playing) {
+    stopPlayback();
+    render();
+  }
   state.playing = video.filename;
   fillPlayer(video);
   ui.playerError.hidden = true;
@@ -1468,11 +1483,22 @@ function openPlayer(video, { resume = false, push = true } = {}) {
     ui.playerClose.focus();
   }
 }
+// Where the viewer is. Until the metadata has loaded and a requested seek is
+// applied, currentTime still reads 0: report the pending seek instead (the
+// saved resume point, or 0 after an explicit "Von vorne"). Null means
+// unknown, e.g. a slow or failed load with nothing to resume.
+function playbackPosition() {
+  const video = ui.video;
+  if (pendingSeek !== null) return pendingSeek;
+  return Number(video.readyState) >= 1 ? Number(video.currentTime) || 0 : null;
+}
 function saveProgress(ended) {
   const name = state.playing;
   if (!name) return;
   const video = ui.video;
-  const time = Number(video.currentTime) || 0;
+  const position = playbackPosition();
+  if (position === null && !ended) return;
+  const time = position || 0;
   const duration = Number(video.duration);
   if (!ended && time < 5 && !state.progress[name]) return;
   state.progress = nextProgress(
@@ -1485,10 +1511,11 @@ function saveProgress(ended) {
   );
   writeProgress(storage(), state.progress);
 }
-function closePlayer({ fromHistory = false, keepHistory = false } = {}) {
-  if (!state.playing) return;
+// Save where the viewer is and unload the video; the dialog stays as it is.
+function stopPlayback() {
   saveProgress(false);
   state.playing = null;
+  pendingSeek = null;
   hideResume();
   try {
     if (ui.video.pause) ui.video.pause();
@@ -1497,9 +1524,13 @@ function closePlayer({ fromHistory = false, keepHistory = false } = {}) {
   }
   ui.video.removeAttribute("src");
   if (ui.video.load) ui.video.load();
+}
+function closePlayer({ fromHistory = false } = {}) {
+  if (!state.playing) return;
+  stopPlayback();
   closeDialog(ui.player);
   document.title = t("app.title");
-  if (!fromHistory && !keepHistory) {
+  if (!fromHistory) {
     if (pushedPlayer && history.state && history.state.play) history.back();
     else history.replaceState(null, "", location.pathname + location.search);
   }
@@ -1607,10 +1638,25 @@ function coverCrop(
     height: cropHeight,
   };
 }
+// An object URL for a chosen local file. It is checked before it reaches a
+// media element: only our own blob: scheme, and no markup characters or
+// whitespace (a browser-made object URL never contains any).
+function localObjectUrl(file) {
+  const url = URL.createObjectURL(file);
+  if (!url.startsWith("blob:")) {
+    URL.revokeObjectURL(url);
+    throw new Error("not an object URL");
+  }
+  if (/["'`<>&\s]/.test(url)) {
+    URL.revokeObjectURL(url);
+    throw new Error("unexpected characters in object URL");
+  }
+  return url;
+}
 // Reads the LOCAL file (blob: URL, allowed by media-src) — nothing is
 // downloaded again. Any failure simply leaves the designed fallback poster.
 async function captureThumbnail(file) {
-  const url = URL.createObjectURL(file);
+  const url = localObjectUrl(file);
   const video = document.createElement("video");
   try {
     video.muted = true;
@@ -2276,7 +2322,7 @@ function buildPlayer() {
     event.preventDefault();
     closePlayer();
   });
-  ui.player.addEventListener("close", () => {
+  onDialogClosed(ui.player, () => {
     if (state.playing) closePlayer();
   });
 }
@@ -2336,7 +2382,7 @@ function buildEdit() {
   ui.edit = h("dialog", { class: "sheet", "aria-labelledby": "edit-heading" }, [
     ui.editForm,
   ]);
-  ui.edit.addEventListener("close", () => {
+  onDialogClosed(ui.edit, () => {
     editVideo = null;
   });
 }
@@ -2380,7 +2426,7 @@ function buildConfirm() {
       ]),
     ],
   );
-  ui.confirm.addEventListener("close", () => {
+  onDialogClosed(ui.confirm, () => {
     if (confirmResolve) settleConfirm(false);
   });
 }
@@ -2489,6 +2535,7 @@ if (typeof module === "object" && module.exports) {
     writeProgress,
     paletteIndex,
     coverCrop,
+    localObjectUrl,
     formatClock,
     storeThumbnail,
     startUpload,

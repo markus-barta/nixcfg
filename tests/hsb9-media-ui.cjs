@@ -111,7 +111,12 @@ class FakeElement {
       this.pause = () => {
         this.paused = true;
       };
-      this.load = () => {};
+      // Like the media load algorithm: a new or removed source starts over.
+      this.load = () => {
+        this.readyState = 0;
+        this.currentTime = 0;
+        this.duration = NaN;
+      };
     }
   }
   get id() {
@@ -131,6 +136,7 @@ class FakeElement {
   }
   set src(value) {
     this.setAttribute("src", value);
+    if (this.load) this.load();
   }
   get children() {
     return this.childNodes.filter((node) => node.nodeType === 1);
@@ -231,10 +237,12 @@ class FakeElement {
   showModal() {
     this.open = true;
   }
+  // Like browsers, the "close" event is a queued task, not dispatched inline:
+  // code that re-opens a dialog in the same task sees it arrive afterwards.
   close() {
     if (!this.open) return;
     this.open = false;
-    this.dispatch("close");
+    setImmediate(() => this.dispatch("close"));
   }
   matches() {
     return false;
@@ -767,9 +775,13 @@ test("the player offers Weiter ab / Von vorne, mirrors the URL hash and saves pr
   buttonByText(player, "Von vorne")[0].click();
   assert.equal(resume.hidden, true);
   assert.equal(video.plays, 1);
+  video.readyState = 1;
+  video.duration = 2700;
+  video.currentTime = 754;
+  video.dispatch("loadedmetadata");
+  assert.equal(video.currentTime, 0, "Von vorne wins over the resume seek");
   video.readyState = 4;
   video.currentTime = 2600;
-  video.duration = 2700;
   video.dispatch("pause");
   const saved = JSON.parse(ui.values.get("hsb9-media.progress"))["Beispielaufnahme 1.mp4"];
   assert.equal(saved.watched, true);
@@ -785,6 +797,159 @@ test("the player offers Weiter ab / Von vorne, mirrors the URL hash and saves pr
   player.dispatch("cancel");
   assert.equal(player.open, false);
   assert.equal(ui.location.hash, "");
+});
+
+test("closing before the video has loaded keeps the resume point (slow or failed loading)", async () => {
+  const name = "Beispielaufnahme 1.mp4";
+  const stored = { "hsb9-media.progress": JSON.stringify({ [name]: { t: 754, d: 2700, at: 1 } }) };
+  const saved = (ui) => JSON.parse(ui.values.get("hsb9-media.progress"))[name];
+  const ui = await page({ videos: [sample(1)], stored });
+  const player = ui.dialog("player");
+  const video = findAll(player, (node) => node.localName === "video")[0];
+  const open = () => byClass(ui.cards()[0], "card-link")[0].click();
+  // Slow: closed while the resume prompt still waits for the metadata, with
+  // a stray pause event on the way (currentTime still reads 0).
+  open();
+  assert.equal(video.readyState, 0);
+  video.dispatch("pause");
+  buttonByText(player, "Schließen")[0].click();
+  await settle();
+  assert.equal(saved(ui).t, 754, "a pause before loading saves nothing new");
+  assert.equal(byClass(ui.root, "resume-tile").length, 1, "still offered under Weiterschauen");
+  // Slow after choosing "Weiter ab": the seek is still pending at Esc.
+  open();
+  buttonByText(player, "Weiter ab 12:34")[0].click();
+  player.dispatch("cancel");
+  await settle();
+  assert.equal(player.open, false);
+  assert.equal(saved(ui).t, 754);
+  // Slow from the Weiterschauen row, which resumes without asking.
+  byClass(ui.root, "resume-tile")[0].click();
+  assert.equal(player.open, true);
+  buttonByText(player, "Schließen")[0].click();
+  await settle();
+  assert.equal(saved(ui).t, 754);
+  // Failed: the video never loads.
+  open();
+  video.dispatch("error");
+  assert.equal(byClass(player, "player-error")[0].hidden, false);
+  buttonByText(player, "Schließen")[0].click();
+  await settle();
+  assert.equal(saved(ui).t, 754, "a failed load keeps the progress");
+  // Once the metadata has loaded, the resume seek applies and the real
+  // position is saved again.
+  open();
+  video.readyState = 1;
+  video.duration = 2700;
+  video.dispatch("loadedmetadata");
+  assert.equal(video.currentTime, 754);
+  video.currentTime = 800;
+  buttonByText(player, "Schließen")[0].click();
+  await settle();
+  assert.equal(saved(ui).t, 800);
+  // Only an explicit "Von vorne" may drop the progress before loading.
+  open();
+  buttonByText(player, "Von vorne")[0].click();
+  buttonByText(player, "Schließen")[0].click();
+  await settle();
+  assert.equal(saved(ui).t, 0);
+  assert.equal(byClass(ui.root, "resume-tile").length, 0);
+});
+
+test("switching recordings through the URL hash keeps the new one open", async () => {
+  const stored = {
+    "hsb9-media.progress": JSON.stringify({
+      "Beispielaufnahme 1.mp4": { t: 300, d: 2700, at: 1 },
+      "Beispielaufnahme 2.mp4": { t: 600, d: 2700, at: 2 },
+    }),
+  };
+  const ui = await page({ videos: [sample(1), sample(2)], stored });
+  const card = (number) => ui.cards().find((node) => node.getAttribute("data-filename") === `Beispielaufnahme ${number}.mp4`);
+  const opener = byClass(card(1), "card-link")[0];
+  opener.focus();
+  opener.click();
+  const player = ui.dialog("player");
+  const video = findAll(player, (node) => node.localName === "video")[0];
+  video.readyState = 1;
+  video.duration = 2700;
+  video.dispatch("loadedmetadata");
+  video.currentTime = 420;
+  ui.location.hash = "#play=Beispielaufnahme%202.mp4";
+  ui.window.dispatch("hashchange");
+  // Browsers deliver a dialog's close event later; let any queued one arrive.
+  await settle();
+  await settle();
+  assert.equal(player.open, true, "the second recording stays open");
+  assert.equal(ui.location.hash, "#play=Beispielaufnahme%202.mp4");
+  assert.equal(video.src, "/fernsehen/video/Beispielaufnahme%202.mp4");
+  assert.equal(findAll(player, (node) => hasClass(node, "player-title"))[0].textContent, "Beispielaufnahme 2");
+  assert.equal(buttonByText(player, "Weiter ab 10:00").length, 1);
+  const progress = JSON.parse(ui.values.get("hsb9-media.progress"));
+  assert.equal(progress["Beispielaufnahme 1.mp4"].t, 420, "the first recording's position is saved");
+  assert.equal(progress["Beispielaufnahme 2.mp4"].t, 600, "the second one's is untouched");
+  // A close event that arrives after the dialog was opened again is stale.
+  player.close();
+  player.showModal();
+  await settle();
+  assert.equal(player.open, true);
+  assert.equal(ui.location.hash, "#play=Beispielaufnahme%202.mp4");
+  // A real close still closes, and focus leaves the closed player for the page.
+  buttonByText(player, "Schließen")[0].click();
+  await settle();
+  assert.equal(player.open, false);
+  assert.equal(ui.location.hash, "");
+  const focused = ui.document.activeElement;
+  let insidePlayer = false;
+  for (let node = focused; node; node = node.parentNode) if (node === player) insidePlayer = true;
+  assert.ok(focused && focused.isConnected && !insidePlayer, "focus returns to the page, not into the closed player");
+});
+
+test("a stale close event never cancels a re-opened confirm or edit dialog", async () => {
+  const video = sample(1);
+  const calls = [];
+  const json = (body) => async (options) => {
+    calls.push(options);
+    return { ok: true, status: 200, json: async () => body };
+  };
+  const ui = await page({
+    videos: [video],
+    routes: {
+      "DELETE /fernsehen/api/videos/Beispielaufnahme%201.mp4": json({ ...video, trash: true }),
+      "PATCH /fernsehen/api/videos/Beispielaufnahme%201.mp4": json({ ...video, title: "Beispiel neu" }),
+    },
+  });
+  // Microtasks only: the queued close event has not been delivered yet.
+  const microtasks = async () => {
+    for (let index = 0; index < 10; index++) await Promise.resolve();
+  };
+  const confirm = ui.dialog("sheet-small");
+  buttonByText(ui.cards()[0], "Löschen")[0].click();
+  buttonByText(confirm, "Abbrechen")[0].click();
+  await microtasks();
+  buttonByText(ui.cards()[0], "Löschen")[0].click();
+  assert.equal(confirm.open, true);
+  await settle();
+  assert.equal(confirm.open, true, "the first close event does not cancel the second confirm");
+  buttonByText(confirm, "In den Papierkorb")[0].click();
+  await settle();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, "DELETE");
+
+  const again = await page({
+    videos: [video],
+    routes: { "PATCH /fernsehen/api/videos/Beispielaufnahme%201.mp4": json({ ...video, title: "Beispiel neu" }) },
+  });
+  const edit = again.dialog("sheet");
+  buttonByText(again.cards()[0], "Bearbeiten")[0].click();
+  buttonByText(edit, "Abbrechen")[0].click();
+  buttonByText(again.cards()[0], "Bearbeiten")[0].click();
+  await settle();
+  assert.equal(edit.open, true);
+  findAll(edit, (node) => node.localName === "form")[0].dispatch("submit");
+  await settle();
+  assert.equal(calls.length, 2, "Speichern still knows which recording it edits");
+  assert.equal(calls[1].method, "PATCH");
+  assert.equal(edit.open, false);
 });
 
 // ------------------------------------------------------------ rendering
@@ -908,6 +1073,45 @@ test("thumbnail capture crops to cover 960×540", () => {
   assert.deepEqual(app.coverCrop(1920, 1080), { x: 0, y: 0, width: 1920, height: 1080 });
   assert.deepEqual(app.coverCrop(720, 576), { x: 0, y: 85.5, width: 720, height: 405 });
   assert.deepEqual(app.coverCrop(1080, 1920), { x: 0, y: 656.25, width: 1080, height: 607.5 });
+});
+
+test("thumbnail capture only feeds a checked blob: URL to the media element", () => {
+  const app = freshApp();
+  const original = Object.getOwnPropertyDescriptor(globalThis, "URL");
+  const revoked = [];
+  let next;
+  class FakeURL extends URL {
+    static createObjectURL() {
+      return next;
+    }
+    static revokeObjectURL(url) {
+      revoked.push(url);
+    }
+  }
+  Object.defineProperty(globalThis, "URL", { value: FakeURL, configurable: true, writable: true });
+  try {
+    for (const url of [
+      "blob:http://hsb9.test/0f6a7c1e-2b3d-4e5f-8a9b-0c1d2e3f4a5b",
+      "blob:null/0f6a7c1e-2b3d-4e5f-8a9b-0c1d2e3f4a5b",
+    ]) {
+      next = url;
+      assert.equal(app.localObjectUrl({ name: "local.mp4" }), url);
+    }
+    assert.deepEqual(revoked, []);
+    for (const url of [
+      "javascript:alert(1)",
+      "data:text/html,<p>x</p>",
+      "http://hsb9.test/video.mp4",
+      'blob:http://hsb9.test/"><img>',
+      "blob:http://hsb9.test/a b",
+    ]) {
+      next = url;
+      assert.throws(() => app.localObjectUrl({ name: "local.mp4" }), /object URL/, url);
+    }
+    assert.equal(revoked.length, 5, "a refused URL is released again");
+  } finally {
+    Object.defineProperty(globalThis, "URL", original);
+  }
 });
 
 test("a captured thumbnail is PUT with the CSRF header; failures stay silent", async () => {

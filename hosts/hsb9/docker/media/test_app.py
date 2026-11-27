@@ -337,9 +337,28 @@ class LibraryTests(unittest.TestCase):
                 self.library.edit(self.name, {"title": "Beispiel"})
             self.assertEqual(self.library.metadata.read_text(), data)
 
+    def test_data_directories_are_created_0750_or_narrower(self):
+        # The service runs with umask 0027; a fallback mkdir never widens 0750.
+        for mask, expected in ((0o027, 0o750), (0o022, 0o750), (0o000, 0o750), (0o077, 0o700)):
+            directory = Path(self.temporary.name) / f"umask-{mask:03o}"
+            previous = app.os.umask(mask)
+            try:
+                library = app.Library(directory)
+            finally:
+                app.os.umask(previous)
+            for path in (library.trash, library.thumbs):
+                with self.subTest(umask=oct(mask), path=path.name):
+                    self.assertTrue(path.is_dir())
+                    self.assertEqual(path.stat().st_mode & 0o777, expected)
+        # Directories the host already created (tmpfiles) keep their mode.
+        existing = Path(self.temporary.name) / "existing"
+        (existing / ".thumbs").mkdir(parents=True, mode=0o700)
+        (existing / ".thumbs").chmod(0o700)
+        app.Library(existing)
+        self.assertEqual((existing / ".thumbs").stat().st_mode & 0o777, 0o700)
+
     def test_thumb_url_only_for_regular_sidecar_files(self):
         self.assertTrue(self.library.thumbs.is_dir())
-        self.assertEqual(self.library.thumbs.stat().st_mode & 0o777, 0o750)
         entry, = self.library.listing()
         self.assertNotIn("thumb_url", entry)
         thumb = self.library.thumbs / (self.name + ".jpg")
@@ -417,6 +436,42 @@ class LibraryTests(unittest.TestCase):
         self.library.put_thumbnail(self.name, JPEG)
         self.assertFalse(thumb.is_symlink())
         self.assertEqual(outside.read_bytes(), b"preserved")
+
+    def test_put_thumbnail_respects_the_free_space_reserve(self):
+        reserve = 50 * 1024 ** 3
+        thumb = self.library.thumbs / (self.name + ".jpg")
+        # Exactly enough room above the reserve: stored.
+        self.usage.return_value = filesystem(free=reserve + len(JPEG))
+        self.library.put_thumbnail(self.name, JPEG)
+        self.assertEqual(thumb.read_bytes(), JPEG)
+        # One byte short: refused before any temporary file exists. A
+        # replacement needs room for a full copy, even if it is the same size.
+        replacement = JPEG[:-2] + b"new\xff\xd9"
+        for free in (reserve + len(replacement) - 1, reserve, 0):
+            self.usage.return_value = filesystem(free=free)
+            with self.subTest(free=free), mock.patch.object(app.tempfile, "mkstemp") as create, \
+                    mock.patch("sys.stderr", new_callable=io.StringIO) as log:
+                with self.assertRaises(app.Problem) as caught:
+                    self.library.put_thumbnail(self.name, replacement)
+                create.assert_not_called()
+            self.assertEqual((caught.exception.status, caught.exception.code), (507, "insufficient_space"))
+            self.assertEqual(caught.exception.message, app.THUMB_SPACE_ERROR)
+            self.assertEqual(len(log.getvalue().splitlines()), 1)
+            self.assertNotIn("Beispielaufnahme", log.getvalue())
+            self.assertEqual(thumb.read_bytes(), JPEG, "the existing thumbnail stays")
+            self.assertEqual(list(self.library.thumbs.glob(".thumb-*")), [])
+        # The same boundary applies to a first thumbnail, and an operator
+        # override of the reserve is honoured.
+        second = "Beispielaufnahme 2.mp4"
+        (self.directory / second).write_bytes(b"synthetic")
+        self.usage.return_value = filesystem(free=reserve + len(JPEG) - 1)
+        with mock.patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(app.Problem):
+            self.library.put_thumbnail(second, JPEG)
+        self.assertFalse((self.library.thumbs / (second + ".jpg")).exists())
+        with mock.patch.dict(app.os.environ, {"MEDIA_RESERVE_BYTES": "0"}):
+            relaxed = app.Library(self.directory)
+        self.usage.return_value = filesystem(free=len(JPEG))
+        self.assertIn("thumb_url", relaxed.put_thumbnail(second, JPEG))
 
     def test_put_thumbnail_disk_full_returns_507(self):
         with mock.patch.object(app.tempfile, "mkstemp", side_effect=OSError(errno.ENOSPC, "synthetic")):

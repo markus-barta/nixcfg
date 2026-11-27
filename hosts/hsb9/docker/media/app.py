@@ -26,6 +26,7 @@ DATA_DIR = Path("/data")
 MIN_RESERVE_BYTES = 20 * 1024 ** 3
 THUMB_MAX_BYTES = 1024 * 1024
 SPACE_ERROR = "Auf dem Gerät ist nicht genug Platz für dieses Video. Bitte die Betreuung verständigen."
+THUMB_SPACE_ERROR = "Für das Vorschaubild ist nicht genug Platz."
 NAME_ERROR = "Bitte eine Videodatei mit gültigem Namen wählen (.mp4, .m4v oder .mov)."
 METADATA_ERROR = "Die Angaben können gerade nicht gelesen werden. Bitte die Betreuung verständigen."
 
@@ -136,12 +137,10 @@ class Library:
         # The host declares these paths and their ownership; refuse symlinks.
         if any(path.is_symlink() for path in (self.directory, self.trash, self.thumbs)):
             raise ValueError("Data directories must not be symlinks")
+        # tmpfiles normally creates both (0750); the process umask (0027) keeps
+        # a fallback mkdir at 0750 or narrower, never wider.
         self.trash.mkdir(mode=0o750, parents=True, exist_ok=True)
-        try:
-            self.thumbs.mkdir(mode=0o750)
-            os.chmod(self.thumbs, 0o750)  # Independent of the umask; tmpfiles normally creates it.
-        except FileExistsError:
-            pass
+        self.thumbs.mkdir(mode=0o750, exist_ok=True)
         self.lock = threading.RLock()
         self.metadata = self.directory / "metadata.json"
         override = os.environ.get("MEDIA_RESERVE_BYTES")
@@ -168,9 +167,13 @@ class Library:
         print("hsb9-media: upload refused (insufficient disk space)", file=sys.stderr, flush=True)
         raise Problem(507, SPACE_ERROR, "insufficient_space")
 
-    def require_upload_space(self, remaining):
+    def fits(self, size):
+        """True when `size` more bytes leave the free-space reserve untouched."""
         space = self.space()
-        if remaining > space["free_bytes"] - space["reserve_bytes"]:
+        return size <= space["free_bytes"] - space["reserve_bytes"]
+
+    def require_upload_space(self, remaining):
+        if not self.fits(remaining):
             self.disk_full()
 
     def load(self):
@@ -352,6 +355,12 @@ class Library:
         with self.lock:
             self.require(name)
             target = self.thumbnail(name)
+            # Sidecars share the recordings' filesystem and its reserve. A
+            # replacement briefly needs room for a full temporary copy next to
+            # the old file, so require the whole size, not the difference.
+            if not self.fits(len(data)):
+                print("hsb9-media: thumbnail refused (insufficient disk space)", file=sys.stderr, flush=True)
+                raise Problem(507, THUMB_SPACE_ERROR, "insufficient_space")
             temporary = None
             try:
                 descriptor, temporary_name = tempfile.mkstemp(prefix=".thumb-", dir=self.thumbs)
@@ -366,7 +375,7 @@ class Library:
                 sync_directory(self.thumbs)
             except OSError as error:
                 if error.errno in {errno.ENOSPC, errno.EDQUOT}:
-                    raise Problem(507, "Für das Vorschaubild ist nicht genug Platz.", "insufficient_space") from None
+                    raise Problem(507, THUMB_SPACE_ERROR, "insufficient_space") from None
                 raise
             finally:
                 if temporary is not None:

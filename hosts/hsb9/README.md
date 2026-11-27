@@ -87,7 +87,10 @@ text for known codes and falls back to the server message.
 under `hsb9-media.progress` as `{ "<filename>": { "t": seconds, "d":
 duration, "at": epoch-ms } }`. It is saved about every 5 seconds and on
 pause/end. From 95 % (or at the end) an entry is marked `"watched": true` and
-loses `t`. Corrupt or foreign data reads as empty. Nothing is sent to hsb9.
+loses `t`. Until a recording's metadata has loaded and the resume seek is
+applied, closing the player keeps the saved position (a slow or failed load
+never resets it); only an explicit “Von vorne” does. Corrupt or foreign data
+reads as empty. Nothing is sent to hsb9.
 
 The Python app has no published port. `hsb9-home` retains port 80 and the
 complete HostDash document root, including `/config.js`, `/manifest.json` and
@@ -108,6 +111,9 @@ Uploads leave a reserve of `max(20 GiB, 10% of the data filesystem's total
 capacity)`. The app checks unprivileged free space before creating a temporary
 file and before each 1 MiB chunk; insufficient space or ENOSPC returns HTTP 507
 and removes the temporary file. Each refusal logs one line without a filename.
+Thumbnail writes honour the same reserve: a PUT needs room for the whole JPEG
+(a replacement briefly holds a temporary copy next to the old one) and is
+otherwise refused with 507 before any file is created.
 `GET /fernsehen/api/videos` returns `videos`, `free_bytes` (filesystem free
 space) and `reserve_bytes`; the UI displays their non-negative difference.
 An administrator can override the reserve with the app environment variable
