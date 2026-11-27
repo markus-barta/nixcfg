@@ -365,6 +365,7 @@ in
     "d /srv/media 0755 root root -"
     "d /srv/media/fernsehaufnahmen 0750 10429 101 -"
     "d /srv/media/fernsehaufnahmen/.trash 0750 10429 101 -"
+    "d /srv/media/fernsehaufnahmen/.thumbs 0750 10429 101 -"
   ];
 
   # Pharos beacon per-host token. Docker Compose reads it as an env_file.

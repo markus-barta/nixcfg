@@ -62,22 +62,41 @@ Then deploy. Gateway at parents-in-law is confirmed `192.168.1.1` (Fritz!Box);
 DNS via Cloudflare (`1.1.1.1` / `1.0.0.1`). Live at `192.168.1.200` since
 2026-05-31 (NIX-138).
 
-## Fernsehaufnahmen (OPS-729)
+## Fernsehaufnahmen (OPS-729, OPS-739)
 
 Open `http://hsb9.lan/fernsehen/` on the home network (or use the host's
-tailnet address with the same path). The German interface lists recordings,
-plays them, edits their title and description, uploads videos with progress,
-and moves individual recordings to a recoverable Papierkorb. It uses no
-external assets or services. Compatible browser playback requires a suitable
-codec, normally H.264 video and AAC audio; renaming a file does not convert it.
+tailnet address with the same path). The interface is a calm media library in
+the HostDash look: poster cards with thumbnails, search, sorting, a
+“Weiterschauen” row, a cinematic player that resumes where playback stopped,
+title/description editing, uploads with progress, and a recoverable
+Papierkorb with “Rückgängig”. It uses no external assets, fonts or services;
+icons are inline SVG. Compatible browser playback requires a suitable codec,
+normally H.264 video and AAC audio; renaming a file does not convert it.
 The HostDash tile is managed in its own repository.
+
+**Language.** German and English share one dictionary in `app.js`. The
+default is the first entry of the browser's language list whose primary
+subtag is `de` or `en` (otherwise English). The DE | EN switch stores the
+choice in `localStorage` under `hostdash.lang` — the same origin-wide key
+HostDash uses (HOSTD-80), so a choice made on either page applies to both,
+including open tabs via the `storage` event. API errors carry a stable
+snake_case `code` next to the German `error` message; the UI shows its own
+text for known codes and falls back to the server message.
+
+**Resume.** Playback progress stays in the browser only, in `localStorage`
+under `hsb9-media.progress` as `{ "<filename>": { "t": seconds, "d":
+duration, "at": epoch-ms } }`. It is saved about every 5 seconds and on
+pause/end. From 95 % (or at the end) an entry is marked `"watched": true` and
+loses `t`. Corrupt or foreign data reads as empty. Nothing is sent to hsb9.
 
 The Python app has no published port. `hsb9-home` retains port 80 and the
 complete HostDash document root, including `/config.js`, `/manifest.json` and
 `/status/status.json`. nginx proxies `/fernsehen/` and directly serves only
 flat `.mp4`, `.m4v` and `.mov` files under `/fernsehen/video/`, including HTTP
-Range requests for seeking. Metadata, hidden files, trash and symlinks are not
-served. Uploads stream to disk with request buffering disabled; neither Python
+Range requests for seeking, and flat `.jpg` thumbnails under
+`/fernsehen/thumb/` (GET/HEAD only, no symlinks, `nosniff`, a one-day private
+cache; the app appends `?v=<mtime>` so a replaced thumbnail is fetched again).
+Metadata, hidden files, trash and symlinks are not served. Uploads stream to disk with request buffering disabled; neither Python
 nor nginx buffers a whole recording. The app accepts raw PUT bodies with
 Content-Length, as sent by the browser, rather than chunked transfer encoding.
 The browser checks space before sending and shows space available for uploads
@@ -105,9 +124,11 @@ No router forwarding or live firewall state was checked as part of this build.
 
 ### Files and metadata
 
-Data lives at `/srv/media/fernsehaufnahmen`, with `.trash` beneath it. The app
-always uses the container mount `/data` as its data root. tmpfiles
-creates both directories as `0750`, UID `10429`, GID `101`. The app runs as
+Data lives at `/srv/media/fernsehaufnahmen`, with `.trash` and `.thumbs`
+beneath it. The app always uses the container mount `/data` as its data root.
+tmpfiles creates all three directories as `0750`, UID `10429`, GID `101`; the
+app refuses to start if any of them is a symlink and creates a missing
+`.thumbs` itself. The app runs as
 `10429:101`; GID 101 also lets nginx's worker read recordings through its
 read-only data mount. Uploaded videos and metadata are `0640`. No setuid or
 setgid bits are used. Code and nginx configuration come from read-only `/etc`
@@ -145,6 +166,42 @@ directory fsync. Stop `hsb9-media` before administratively seeding or replacing
 metadata, then start it again; an external editor does not share its lock.
 Metadata entries survive trashing, restoration and administrative file purges.
 Do not add private recording information to this public repository.
+
+### Thumbnails
+
+Each recording may have a sidecar JPEG at `.thumbs/<video filename>.jpg`, for
+example `.thumbs/Beispielaufnahme 1.mp4.jpg` (the full video name plus
+`.jpg`). The listing adds `thumb_url` only when that path is a regular file;
+symlinks and directories are ignored. Without one, the UI draws a designed
+fallback poster (a warm gradient chosen from the title, a TV glyph and the
+title). Trashing and restoring keep the thumbnail.
+
+After a browser upload the page reads the chosen **local** file through a
+`blob:` URL (the CSP allows `blob:` for media only), seeks to
+`min(10 % of the duration, 120 s)`, draws a 960×540 centre crop and sends it
+as JPEG (quality 0.82) with `PUT /fernsehen/api/videos/<name>/thumb` and the
+usual same-origin headers. The server accepts it only for an active (not
+trashed) recording, at most 1 MiB, starting with `FF D8 FF` and ending with
+`FF D9`; it writes a `.thumb-*` temporary in `.thumbs`, fsyncs, renames it into
+place as `0640` and fsyncs the directory. Stale `.thumb-*` regular files are
+removed at startup. If capture fails (unsupported codec, very large file), the
+fallback poster stays; nothing else is affected. An upload whose final name
+still has a leftover thumbnail removes that thumbnail first.
+
+To seed thumbnails for existing recordings over SSH, prepare 960×540 JPEGs on
+the operator machine (for example with
+`ffmpeg -ss 120 -i in.mp4 -frames:v 1 -vf "scale=960:540:force_original_aspect_ratio=increase,crop=960:540" -q:v 4 out.jpg`),
+then install each one under its exact name (commands run on the host):
+
+```sh
+sudo install -o 10429 -g 101 -m 0640 -T -- /tmp/Beispielaufnahme-1.jpg \
+  /srv/media/fernsehaufnahmen/.thumbs/.staging-admin-1.jpg
+sudo mv -f -T -- /srv/media/fernsehaufnahmen/.thumbs/.staging-admin-1.jpg \
+  "/srv/media/fernsehaufnahmen/.thumbs/Beispielaufnahme-1.mp4.jpg"
+```
+
+The app need not be stopped: thumbnails are not part of `metadata.json`, and
+`mv` replaces the file atomically. Hidden `.staging-*` names are never served.
 
 ### Add, restore and purge over SSH
 
@@ -185,8 +242,10 @@ operation. An administrator can also restore using `sudo mv -n --` from
 `.trash/<filename>` to the active directory after checking the destination.
 The UI has no permanent delete. Permanent purging is an explicit administrator
 task over SSH: stop the app, inspect the selected trash file, then use the
-operator's approved trash tool on that exact path. Removing its metadata entry
-is optional and must preserve the rest of `metadata.json`; restart afterwards.
+operator's approved trash tool on that exact path **and** on its thumbnail
+`.thumbs/<filename>.jpg`, if present. Removing its metadata entry is optional
+and must preserve the rest of `metadata.json`; restart afterwards. (A thumbnail
+left behind is harmless: a later upload with the same final name removes it.)
 
 ### Local validation and container smoke test
 
@@ -208,7 +267,7 @@ no-new-privileges, tmpfs and resource limits as compose:
 ```sh
 docker volume create ops729-media-smoke
 docker run --rm -v ops729-media-smoke:/data python:3.13-alpine3.23 \
-  sh -c 'mkdir -p /data/.trash && chown 10429:101 /data /data/.trash && chmod 0750 /data /data/.trash'
+  sh -c 'mkdir -p /data/.trash /data/.thumbs && chown 10429:101 /data /data/.trash /data/.thumbs && chmod 0750 /data /data/.trash /data/.thumbs'
 docker run -d --init --name ops729-media-smoke --restart unless-stopped \
   --user 10429:101 --read-only --cap-drop ALL \
   --security-opt no-new-privileges:true \
@@ -224,8 +283,8 @@ curl -f http://127.0.0.1:18080/fernsehen/healthz
 ```
 
 Use `http://127.0.0.1:18080/fernsehen/` to test upload, edit, trash and restore.
-Direct app access cannot play videos: playback is intentionally served by
-nginx. For the complete path, put an `nginx:alpine` container on the same test
+Direct app access cannot play videos or show thumbnails: both are
+intentionally served by nginx. For the complete path, put an `nginx:alpine` container on the same test
 network as the app, give the app the network alias `hsb9-media`, mount
 `docker/home.conf` at `/etc/nginx/conf.d/default.conf:ro`, the same test volume
 at `/data:ro`, and a HostDash output at `/usr/share/nginx/html:ro`. Publish only
@@ -233,5 +292,6 @@ that nginx on `127.0.0.1:18081:80`. Confirm the start page and its assets, uploa
 a neutral compatible video, play and seek in Safari/macOS and iPad, then test
 edit → trash → restore. Check `curl -I -H 'Range: bytes=0-31'` against its video
 URL returns 206 and Content-Range. Requests for `metadata.json`, `.trash/` and
-non-video files under `/fernsehen/video/` must fail. The coordinator owns browser
+non-video files under `/fernsehen/video/` must fail, as must `.thumbs/`,
+hidden names and non-`.jpg` paths under `/fernsehen/thumb/`. The coordinator owns browser
 QA, remote NixOS builds, review gates and the later `just switch` deployment.
