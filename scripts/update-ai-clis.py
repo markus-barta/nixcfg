@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """NIX-524: stage npm updates, verify, then atomically publish each CLI link.
 
-Never installs into the live prefix. Legacy packages and previous generations
-stay in place for running processes and rollback. The bin links are the source
-of truth for installed versions, including after an interrupted publication.
+Never installs into the live prefix. Keep each live generation, at most one
+previous generation per CLI for rollback, and generations in use by processes.
+Legacy prefix packages are never pruned. The bin links are the source of truth
+for installed versions, including after an interrupted publication.
 """
 
 import argparse
@@ -13,6 +14,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -144,6 +146,130 @@ def rollback(receipt, prefix):
             print(f"ai-clis: restored {item['bin']}")
 
 
+def generations_in_use(state):
+    # Fixed command name, one recursive scan. macOS can exit 1 for unrelated
+    # mount warnings even with -w. Trust only a scan that sees our open lock.
+    lock_path = (state / "lock").resolve()
+    result = subprocess.run(["lsof", "-w", "-nP", "-F0pfn", "+D", str(state)],
+                            capture_output=True, text=True, timeout=60, check=False)
+    if result.returncode not in (0, 1) or result.stderr:
+        raise UpdateError("lsof scan failed or was incomplete")
+    paths = []
+    process = None
+    self_canary = False
+    process_has_file = False
+    file_pending = False
+    if not result.stdout or not result.stdout.endswith("\0\n"):
+        raise UpdateError("unparsable lsof output")
+    for field in result.stdout.split("\0"):
+        field = field.removeprefix("\n")
+        if not field:
+            continue
+        tag, value = field[0], field[1:]
+        if tag == "p" and value.isascii() and value.isdigit() and not file_pending:
+            if process and not process_has_file:
+                raise UpdateError("incomplete lsof process record")
+            process = int(value)
+            process_has_file = False
+        elif tag == "f" and process and value and not file_pending:
+            file_pending = True
+        elif tag == "n" and file_pending and value.startswith("/") and "\n" not in value:
+            # lsof escapes unusual filename bytes; do not guess their meaning.
+            if "\\" in value or "^" in value:
+                raise UpdateError("unparsable lsof path")
+            path = Path(value)
+            paths.append(path)
+            if process == os.getpid() and path.resolve() == lock_path:
+                self_canary = True
+            file_pending = False
+            process_has_file = True
+        else:
+            raise UpdateError("unparsable lsof output")
+    if file_pending or not process_has_file:
+        raise UpdateError("incomplete lsof output")
+    if not self_canary:
+        raise UpdateError("lsof scan missing this process's open-lock canary")
+    return paths
+
+
+def generation_for(path, state):
+    """Map a resolved path to a direct state child, never to a sibling prefix."""
+    try:
+        relative = path.resolve().relative_to(state)
+    except ValueError:
+        return None
+    return state / relative.parts[0] if relative.parts else None
+
+
+def prune_generations(prefix, state, packages):
+    """Best-effort GC under the publication lock; uncertainty keeps everything."""
+    removed = 0
+    try:
+        state = state.resolve()
+        kept = set()
+        selected_receipts = set()
+        receipts = []
+        for path in state.iterdir():
+            if not re.fullmatch(r"update-[0-9a-f]{32}\.json", path.name):
+                continue
+            if path.is_symlink() or not path.is_file():
+                raise UpdateError("unexpected rollback receipt type")
+            data = read_json(path)
+            if (not isinstance(data, dict) or data.get("schema") != 1
+                    or data.get("prefix") != str(prefix)):
+                raise UpdateError("unexpected rollback receipt")
+            records = data["updates"]
+            if not isinstance(records, list) or any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("bin"), str)
+                or not isinstance(item.get("target"), str)
+                or "previous" not in item
+                or (item["previous"] is not None and not isinstance(item["previous"], str))
+                for item in records
+            ):
+                raise UpdateError("invalid rollback receipt records")
+            receipts.append((path.stat().st_mtime_ns, path, records))
+        receipts.sort(key=lambda entry: (entry[0], entry[1].name), reverse=True)
+        for package in packages:
+            link = prefix / "bin" / package["bin"]
+            current = link_value(link)
+            if current is None:
+                continue
+            kept.add(generation_for(link, state))
+            for _, receipt, records in receipts:
+                match = next((item for item in records
+                              if item["bin"] == package["bin"] and item["target"] == current), None)
+                if match is not None:
+                    selected_receipts.add(receipt)
+                    if match["previous"] is not None:
+                        kept.add(generation_for(link.parent / match["previous"], state))
+                    break
+        # Finish all retention planning before deleting any directory or receipt.
+        kept.update(generation_for(path, state) for path in generations_in_use(state))
+        for path in state.iterdir():
+            if (re.fullmatch(r"package-[A-Za-z0-9_]{8}", path.name)
+                    and not path.is_symlink() and path.is_dir() and path not in kept):
+                shutil.rmtree(path)
+                removed += 1
+                print(f"ai-clis: pruned generation {path}")
+        # Count untouched directories too: receipts referencing them still have
+        # usable evidence. Only updater-owned receipt files can be removed.
+        retained = {path for path in state.iterdir() if path.is_dir() and not path.is_symlink()}
+        for _, receipt, records in receipts:
+            referenced = {generation_for(prefix / "bin" / item[field], state)
+                          for item in records for field in ("target", "previous")
+                          if item[field] is not None}
+            if receipt not in selected_receipts and not referenced.intersection(retained):
+                receipt.unlink()
+    except (UpdateError, OSError, ValueError, KeyError, TypeError,
+            RuntimeError, subprocess.TimeoutExpired) as exc:
+        # Publication already succeeded; GC cannot turn it into a failed update.
+        print(f"ai-clis: warning: generation prune skipped or incomplete ({type(exc).__name__}: {exc})",
+              file=sys.stderr)
+    finally:
+        print(f"ai-clis: pruned {removed} generation(s) total")
+
+
 def update(args, prefix, state):
     packages = read_json(args.packages)
     approvals = read_json(args.allow_scripts)["allowScripts"]
@@ -173,6 +299,7 @@ def update(args, prefix, state):
         return
     if not changes:
         print("ai-clis: all versions current; no installation or launch-link changes")
+        prune_generations(prefix, state, packages)
         return
     for item in changes:
         stage = Path(tempfile.mkdtemp(prefix="package-", dir=state))
@@ -200,6 +327,7 @@ def update(args, prefix, state):
     for item in changes:
         checked_link(prefix / "bin" / item["bin"], item["target"], item["previous"])
         print(f"ai-clis: published {item['bin']} {item['version']}", flush=True)
+    prune_generations(prefix, state, packages)
 
 
 def main():
@@ -225,6 +353,8 @@ def main():
         lock_path = state / "lock"
         descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         with os.fdopen(descriptor, "w") as lock:
+            # Keep this process's descriptor open through update and its lsof
+            # scan; its resolved lock path is the required scan canary.
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:

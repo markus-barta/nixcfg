@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Offline publication, failure, concurrency and rollback tests for NIX-524."""
+"""Offline publication/rollback (NIX-524) and bounded generation GC (OPS-723)."""
 
+from contextlib import redirect_stderr, redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
+import runpy
 import signal
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -56,6 +60,27 @@ elif args[0] == "install":
 else:
     sys.exit(99)
 '''
+FAKE_LSOF = r'''#!/usr/bin/env python3
+import fcntl, json, os, sys
+from pathlib import Path
+fixture = json.loads(Path(os.environ["FIXTURE"]).read_text())
+with open(os.environ["LSOF_CALLS"], "a") as log:
+    log.write(json.dumps(sys.argv[1:]) + "\n")
+# A scan outside the updater's existing lock must fail the fixture.
+with open(Path(sys.argv[-1]) / "lock", "r+") as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        pass
+    else:
+        sys.exit(98)
+if fixture.get("lsof_canary", True):
+    pid = os.getppid() + (1 if fixture.get("lsof_other_pid") else 0)
+    sys.stdout.write(f"p{pid}\0\nf3\0n{(Path(sys.argv[-1]) / 'lock').resolve()}\0\n")
+sys.stdout.write(fixture.get("lsof_output", ""))
+sys.stderr.write(fixture.get("lsof_stderr", ""))
+sys.exit(fixture.get("lsof_status", 0))
+'''
 
 
 class UpdateTests(unittest.TestCase):
@@ -77,11 +102,16 @@ class UpdateTests(unittest.TestCase):
         self.npm = self.root / "npm"
         self.npm.write_text(FAKE_NPM)
         self.npm.chmod(0o755)
+        self.lsof = self.root / "lsof"
+        self.lsof.write_text(FAKE_LSOF)
+        self.lsof.chmod(0o755)
+        self.lsof_log = self.root / "lsof-calls"
         self.log = self.root / "calls"
         self.ready = self.root / "ready"
         self.data = self.root / "fixture.json"
         self.env = dict(os.environ, FIXTURE=str(self.data), CALLS=str(self.log),
                         PATH=f"{self.root}:{os.environ['PATH']}",
+                        LSOF_CALLS=str(self.lsof_log),
                         READY=str(self.ready), GROK_HOME=str(self.root / "live-grok"))
         self.command = [sys.executable, str(SCRIPT), "--prefix", str(self.prefix),
                         "--packages", str(self.packages), "--allow-scripts",
@@ -307,6 +337,347 @@ class UpdateTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual((self.prefix / "bin/claude").read_text(), "unmanaged")
         self.assertFalse(self.log.exists())
+
+    @property
+    def state(self):
+        return self.prefix / ".ai-cli-updates"
+
+    def stage(self, name="package-dead0000"):
+        path = self.state / name
+        path.mkdir(parents=True)
+        (path / "payload").write_text("stale staging")
+        return path
+
+    def advance(self, version):
+        self.fixture["versions"] = dict.fromkeys(self.fixture["bins"], version)
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return {name: Path(target).parents[1] for name, target in self.links().items()}
+
+    def receipt(self, number, records, timestamp):
+        path = self.state / f"update-{number:032x}.json"
+        path.write_text(json.dumps({"schema": 1, "prefix": str(self.prefix), "updates": records}))
+        os.utime(path, ns=(timestamp, timestamp))
+        return path
+
+    def test_prune_keeps_live_and_one_previous_per_cli(self):
+        oldest = self.advance("2.0.0")
+        previous = self.advance("3.0.0")
+        stale = self.stage()
+        live = self.advance("4.0.0")
+        for path in oldest.values():
+            self.assertFalse(path.exists())
+        self.assertFalse(stale.exists())
+        for path in (*previous.values(), *live.values()):
+            self.assertTrue(path.is_dir())
+        self.assertEqual(len(list(self.state.glob("package-*"))), 4)
+        # Legacy packages and the lock are outside the candidate set.
+        for target in self.old_targets.values():
+            self.assertIn("1.0.0", Path(target).read_text())
+        self.assertTrue((self.state / "lock").is_file())
+
+    def test_current_run_prunes_staging_and_logs_once_per_generation(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        failed = self.stage("package-failed00")
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(stale.exists())
+        self.assertFalse(failed.exists())
+        self.assertEqual(result.stdout.count("pruned generation "), 2)
+        self.assertIn("pruned 2 generation(s) total", result.stdout)
+        calls = [json.loads(line) for line in self.lsof_log.read_text().splitlines()]
+        self.assertEqual(len(calls), 2)  # one scan per locked run
+        self.assertEqual(calls[-1], ["-w", "-nP", "-F0pfn", "+D", str(self.state.resolve())])
+
+    def test_running_process_generation_is_kept_until_later_current_run(self):
+        self.advance("2.0.0")
+        busy = self.stage()
+        # Machine-format lsof path includes spaces from the temporary prefix.
+        self.fixture["lsof_output"] = f"p123\0\nf7\0n{busy / 'payload'}\0\n"
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(busy.exists())
+        self.fixture["lsof_output"] = ""
+        self.assertEqual(self.run_update().returncode, 0)
+        self.assertFalse(busy.exists())
+
+    def test_lsof_rc_one_with_canary_prunes_but_keeps_in_use(self):
+        self.advance("2.0.0")
+        busy = self.stage()
+        stale = self.stage("package-stale000")
+        self.fixture.update(lsof_status=1,
+                            lsof_output=f"p123\0\nf7\0n{busy / 'payload'}\0\n")
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("warning", result.stderr)
+        self.assertTrue(busy.exists())
+        self.assertFalse(stale.exists())
+
+    def test_lsof_rc_one_without_canary_keeps_everything(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        receipt = self.receipt(1, [], 1)
+        self.fixture.update(lsof_status=1, lsof_canary=False,
+                            lsof_output=f"p123\0\nf7\0n{stale / 'payload'}\0\n")
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("warning", result.stderr)
+        self.assertIn("missing this process's open-lock canary", result.stderr)
+        self.assertTrue(stale.exists())
+        self.assertTrue(receipt.exists())
+
+    def test_lsof_canary_from_another_pid_keeps_everything(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        receipt = self.receipt(1, [], 1)
+        self.fixture.update(lsof_status=1, lsof_other_pid=True)
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("missing this process's open-lock canary", result.stderr)
+        self.assertTrue(stale.exists())
+        self.assertTrue(receipt.exists())
+
+    def test_lsof_stderr_with_canary_keeps_everything(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        receipt = self.receipt(1, [], 1)
+        self.fixture.update(lsof_status=1, lsof_stderr="lsof: incomplete scan")
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("warning", result.stderr)
+        self.assertTrue(stale.exists())
+        self.assertTrue(receipt.exists())
+
+    def test_lsof_canary_compares_resolved_paths(self):
+        self.state.mkdir()
+        lock = self.state / "lock"
+        lock.touch()
+        alias = self.root / "state-alias"
+        alias.symlink_to(self.state, target_is_directory=True)
+        output = f"p{os.getpid()}\0\nf3\0n{alias / 'lock'}\0\n"
+        module = runpy.run_path(str(SCRIPT))
+        result = subprocess.CompletedProcess([], 1, output, "")
+        with lock.open("r+") as descriptor:
+            with mock.patch.object(module["subprocess"], "run", return_value=result):
+                self.assertFalse(descriptor.closed)
+                self.assertEqual(module["generations_in_use"](self.state), [alias / "lock"])
+
+    def test_lsof_failure_keeps_all_generations_and_receipts(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        receipt = self.receipt(1, [], 1)
+        self.fixture["lsof_status"] = 2
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("warning", result.stderr)
+        self.assertTrue(stale.exists())
+        self.assertTrue(receipt.exists())
+
+    def test_lsof_missing_keeps_everything(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        module = runpy.run_path(str(SCRIPT))
+        with mock.patch.object(module["subprocess"], "run", side_effect=FileNotFoundError("lsof")):
+            with redirect_stderr(io.StringIO()) as error, redirect_stdout(io.StringIO()):
+                module["prune_generations"](self.prefix, self.state, json.loads(self.packages.read_text()))
+        self.assertTrue(stale.exists())
+        self.assertIn("warning", error.getvalue())
+
+    def test_lsof_timeout_keeps_everything(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        module = runpy.run_path(str(SCRIPT))
+        with mock.patch.object(module["subprocess"], "run",
+                               side_effect=subprocess.TimeoutExpired("lsof", 60)):
+            with redirect_stderr(io.StringIO()) as error, redirect_stdout(io.StringIO()):
+                module["prune_generations"](self.prefix, self.state, json.loads(self.packages.read_text()))
+        self.assertTrue(stale.exists())
+        self.assertIn("warning", error.getvalue())
+
+    def test_lsof_unparsable_or_incomplete_scan_keeps_everything(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        for output, error in [
+            ("COMMAND PID NAME\n", ""),
+            ("p123\0\nf7\0nrelative/path\0\n", ""),
+            (f"p123\0\nf7\0n{stale}/payload", ""),
+            ("p123\0\nf7\0\n", ""),
+            ("p123\0\n", ""),
+            ("p123\0\np124\0\nf7\0n/tmp/fixture\0\n", ""),
+            (f"p123\0\nf7\0n{stale}/escaped^Jname\0\n", ""),
+            ("", "lsof: incomplete scan"),
+        ]:
+            with self.subTest(output=output, error=error):
+                self.fixture.update(lsof_output=output, lsof_stderr=error)
+                result = self.run_update()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("warning", result.stderr)
+                self.assertTrue(stale.exists())
+
+    def test_live_generation_is_kept_without_receipts(self):
+        live = self.advance("2.0.0")
+        for path in self.state.glob("update-*.json"):
+            path.unlink()
+        stale = self.stage()
+        self.assertEqual(self.run_update().returncode, 0)
+        self.assertFalse(stale.exists())
+        for path in live.values():
+            self.assertTrue(path.is_dir())
+
+    def test_symlink_named_like_generation_is_untouched(self):
+        self.advance("2.0.0")
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "payload").write_text("unmanaged")
+        link = self.state / "package-symlink0"
+        link.symlink_to(outside, target_is_directory=True)
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("warning", result.stderr)  # must never even attempt rmtree on the link
+        self.assertTrue(link.is_symlink())
+        self.assertEqual((outside / "payload").read_text(), "unmanaged")
+
+    def test_nonmatching_names_files_and_nested_directories_are_untouched(self):
+        self.advance("2.0.0")
+        paths = [self.stage(name) for name in (
+            "package-short", "package-too_long0", "package-hyphen-0", "unmanaged",
+            "unmanaged/package-nested00")]
+        ordinary = self.state / "package-file0000"
+        ordinary.write_text("not a directory")
+        self.assertEqual(self.run_update().returncode, 0)
+        for path in paths:
+            self.assertTrue(path.is_dir())
+        self.assertEqual(ordinary.read_text(), "not a directory")
+
+    def test_check_and_rollback_never_prune_existing_state(self):
+        self.advance("2.0.0")
+        receipt = next(self.state.glob("update-*.json"))
+        stale = self.stage()
+        before = self.lsof_log.read_bytes()
+        for args in [("--check",), ("--rollback", str(receipt))]:
+            result = self.run_update(*args)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(stale.exists())
+            self.assertEqual(self.lsof_log.read_bytes(), before)
+        self.assert_old()
+
+    def test_newest_receipt_rollback_works_after_pruning(self):
+        oldest = self.advance("2.0.0")
+        previous = self.advance("3.0.0")
+        previous_links = self.links()
+        self.advance("4.0.0")
+        receipt = next(path for path in self.state.glob("update-*.json")
+                       if read_receipt_version(path) == "4.0.0")
+        self.assertTrue(all(not path.exists() for path in oldest.values()))
+        result = self.run_update("--rollback", str(receipt))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.links(), previous_links)
+        self.assertTrue(all(path.exists() for path in previous.values()))
+
+    def test_only_newest_matching_receipt_selects_previous(self):
+        self.advance("2.0.0")
+        target = self.links()["claude"]
+        older = self.stage("package-older000")
+        newest = self.stage("package-newest00")
+        stale = self.receipt(1, [{"bin": "claude", "target": target,
+                                  "previous": str(older / "payload")}], 1)
+        selected = self.receipt(2, [{"bin": "claude", "target": target,
+                                     "previous": str(newest / "payload")}], time.time_ns() + 10**9)
+        mismatched = self.receipt(3, [{"bin": "claude", "target": str(older / "payload"),
+                                      "previous": str(older / "payload")}], time.time_ns() + 2 * 10**9)
+        self.assertEqual(self.run_update().returncode, 0)
+        self.assertFalse(older.exists())
+        self.assertTrue(newest.exists())
+        self.assertTrue(selected.exists())
+        self.assertFalse(mismatched.exists())
+        # An old receipt referencing the retained live generation remains useful.
+        self.assertTrue(stale.exists())
+
+    def test_receipts_referencing_no_retained_generation_are_removed(self):
+        self.advance("2.0.0")
+        self.advance("3.0.0")
+        self.advance("4.0.0")
+        stale = self.stage()
+        receipt = self.receipt(1, [{"bin": "claude", "target": str(stale / "payload"),
+                                  "previous": None}], 1)
+        self.assertEqual(self.run_update().returncode, 0)
+        self.assertFalse(receipt.exists())
+        self.advance("5.0.0")
+        self.assertEqual({read_receipt_version(path) for path in self.state.glob("update-*.json")},
+                         {"4.0.0", "5.0.0"})
+
+    def test_prune_error_after_publication_warns_and_exits_zero(self):
+        stale = self.stage()
+        self.data.write_text(json.dumps(self.fixture))
+        module = runpy.run_path(str(SCRIPT))
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(sys, "argv", self.command[1:]):
+            with mock.patch.object(module["shutil"], "rmtree", side_effect=PermissionError("fixture refusal")):
+                with redirect_stderr(io.StringIO()) as error, redirect_stdout(io.StringIO()) as output:
+                    status = module["main"]()
+        self.assertEqual(status, 0)
+        self.assertIn("warning", error.getvalue())
+        self.assertIn("published", output.getvalue())
+        self.assertTrue(stale.exists())
+        for binary in self.old_targets:
+            self.assertIn("2.0.0", (self.prefix / "bin" / binary).read_text())
+
+    def test_malformed_receipt_keeps_all_generations(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        receipt = self.state / f"update-{1:032x}.json"
+        for data in ["{", "[]", '{"schema":1}',
+                     json.dumps({"schema": 1, "prefix": str(self.prefix), "updates": [{}]})]:
+            with self.subTest(data=data):
+                receipt.write_text(data)
+                result = self.run_update()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(stale.exists())
+                self.assertIn("warning", result.stderr)
+
+    def test_prune_guard_removal_mutants_must_fail(self):
+        original = SCRIPT.read_text()
+        cases = [
+            ("kept.add(generation_for(link, state))", "pass",
+             "test_live_generation_is_kept_without_receipts"),
+            ('if match["previous"] is not None:', 'if False:',
+             "test_prune_keeps_live_and_one_previous_per_cli"),
+            ("kept.update(generation_for(path, state) for path in generations_in_use(state))",
+             "generations_in_use(state)",
+             "test_running_process_generation_is_kept_until_later_current_run"),
+            ("raise UpdateError(\"lsof scan failed or was incomplete\")", "return []",
+             "test_lsof_failure_keeps_all_generations_and_receipts"),
+            ("if not self_canary:", "if False:",
+             "test_lsof_rc_one_without_canary_keeps_everything"),
+            ("result.returncode not in (0, 1)", "False",
+             "test_lsof_failure_keeps_all_generations_and_receipts"),
+            ('and not path.is_symlink() and path.is_dir() and path not in kept',
+             'and path.is_dir() and path not in kept',
+             "test_symlink_named_like_generation_is_untouched"),
+            ('re.fullmatch(r"package-[A-Za-z0-9_]{8}", path.name)', 'True',
+             "test_nonmatching_names_files_and_nested_directories_are_untouched"),
+            ("receipt.unlink()", "pass",
+             "test_receipts_referencing_no_retained_generation_are_removed"),
+            ('receipts.sort(key=lambda entry: (entry[0], entry[1].name), reverse=True)',
+             'receipts.sort(key=lambda entry: (entry[0], entry[1].name), reverse=False)',
+             "test_only_newest_matching_receipt_selects_previous"),
+            (' and item["target"] == current', '',
+             "test_only_newest_matching_receipt_selects_previous"),
+        ]
+        for number, (old, new, contract) in enumerate(cases):
+            with self.subTest(contract=contract):
+                self.assertEqual(original.count(old), 1, "missing mutation anchor")
+                mutant = self.root / f"mutant-{number}.py"
+                mutant.write_text(original.replace(old, new))
+                with mock.patch.object(sys.modules[__name__], "SCRIPT", mutant):
+                    result = unittest.TestResult()
+                    UpdateTests(contract).run(result)
+                self.assertFalse(result.errors, result.errors)
+                self.assertEqual(len(result.failures), 1, "guard-removal mutant survived")
+
+
+def read_receipt_version(path):
+    return json.loads(path.read_text())["updates"][0]["version"]
 
 
 if __name__ == "__main__":

@@ -6,6 +6,8 @@
 # Node ships via uzumaki commonPackages; this module npm-installs the CLIs
 # to private generations under ~/.npm-global, with atomic launch links.
 # Every switch checks latest versions; unchanged working CLIs are not reinstalled.
+# Prune to live + at most one previous generation per CLI, retaining any in use.
+# Legacy packages in the prefix's lib/node_modules are never touched.
 #
 # Cursor is a native vendor tarball, not an npm package: pkgs/cursor-agent pins
 # it by hash (the nixpkgs cursor-cli lags by months). It replaces the imperative
@@ -31,6 +33,7 @@ let
     runtimeInputs = [
       pkgs.nodejs
       pkgs.python3
+      pkgs.lsof
     ];
     text = ''
       exec python3 ${../../scripts/update-ai-clis.py} \
