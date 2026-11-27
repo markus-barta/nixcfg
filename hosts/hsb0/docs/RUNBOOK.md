@@ -578,13 +578,33 @@ The gates compare with the **running** `source_revision` from
 - G5 vm-test reads the hosted `vm-test.yml` workflow via the existing `gh` auth
   on mbp2607 (`gh api`, GET only, no new token). The newest returned workflow run
   must be for the exact candidate hausnetz revision, completed with conclusion
-  `success`. Missing, pending, failed, mismatched or unavailable API evidence
-  refuses live execution before starting the executor. Dry-run records G5 and
+  `success`. A completed run with `failure`, `cancelled`, `timed_out`,
+  `action_required`, `neutral`, `skipped`, `stale` or `startup_failure` permanently
+  fails that hausnetz revision in the controller, before starting the executor.
+  After inspecting the cause and verifying a successful workflow rerun for that
+  exact revision, an operator can run:
+  `hausnetz-cd --clear-failed <40-character-hausnetz-rev> --reason 'operator verified successful workflow rerun'`.
+  This requires no pending executor, records time/revision/reason, and clears
+  the controller's failed revision and associated attempted-pair tombstones,
+  including entries outside the newest-200 summaries. It preserves reports,
+  other revisions, the disable latch and executor-side attempt tombstones.
+  The next tick reevaluates all gates; this command grants no live approval.
+  Missing, pending, mismatched or unavailable API evidence refuses live
+  execution before starting the executor. A G5 outage is retryable:
+  `vm_test_wait` never reserves the pair or marks the hausnetz revision failed.
+  Later ticks retry the bounded API call; after `vmTestWaitTimeout` (1800 s by
+  default), one alarm reports the continuing wait. A successful G5 resets the
+  outage. Repeated hausnetz fetch failures also persist the preflight-outage
+  reset, even when their report has already been sent. `fetch_failed` is a
+  controller status and is rejected at the executor-result boundary.
+  Dry-run records G5 and
   its reason but continues the build/report even when G5 is manual.
 
-Dry-run builds and checks gates, then reports proposed actions. Export, switch
-and Telegram steps run only in live mode. The executor rechecks G1, the running
-system after G3, and the running evidence/system/profile immediately before
+Dry-run builds and checks gates, then reports proposed actions with
+`acceptance: not_run`. Export and acceptance run only in live mode. The explicit
+operator rehearsal below can switch the identical running system and send TEST
+notifications while both live gates remain disabled. The executor rechecks G1,
+the running system after G3, and the running evidence/system/profile immediately before
 switching, after the backup-copy acknowledgement.
 
 For one attended full-chain trial with the timer still disabled, configure the
@@ -599,7 +619,10 @@ Both flags are mandatory. This overrides timer enable and forces dry-run even
 if the saved mode is live. It runs G1/G2/G4/G5, starts the dry-run executor on
 hsb0 for build + G3, polls to completion and writes the ticket line. It refuses
 an existing live pending transaction; it cannot resume a live switch, export
-or send Telegram for a dry run. Existing failed-revision tombstones still apply.
+or send Telegram for a dry run. This one-shot trial does **not** reserve the
+running→target pair, create an executor revision tombstone, or blacklist a
+revision on a trial failure. A subsequent normal live tick can deploy that pair.
+Existing failed-revision tombstones still apply.
 Unsubstituted source entrypoints refuse execution, even if a file literally
 named `@CONFIG@` exists in the working directory.
 
@@ -728,11 +751,240 @@ One failed alarm route does not suppress the other routes. The existing hsb0
 hausnetz-bot path is unchanged. A running result with an inactive/unknown
 unit becomes failed/UNKNOWN once, stops polling, and cannot auto-retry. Dry-run
 records the result without alarming; live sends `ROLLBACK STATUS UNKNOWN`.
-Only the six-hour preflight outage is allowed to alarm in dry-run mode.
+The explicit rehearsal/test commands, persisted disabled-latch notification,
+and six-hour preflight outage can alarm while the configured mode is dry-run.
 A durable outbox retries ticket delivery without repeating deployment, with a
 maximum of five attempts per report. Exhaustion logs once locally and keeps
 the unsent report under `hausnetz-cd-ledger/outbox/`, even after its bounded
 state summary is pruned; later ticks do not send a sixth attempt.
+
+#### Operator rehearsal A / B (go-live gate 6)
+
+Keep `allowLive = false` and the orchestrator timer disabled. Install the reviewed
+packages on both ends through the normal operator release process first. These
+commands are intentionally operator-run only; no timer selects rehearsal mode.
+Configure the existing release ticket, hsb0 bot credential, mailbox endpoint and
+independent csb1 sender, then run on the Mac:
+
+```bash
+hausnetz-cd rehearse --variant A
+# Inspect the completed result and confirm the single hsb0 bot message first.
+hausnetz-cd rehearse --variant B
+```
+
+The controller creates a random, run-scoped one-shot token and writes it into
+hsb0's private state directory before giving it to the detached executor.
+`hausnetz-cd-execute rehearse --variant A|B --token <one-shot> --run-id <run-id>`
+is the executor contract; it accepts no target revision argument. Missing,
+incorrect, reused or malformed tokens refuse. The executor consumes the token
+under `/run/hsb0-deploy.lock`. Neither rehearsal builds NixOS. It resolves only
+the running nixcfg source's hausnetz pin through the existing source cache,
+binding the package proof to that running revision; source unavailability
+aborts. Its target closure is **exactly** `/run/current-system`, proved again
+before activation and before rollback. It invokes the same real
+`switch-to-configuration switch` and automatic rollback paths as live delivery.
+It leaves the profile on its recorded generation rather than calling
+`nix-env --set`, so **zero extra generations are expected** (even an identical
+extra generation is rejected by this implementation).
+
+Before switching, the running system must pass its original health proof and
+`dry-activate` must report no units to start, stop, restart or reload. Unknown
+output, an action line, nonzero exit or timeout aborts without a switch. Both
+forward activation and rollback use this empty-activation gate. The executor
+records `readback_before`, `readback_after_switch` and `readback_after`:
+
+- `nix-env --profile /nix/var/nix/profiles/system --list-generations`, the profile
+  symlink and resolved `/run/current-system`;
+- the resolved boot default and its complete entry (including kernel, initrd,
+  init and system paths), GRUB settings and `grubenv` saved/next selectors, or
+  systemd-boot `loader.conf`, entry bodies and `bootctl --json=short list`
+  default selection (including EFI overrides). Missing/ambiguous defaults or
+  entries refuse. Every non-default entry must also match, except removal of a
+  generation absent from the system profile; those removals are recorded in
+  `removed_stale_boot_entries` and the ticket line. This permits cleanup of
+  boot entries left stale by weekly `nh clean`, without permitting additions
+  or changes to surviving entries;
+- hausnetz.service `MainPID` and `InvocationID`, both required and compared.
+
+Inspect the complete readbacks in the Mac's latest `reports` result and the
+root-owned `results/<run-id>.json` on hsb0. Readbacks must match except for
+those explicitly reported stale boot-entry removals;
+hausnetz must retain its PID **and** invocation ID. Any drift or unavailable
+readback yields `rehearsal_aborted` and a `TEST (no action): REHEARSAL ABORTED`
+alarm through the normal mailbox/csb1 chain. Drift stops any further switch;
+do not repeat a rehearsal until the operator has inspected it.
+
+A deliberately wrong expected hausnetz revision (the all-zero sentinel) makes
+the forward health check fail against the recorded running pin. The same
+revision comparison is a proof-to-expected consistency check in normal live
+health; G1 already binds both values to the lock pin. Live health independently
+checks the process executable, version, capabilities and readiness, and the
+switch path verifies the running nixcfg deployment evidence. Variant A then
+activates the recorded old system
+(the same closure and generation) and passes its original health proof:
+`status=rolled_back`, `rollback=succeeded`, `rollback_health=pass`.
+Variant B also sets the old proof's expected revision to the wrong sentinel:
+the real rollback activation still runs, its health proof fails, and `status=rollback_failed`
+engages the persistent disabled latch. The service itself must remain healthy
+and unchanged in both variants; only the supplied expected proofs are wrong.
+
+Exact expected notification counts with healthy delivery routes:
+
+| Variant | hsb0 bot Telegram | csb1 Telegram |                      mbx messages | Final status      |
+| ------- | ----------------: | ------------: | --------------------------------: | ----------------- |
+| A       |                 1 |             0 |                                 0 | `rolled_back`     |
+| B       |                 1 |             1 | 2 (one each to mac-lead and lead) | `rollback_failed` |
+
+**Every** rehearsal notification starts with the exact `TEST (no action): `
+prefix. There is one hsb0 bot send attempt, never a second bot message for the
+latch. B's full chain uses remote mailbox delivery and the existing fallback:
+missing/invalid endpoint means two local mbx attempts instead of remote sends;
+if either remote recipient fails, both local recipients are additionally
+attempted (two remote + two local attempts, possible duplicate receipt).
+csb1 is attempted once in every B outcome, including fallback. The optional
+local alarm hook also receives the TEST prefix. Each rehearsal has its own
+ticket result line and never reserves a production revision pair.
+
+#### Persistent disable latch and attended live releases (gate 7)
+
+The first `rollback_failed`, including B, every live/rehearsal controller `unknown` outcome
+(interrupted switch, executor crash, status unavailable or poll timeout), and
+any rehearsal drift/unreadable readback after a switch durably write `disabled`
+with the reason in the Mac state **before** reporting the alarm. Every later
+tick, including
+`--once --dry-run` and operator rehearsal, refuses to start work while latched
+and logs the refusal. The triggering failure is the one alarm event; subsequent
+ticks do not repeat it. Dry-run `unknown`, including `--once --dry-run`, does
+not set a latch or send an alarm. An unannounced persisted latch alarms once.
+Alarms are durably queued before marking them announced. A receipt is written
+only after at least one delivery route succeeds; total delivery failure keeps
+the alarm pending for the next tick. This also applies to `CD DISABLED`.
+A crash between delivery and receipt can repeat a message with the same stable
+`alarm_id`. Disable
+cannot clear itself after a restart, success, dry-run or a changed revision.
+Before clearing an uncertain result, the operator must read the executor's
+**final** root-owned result on hsb0, including `status`, `phase`, `rollback`,
+`rollback_health` and `reason`, and confirm that its systemd unit is inactive or
+failed. The executor may have finished rollback after the controller stopped
+polling. On hsb0, run `sudo cat /var/lib/hausnetz-cd/results/<run-id>.json` and
+`sudo systemctl show hausnetz-cd-<run-id>.service --property=ActiveState --value`;
+inspect the current system/profile and rehearsal readbacks as appropriate.
+An active/deactivating unit or unavailable final result is unresolved: keep the
+latch set. After inspection, with no pending executor, clear it explicitly:
+
+```bash
+hausnetz-cd --clear-disable --reason 'operator inspected recovery and readbacks'
+```
+
+A nonempty reason is mandatory and is retained with the time. This command
+preserves attempted/failed history; clearing the latch does not authorize
+retrying a failed release. Do not clear a pending/uncertain active switch.
+
+The first enabled live tick initializes `attended_remaining` to **3**, persisted
+across restarts and mode changes. Until it reaches zero, each live run stops
+at `pending.phase=awaiting_ack`, exposes `pending.run_id` as its run token, and
+alarms `awaiting attended ack`. The operator must write the exact run token
+into a matching file beside the Mac state within `attendedAckMinutes` (30 by
+default):
+
+```bash
+umask 077
+printf '%s\n' '<run_token>' > "$HOME/.local/share/ops-qa/state/ack-live-<run_token>"
+```
+
+The next tick checks the token, rejects symlinks/wrong tokens, and passes a
+run-scoped acknowledgement to hsb0 before starting its executor. The executor
+independently refuses a live switch without that acknowledgement. Before the
+first three successful releases the controller never creates this approval
+without the operator file; afterwards it can acknowledge automatically.
+Awaiting-ack alarms include the recorded generation, reason, run token and
+exact file-writing command. There is no executor start or switch while waiting.
+At the deadline the
+controller alarms `ack timeout, release left manual`, completes `ack_timeout`
+and reserves that pair for manual handling. Late files do not restart it.
+Only a completed, healthy **and acceptance-green** live release decrements the
+counter. Dry-run, rehearsal, timeout, failed switch and rollback do not.
+
+The persistent latch and attended operator-ack policy are **controller-only**.
+The executor requires a controller-provided run ack, but a direct root invocation
+can supply it and is an operator action outside CD. The one-shot rehearsal token
+also binds the controller invocation; it is not protection against root on hsb0.
+Before the forward switch, the executor requires `systemctl --failed` to be
+empty. Live mode checks before the build/export/backup and again immediately
+before the forward switch. Existing failed unit names are recorded and
+refuse activation: `rehearsal_aborted` for rehearsal, retryable
+`preflight_refused` before live activation, without failing or reserving the pair.
+Fix the units through the normal operator process before retrying. Failed units
+after activation never prevent the rollback switch, live or rehearsal; there
+is no failed-unit preflight before rollback. After that switch the executor
+records `failed_units_after_activation` as diagnostics in the result, ticket
+and rollback alarm. Successful rollback with these diagnostics is `rolled_back`
+and sets no latch. For rehearsal A, including a unit that fails during its
+deliberate health failure, the counts remain **1 hsb0-bot Telegram, 0 csb1,
+0 mailbox**. A nonzero rollback switch (including exit 4 after activation),
+failed rollback health or mismatched readbacks is a real rollback failure;
+`rollback_failed` retains diagnostics and sets the latch (rehearsal counts:
+**1 hsb0-bot Telegram, 1 csb1, 2 mailbox**, as for B). Readback drift still
+aborts rehearsal and latches after a switch under the readback safety rules.
+
+#### Trusted acceptance invocation (gate 3 / HNET-611)
+
+The checker belongs to hausnetz (HNET-611); nixcfg supplies only the call and
+rollback contract. Configure `acceptanceCommand` as an argv array for the Mac's
+CI-VM adapter, and `acceptanceUrl` as the service URL. Defaults are `[]` and an
+empty URL: live mode refuses before starting an executor. A missing acceptance
+entry point in the trusted revision uses the same 30-minute evaluation shortcut
+as other refusals; a changed main revision triggers fresh checks. The array must
+include `{trusted_rev}`, `{url}`, `{version}` and `{caps_sha256}` placeholders.
+The first value is the **pre-switch running hausnetz revision** validated by G1
+and G2, persisted in the pending run, never the candidate revision. The VM
+adapter must materialize that exact trusted revision in the Mac CI VM and run:
+
+```text
+just acceptance <url> <version> <caps_sha256>
+```
+
+Before a live switch, the controller checks the running trusted revision's
+root `justfile`, `Justfile` or `.justfile` for the `acceptance` recipe. Missing
+entry points cause a retryable `trusted_acceptance_entrypoint_missing` refusal,
+no switch and one preflight alarm. One-time bootstrap: through the reviewed
+manual release process, deploy a hausnetz revision containing HNET-611's root
+`just acceptance` recipe, verify its acceptance contract manually, then enable
+CD through its separate go-live gates. A candidate adding the recipe cannot
+bootstrap its own trusted checker.
+
+The adapter is an operator-configured invocation, not a generic checker. It
+must forward stdout/exit status and handle SIGTERM by terminating its VM-side
+child. Commands start in a new process group. On timeout the controller sends
+SIGTERM to the entire group, allows up to three seconds for pipe cleanup, then
+sends SIGKILL to the group even if the adapter already exited. Reaping the
+adapter and draining its pipes each have a one-second bound; pipes still held
+by an escaped descendant are closed. No timeout path waits indefinitely.
+SIGKILL cannot be trapped.
+Cancellation cleanup therefore must complete within that grace period. The
+adapter must emit exactly one JSON object with literal `"ok": true` for green. Log
+chatter, duplicate JSON keys, missing/malformed JSON, missing checker, red,
+nonzero exit or timeout fails closed. `acceptanceTimeout` defaults to 600 s
+and is bounded to 1–600 s by the option and controller (within the executor's
+recovery budget). Coordinate this output contract with HNET-611 before live.
+
+After hsb0's live health passes, its executor holds the deploy lock at
+`acceptance_ready` while the controller runs the trusted invocation with the
+candidate's validated version/capability digest. Only an explicit `pass`
+decision allows `succeeded`; `fail` or a missing controller decision invokes
+the executor's real automatic rollback and old-system health check. The
+controller persists its acceptance decision before acknowledging it to hsb0,
+so polling/restarts reuse that decision. The remote decision is written to a
+0600 temporary file in the same directory, then atomically renamed into place;
+the executor never observes a partial decision. Acceptance failure, awaiting-ack
+and ack-timeout alarms persist their generation/reason and pending alarm before
+sending. The next tick drains pending alarms; stable alarm IDs permit recipient
+deduplication if a crash occurs after delivery but before the local receipt.
+Completed ticks do not resend delivered alarms. Acceptance failure also alarms
+through both mailboxes and csb1. A lost controller times out on hsb0 and rolls
+back;
+missing/uncertain status follows the existing UNKNOWN alarm path. Dry-run
+records `acceptance=not_run` and never invokes the adapter.
 
 **Clearing a stuck pending reservation:** disable the timer first. Inspect the
 pending run ID, its root status, `sudo systemctl show hausnetz-cd-<run-id>.service --property=ActiveState --value`, and the running system/package proof. Wait for
