@@ -14,7 +14,7 @@ import sys
 import time
 import urllib.parse
 
-from common import (ACCEPTANCE_TIMEOUT, ACK_TIMEOUT, BUILD_TIMEOUT, G3_COMMAND_TIMEOUT, HEALTH_TIMEOUT, Manual, RESULT_SCHEMA,
+from common import (ACCEPTANCE_TIMEOUT, ACK_TIMEOUT, BUILD_TIMEOUT, DRY_ACTIVATE_CHATTER, G3_COMMAND_TIMEOUT, HEALTH_TIMEOUT, Manual, RESULT_SCHEMA,
                     atomic_bytes, atomic_json, blob, cache_repo, coordinate, digest as validate_digest,
                     diagnostics, evidence, gate_closures, gate_g1, gate_units, http_get, now,
                     lock_pin, parse_export, private_dir, require, revision, run,
@@ -215,10 +215,7 @@ def failed_units(*, diagnostic=False):
 
 
 def rehearsal_units(text):
-    chatter = {"dry activating the configuration...", "would activate the configuration...",
-               "Not checking switch inhibitors (action = dry-activate)",
-               "would run sysinit-reactivation", "setting up /etc..."}
-    require(all(not line.strip() or line in chatter for line in text.splitlines()),
+    require(all(not line.strip() or line in DRY_ACTIVATE_CHATTER for line in text.splitlines()),
             "rehearsal_activation_not_empty")
 
 

@@ -132,8 +132,8 @@ def log_line(result):
             + " acceptance=" + result.get("acceptance", "not_run")
             + " failed_units_after_activation=" + json.dumps(diagnostics(result.get("failed_units_after_activation", [])), separators=(",", ":"))
             + " memory_peak_bytes=" + str(result.get("memory_peak_bytes") or "unknown")
-            + (" rehearsal_reason=" + json.dumps(result.get("rehearsal_reason")) if result.get("rehearsal") else "")
-            + " mode=" + result["mode"] + " status=" + result["status"])
+            + " mode=" + result["mode"] + " status=" + result["status"]
+            + (" rehearsal_reason=" + json.dumps(result.get("rehearsal_reason")) if result.get("rehearsal") else ""))
 
 
 def comment(config, message):
@@ -482,7 +482,7 @@ def reconcile(config, state):
                 result["trial"] = pending.get("trial", False)
                 if pending.get("rehearsal"):
                     require(result.get("rehearsal") == pending["rehearsal"], "rehearsal_result_variant")
-                    result["rehearsal_reason"] = pending["rehearsal_reason"]
+                    result["rehearsal_reason"] = pending.get("rehearsal_reason")
                 if result["status"] in TERMINAL and (
                     result["status"] == "skipped"
                     or (result.get("phase") == "complete" and result.get("completed_at"))
