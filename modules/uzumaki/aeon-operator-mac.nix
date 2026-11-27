@@ -89,8 +89,12 @@ in
       ".aeon-operator-kernel.json".text = builtins.toJSON inventory;
     };
 
-    home.activation.aeonOperatorClaudeImports = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-      ${pkgs.python3}/bin/python3 ${markerScript} "$HOME/.claude/CLAUDE.md" ${importsFile}
+    home.activation.aeonOperatorClaudeImports = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+      if [ ! -f "$HOME/.claude/kernel/AGENTS-KERNEL.md" ] || [ ! -f "$HOME/.claude/kernel/AGENTS-KERNEL-PRIVATE.md" ]; then
+        printf '%s\n' 'WARNING: AEON operator kernel file missing (AGENTS-KERNEL.md or AGENTS-KERNEL-PRIVATE.md); leaving CLAUDE.md unchanged.' >&2
+      else
+        ${pkgs.python3}/bin/python3 ${markerScript} "$HOME/.claude/CLAUDE.md" ${importsFile}
+      fi
     '';
   };
 }

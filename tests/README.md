@@ -59,11 +59,15 @@ inert Home Manager/package surfaces, then executes the evaluated marker
 writers in a temporary home. It compares default/explicit OFF against the
 previous file set and activation, checks the enabled two-source inventory,
 compares payload bytes, preserves personal text, verifies idempotency and the
-disable rewrite, and rejects four source mutants. It performs no host build,
+disable rewrite, and rejects six source mutants. It checks that Claude imports
+run after Home Manager's `linkGeneration` step and that either missing or broken
+kernel link leaves CLAUDE.md unchanged with a warning. It performs no host build,
 switch, or network access.
 
 The option `inspr.aeonOperatorMac.enable` defaults to false and is enabled
 nowhere. A later opt-in requires a clean committed flake before switching.
+The Claude import writer runs only after both kernel files are present; a
+missing file preserves the existing CLAUDE.md block and prints a warning.
 Disabling removes the account marker, inventory, and two kernel links through
 Home Manager and restores Claude's upstream inline marker writer. Codex, Pi,
 and Grok retain their existing payloads; no composite files enter the inventory.

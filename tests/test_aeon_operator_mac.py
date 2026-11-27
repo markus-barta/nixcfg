@@ -86,7 +86,7 @@ def verify_enabled(cfg):
         assert not path.is_absolute() and ".." not in path.parts and str(path) == row["relative_file"]
     assert cfg["markerHarnesses"] == {"codex": ".codex/AGENTS.md"}
     activation = cfg["activation"]["aeonOperatorClaudeImports"]
-    assert activation["after"] == ["writeBoundary"]
+    assert "linkGeneration" in activation["after"], "Claude imports must follow HM link creation"
     assert asset(activation["data"], "aeon-operator-claude-imports") == IMPORTS, "wrong Claude import order"
     for name in BASELINE["files"]:
         assert files[name] == BASELINE["files"][name], name
@@ -101,6 +101,7 @@ def execute_activation(cfg, home, directory):
         target.write_text(match[2])
         return str(target)
 
+    results = []
     for entry in cfg["activation"].values():
         data = pattern.sub(materialize, entry["data"])
         # escapeShellArg has quoted the composite assignment; use the same
@@ -111,7 +112,52 @@ def execute_activation(cfg, home, directory):
             commands = data.split("\n/fixture/python3", 1)[1]
             data = "payload=" + shlex.quote(str(payload)) + "\n/fixture/python3" + commands
         data = data.replace("/fixture/python3/bin/python3", shlex.quote(sys.executable))
-        subprocess.run(["bash", "-e", "-c", data], env={**os.environ, "HOME": str(home)}, check=True)
+        results.append(subprocess.run(
+            ["bash", "-e", "-c", data], env={**os.environ, "HOME": str(home)},
+            check=True, capture_output=True, text=True,
+        ))
+    return results
+
+
+def link_kernel_files(cfg, home):
+    for path in (PUBLIC, PRIVATE):
+        destination = home / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.symlink_to(cfg["files"][path]["source"])
+
+
+def verify_missing_kernel(enabled):
+    """A failed HM link must never replace the existing inline kernel block."""
+    with tempfile.TemporaryDirectory(prefix="ops737-missing-kernel-") as temporary:
+        root = Path(temporary)
+        home, generated = root / "home", root / "generated"
+        generated.mkdir()
+        link_kernel_files(enabled, home)
+        claude = home / ".claude/CLAUDE.md"
+        original = f"before\r\n{BEGIN}\r\nexisting inline kernel\r\n{END}\r\nafter\r\n".encode()
+        for missing in (PUBLIC, PRIVATE):
+            destination = home / missing
+            destination.unlink()
+            for dangling in (False, True):
+                if dangling:
+                    destination.symlink_to(root / "missing-source")
+                for initial in (original, None):
+                    if initial is None:
+                        claude.unlink()
+                    else:
+                        claude.write_bytes(initial)
+                    results = execute_activation(enabled, home, generated)
+                    if initial is None:
+                        assert not claude.exists(), "missing kernel created CLAUDE.md"
+                    else:
+                        assert claude.read_bytes() == initial, "missing kernel rewrote CLAUDE.md"
+                    warning = "".join(result.stderr for result in results)
+                    assert "WARNING" in warning and "kernel file missing" in warning
+                    assert "leaving CLAUDE.md unchanged" in warning
+                if dangling:
+                    destination.unlink()
+            destination.symlink_to(enabled["files"][missing]["source"])
+    print("T129: missing/broken public or private kernel link preserves CLAUDE.md and warns")
 
 
 def verify_writers(enabled):
@@ -128,6 +174,7 @@ def verify_writers(enabled):
         claude, codex = home / ".claude/CLAUDE.md", home / ".codex/AGENTS.md"
         for destination in (claude, codex):
             destination.parent.mkdir(parents=True, exist_ok=True)
+        link_kernel_files(enabled, home)
         cases = [None, "personal only\n", f"before\n\n{BEGIN}\nstale\n{END}\n\nafter\n", f"{BEGIN}\nold\n{END}"]
         for initial in cases:
             if initial is None:
@@ -174,6 +221,7 @@ verify_disabled(evaluate(enabled=False, self_rev=None), BASELINE)
 ENABLED = evaluate(enabled=True)
 verify_enabled(ENABLED)
 verify_writers(ENABLED)
+verify_missing_kernel(ENABLED)
 for revision in (None, "dirty", "0" * 39):
     result = evaluate(enabled=True, self_rev=revision, check=False)
     assert result.returncode and "requires clean flake revisions" in result.stderr
@@ -194,6 +242,11 @@ with tempfile.TemporaryDirectory(prefix="ops737-mutants-", dir=REPO / "tests") a
     must_fail("marker installed while disabled", lambda: verify_disabled(
         evaluate(enabled=False, module=root / "agent-kernel.nix"), BASELINE))
     for label, before, after, enabled, checker, revision in [
+        ("imports run before HM links", 'entryAfter [ "linkGeneration" ]',
+         'entryAfter [ "writeBoundary" ]', True, verify_enabled, SELF_REV),
+        ("missing kernel guard removed",
+         'if [ ! -f "$HOME/.claude/kernel/AGENTS-KERNEL.md" ] || [ ! -f "$HOME/.claude/kernel/AGENTS-KERNEL-PRIVATE.md" ]; then',
+         'if false; then', True, verify_missing_kernel, SELF_REV),
         ("inventory lists composite file", 'relative_file = ".claude/kernel/AGENTS-KERNEL.md";',
          'relative_file = ".pi/agent/AGENTS.md";', True, verify_enabled, SELF_REV),
         ("wrong import order", "    @~/.claude/kernel/AGENTS-KERNEL.md\n    @~/.claude/kernel/AGENTS-KERNEL-PRIVATE.md",
