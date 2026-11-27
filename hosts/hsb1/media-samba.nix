@@ -1,5 +1,5 @@
-# Ad hoc SMB share for the `media` ZFS pool (/srv/media) — Finder access so
-# Markus can browse/add/remove files directly, independent of Plex.
+# Ad hoc SMB shares for the `media` ZFS pool — Finder access to media and
+# archive files, independent of Plex.
 #
 # Kept separate from tm-samba.nix (Time Machine shares, still staged behind
 # NIX-295 step 6/7 pending the 6TB pool) so this can go live now without
@@ -12,6 +12,65 @@
   pkgs,
   ...
 }:
+let
+  sharedShareSettings = {
+    "valid users" = "markus";
+    "read only" = "no";
+    browseable = "yes";
+
+    # The pool is written by TWO paths: rsync-over-SSH (as `mba`) and Finder/
+    # SMB (as `markus`). Samba's DEFAULTS are create mask 0744 / directory
+    # mask 0755 — i.e. everything arriving over SMB lands WITHOUT group write.
+    # Mixed ownership + no group write = the two paths lock each other out,
+    # which is exactly what happened on 2026-07-13: a storm of
+    # "mkstemp/mkdir ... Permission denied (13)" on an rsync into the share.
+    #
+    # force user/group makes every SMB write land as mba:users regardless of
+    # who authenticated, and the masks keep group-write on. Both paths then
+    # produce identical ownership and can freely overwrite each other.
+    #
+    # NOTE: deliberately NO `vfs objects` here — both shares must stay
+    # plain SMB. vfs_fruit's `fruit:metadata = stream` mangles macOS `._*`
+    # AppleDouble sidecars and breaks rsync into the share (see ./tm-samba.nix,
+    # where fruit is correctly scoped to the TM shares only).
+    "force user" = "mba";
+    "force group" = "users";
+    "create mask" = "0664";
+    "force create mode" = "0664";
+    "directory mask" = "0775";
+    "force directory mode" = "0775";
+
+    # Refuse macOS/Finder droppings outright — they never reach the pool.
+    #
+    # Two distinct relics, and they need different handling:
+    #   .DS_Store  Finder's per-folder view settings, written on mere BROWSING.
+    #   ._<name>   AppleDouble sidecars carrying xattrs / resource forks,
+    #              emitted when copying a file whose metadata the target FS
+    #              cannot store natively.
+    #
+    # Both are worthless on a media share, and they are not merely untidy:
+    # on 2026-07-13 a stray `._Joker.mkv` sidecar was picked up by Plex's
+    # scanner as if it were a film, and relics had to be swept off the pool
+    # three separate times in one day.
+    #
+    # `veto files` makes Samba refuse to create or show them at all.
+    # `delete veto files` lets a directory still be removed even when it
+    # contains vetoed entries (otherwise rmdir fails on invisible files).
+    #
+    # This is the SERVER half and it catches every client — including
+    # non-Nix Macs and guests. The CLIENT half (DSDontWriteNetworkStores,
+    # so our own Macs don't even try) is declared in
+    # modules/uzumaki/macos-common.nix -> darwinDefaults.
+    #
+    # NOTE: the vfs_fruit route (fruit:metadata=stream, which folds `._`
+    # sidecars into xattrs) is the "Apple-approved" alternative, but it is
+    # deliberately NOT used here — it mangles rsync writes into the share.
+    # See ./tm-samba.nix, where fruit is correctly scoped to the TM shares.
+    "veto files" =
+      "/._*/.DS_Store/.Trashes/.Spotlight-V100/.TemporaryItems/.fseventsd/Network Trash Folder/Temporary Items/";
+    "delete veto files" = "yes";
+  };
+in
 {
   services.samba = {
     enable = true;
@@ -26,63 +85,13 @@
         "map to guest" = lib.mkDefault "never";
       };
 
-      media = {
+      media = sharedShareSettings // {
         path = "/srv/media";
-        "valid users" = "markus";
-        "read only" = "no";
-        browseable = "yes";
+      };
 
-        # The pool is written by TWO paths: rsync-over-SSH (as `mba`) and Finder/
-        # SMB (as `markus`). Samba's DEFAULTS are create mask 0744 / directory
-        # mask 0755 — i.e. everything arriving over SMB lands WITHOUT group write.
-        # Mixed ownership + no group write = the two paths lock each other out,
-        # which is exactly what happened on 2026-07-13: a storm of
-        # "mkstemp/mkdir ... Permission denied (13)" on an rsync into the share.
-        #
-        # force user/group makes every SMB write land as mba:users regardless of
-        # who authenticated, and the masks keep group-write on. Both paths then
-        # produce identical ownership and can freely overwrite each other.
-        #
-        # NOTE: deliberately NO `vfs objects` here — the media share must stay
-        # plain SMB. vfs_fruit's `fruit:metadata = stream` mangles macOS `._*`
-        # AppleDouble sidecars and breaks rsync into the share (see ./tm-samba.nix,
-        # where fruit is correctly scoped to the TM shares only).
-        "force user" = "mba";
-        "force group" = "users";
-        "create mask" = "0664";
-        "force create mode" = "0664";
-        "directory mask" = "0775";
-        "force directory mode" = "0775";
-
-        # Refuse macOS/Finder droppings outright — they never reach the pool.
-        #
-        # Two distinct relics, and they need different handling:
-        #   .DS_Store  Finder's per-folder view settings, written on mere BROWSING.
-        #   ._<name>   AppleDouble sidecars carrying xattrs / resource forks,
-        #              emitted when copying a file whose metadata the target FS
-        #              cannot store natively.
-        #
-        # Both are worthless on a media share, and they are not merely untidy:
-        # on 2026-07-13 a stray `._Joker.mkv` sidecar was picked up by Plex's
-        # scanner as if it were a film, and relics had to be swept off the pool
-        # three separate times in one day.
-        #
-        # `veto files` makes Samba refuse to create or show them at all.
-        # `delete veto files` lets a directory still be removed even when it
-        # contains vetoed entries (otherwise rmdir fails on invisible files).
-        #
-        # This is the SERVER half and it catches every client — including
-        # non-Nix Macs and guests. The CLIENT half (DSDontWriteNetworkStores,
-        # so our own Macs don't even try) is declared in
-        # modules/uzumaki/macos-common.nix -> darwinDefaults.
-        #
-        # NOTE: the vfs_fruit route (fruit:metadata=stream, which folds `._`
-        # sidecars into xattrs) is the "Apple-approved" alternative, but it is
-        # deliberately NOT used here — it mangles rsync writes into the share.
-        # See ./tm-samba.nix, where fruit is correctly scoped to the TM shares.
-        "veto files" =
-          "/._*/.DS_Store/.Trashes/.Spotlight-V100/.TemporaryItems/.fseventsd/Network Trash Folder/Temporary Items/";
-        "delete veto files" = "yes";
+      # Keep private and work backups outside Plex's /srv/media bind mount.
+      archive = sharedShareSettings // {
+        path = "/srv/archive";
       };
     };
   };
