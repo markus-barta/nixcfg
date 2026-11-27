@@ -71,15 +71,37 @@ print("T127 hsb9 media: app/UI tests and container/routing contracts passed", fl
 # privileged ports, Docker DNS, production data or a writable HostDash tree.
 with tempfile.TemporaryDirectory(prefix="t127-nginx-") as temporary:
     prefix = Path(temporary)
+    port = 49179  # Fixed high port; nginx reports a collision below if occupied.
+    listen_line = re.compile(r"^[ \t]*listen[ \t]+[^;\n]+;[ \t]*\n", re.MULTILINE)
+    original_listens = listen_line.findall(nginx)
+    assert [line.strip() for line in original_listens] == [
+        "listen 80;", "listen [::]:80;",
+    ], "update the nginx test's listener rewrite for the real server block"
+    # Use IPv4 loopback only so Linux CI does not require IPv6 support or :80.
+    test_listen = f"    listen 127.0.0.1:{port};\n"
+    copied_nginx = nginx.replace(original_listens[0], test_listen, 1).replace(
+        original_listens[1], "", 1)
+    server = prefix / "home.conf"
+    server.write_text(copied_nginx)
+    copied_nginx = server.read_text()
+    assert copied_nginx != nginx, "nginx test listener rewrite did not happen"
+    assert listen_line.findall(copied_nginx) == [test_listen]
+    assert listen_line.sub("", copied_nginx) == listen_line.sub("", nginx), (
+        "nginx test copy must differ from the real config only in listen lines"
+    )
     wrapper = prefix / "nginx.conf"
     wrapper.write_text('error_log stderr;\npid "' + str(prefix / "nginx.pid") + '";\n'
                        'events {}\nhttp {\naccess_log off;\n'
                        + ''.join(f'{kind}_temp_path "{prefix / kind}";\n'
                                  for kind in ("client_body", "proxy", "fastcgi", "uwsgi", "scgi"))
-                       + 'include "' + str(repo / "hosts/hsb9/docker/home.conf") + '";\n}\n')
-    command = ["nginx", "-t", "-p", str(prefix) + "/", "-c", str(wrapper)]
+                       + 'include "' + str(server) + '";\n}\n')
+    command = ["nginx", "-t", "-e", str(prefix / "error.log"),
+               "-p", str(prefix) + "/", "-c", str(wrapper)]
     if shutil.which("nginx") is None:
         command = ["nix-shell", "-p", "nginx", "--run", shlex.join(command)]
-    subprocess.run(command, check=True)
+    result = subprocess.run(command)
+    if result.returncode:
+        raise SystemExit("T127 nginx test failed; check diagnostics above and ensure "
+                         f"loopback port 127.0.0.1:{port} is free")
 print("T127 hsb9 media: real nginx configuration test passed")
 PY
