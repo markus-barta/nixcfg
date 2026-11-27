@@ -4,14 +4,17 @@ const content = document.getElementById("content");
 const statusLine = document.getElementById("status");
 const params = new URLSearchParams(location.search);
 const inTrash = params.get("trash") === "1";
-const unreadableResponse =
-  "Die Antwort konnte nicht gelesen werden. Bitte erneut versuchen.";
 const spaceError =
   "Auf dem Gerät ist nicht genug Platz für dieses Video. Bitte die Betreuung verständigen.";
 let videos = [];
 let freeBytes = 0;
 let reserveBytes = 0;
 
+function unreadableResponse(status) {
+  return status >= 500 && status < 600
+    ? "Die Aufnahmen sind gerade nicht erreichbar. Bitte die Betreuung verständigen."
+    : "Die Antwort konnte nicht gelesen werden. Bitte erneut versuchen.";
+}
 function element(tag, text, className) {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
@@ -69,7 +72,7 @@ async function request(path, method = "GET", body) {
   try {
     result = await response.json();
   } catch (_) {
-    throw new Error(unreadableResponse);
+    throw new Error(unreadableResponse(response.status));
   }
   if (!response.ok)
     throw new Error(
@@ -373,7 +376,9 @@ function uploadForm() {
         );
       } catch (error) {
         message(
-          error instanceof SyntaxError ? unreadableResponse : error.message,
+          error instanceof SyntaxError
+            ? unreadableResponse(xhr.status)
+            : error.message,
           true,
         );
       }

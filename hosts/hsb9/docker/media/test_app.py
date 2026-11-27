@@ -218,11 +218,17 @@ class LibraryTests(unittest.TestCase):
                                    ("... Beispielaufnahme.MOV", "Beispielaufnahme.MOV"),
                                    (". \u00a0.Beispielaufnahme.mp4", "Beispielaufnahme.mp4"),
                                    ("a...b.m4v", "a.b.m4v"),
+                                   ("Folge 3..mp4", "Folge 3.mp4"),
+                                   ("Fortsetzung folgt....mp4", "Fortsetzung folgt.mp4"),
+                                   ("Tatort. .mp4", "Tatort.mp4"),
+                                   ("ü" * 87 + "a.Fortsetzung.mp4", "ü" * 87 + "a.mp4"),
                                    ("ü" * 200 + ".mp4", "ü" * 88 + ".mp4")):
             with self.subTest(original=original):
                 self.assertEqual(app.upload_filename(original), expected)
-        generated = app.upload_filename("...mp4")
-        self.assertRegex(generated, r"^[a-f0-9]{32}\.mp4$")
+        for original in ("...mp4", "....mp4"):
+            with self.subTest(original=original):
+                generated = app.upload_filename(original)
+                self.assertRegex(generated, r"^[a-f0-9]{32}\.mp4$")
         original = " .Beispiel..aufnahme.mp4"
         uploaded = self.library.upload(original, io.BytesIO(b"a"), 1)
         self.assertEqual(uploaded["filename"], "Beispiel.aufnahme.mp4")
@@ -413,7 +419,9 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(status, 201)
         self.assertEqual(json.loads(body)["filename"], "HTTP Beispiel.aufnahme.mp4")
         for path, method in (("api/videos/", "PATCH"), ("api/videos/", "DELETE"), ("api/restore/", "POST")):
-            for invalid in (name, "%2Ehidden.mp4", "Beispiel..mp4"):
+            for invalid in (name, "%2Ehidden.mp4", "Beispiel..mp4",
+                            quote("Folge 3..mp4"), quote("Fortsetzung folgt....mp4"),
+                            "....mp4"):
                 self.assertEqual(self.call(method, path + invalid, b"{}", self.mutation_headers())[0], 400)
 
     def test_http_space_info_and_507(self):

@@ -54,10 +54,11 @@ def upload_filename(value):
         raise Problem(400, "Bitte eine Videodatei wählen (.mp4, .m4v oder .mov).")
     while ".." in stem:
         stem = stem.replace("..", ".")
-    stem = stem.strip()
+    stem = stem.strip().rstrip(". ")
     while stem and (stem[0] == "." or stem[0].isspace()):
         stem = stem[1:]
     stem = stem.encode("utf-8")[:180 - len(suffix.encode("utf-8"))].decode("utf-8", errors="ignore")
+    stem = stem.rstrip(". ")
     return filename((stem or uuid.uuid4().hex) + suffix)
 
 

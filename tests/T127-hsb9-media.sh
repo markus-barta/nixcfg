@@ -54,8 +54,13 @@ for directive in ("root /usr/share/nginx/html;", "try_files $uri $uri/ =404;", "
                   "disable_symlinks on;", "autoindex off;", "client_max_body_size 0;",
                   "proxy_request_buffering off;", "proxy_set_header Host $http_host;",
                   "resolver 127.0.0.11 valid=10s ipv6=off;", "proxy_read_timeout 3600s;",
-                  "proxy_send_timeout 3600s;", "location /fernsehen/video/ {\n        return 404;"):
+                  "proxy_send_timeout 3600s;", "proxy_intercept_errors on;",
+                  "location /fernsehen/video/ {\n        return 404;"):
     assert directive in nginx, directive
+# Preserve app JSON 503 errors while retaining nginx's offline lookup/connect/timeout page.
+assert re.findall(r"^\s*error_page\s+([^;]+);", nginx, re.MULTILINE) == [
+    "502 504 /fernsehen-offline.html"
+]
 js = (repo / "hosts/hsb9/docker/media/app.js").read_text()
 assert "innerHTML" not in js and "insertAdjacentHTML" not in js
 assert "window.confirm(" in js

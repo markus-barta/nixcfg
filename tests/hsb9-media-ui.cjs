@@ -13,11 +13,15 @@ const spaceError =
   "Auf dem Gerät ist nicht genug Platz für dieses Video. Bitte die Betreuung verständigen.";
 const unreadable =
   "Die Antwort konnte nicht gelesen werden. Bitte erneut versuchen.";
+const serverError =
+  "Die Aufnahmen sind gerade nicht erreichbar. Bitte die Betreuung verständigen.";
 
 async function page({
   available = 100,
   wake = "supported",
   invalidJSON = false,
+  responseStatus = 200,
+  errorMessage,
 } = {}) {
   const nodes = [];
   function node(tag, id) {
@@ -101,9 +105,11 @@ async function page({
     location: { search: "?add=1" },
     history: { replaceState() {} },
     fetch: async () => ({
-      ok: true,
+      ok: responseStatus >= 200 && responseStatus < 300,
+      status: responseStatus,
       async json() {
         if (invalidJSON) throw new SyntaxError("synthetic non-JSON");
+        if (errorMessage) return { error: errorMessage };
         return { videos: [], free_bytes: available + 20, reserve_bytes: 20 };
       },
     }),
@@ -141,18 +147,43 @@ test("space preflight refuses before sending and scrolls the German error into v
   assert.equal(ui.document.getElementById("video-file").disabled, false);
 });
 
-test("non-JSON upload responses show the German error and release the screen lock", async () => {
+test("non-JSON 5xx uploads request caregiver help and release the screen lock", async () => {
+  for (const status of [500, 502, 503, 504, 507, 599]) {
+    const ui = await page();
+    await ui.submit();
+    assert.equal(ui.uploads[0].sent.size, 10);
+    assert.equal(ui.locks[0].released, false);
+    ui.uploads[0].status = status;
+    ui.uploads[0].responseText = "<html>synthetic offline page</html>";
+    ui.uploads[0].onload();
+    assert.equal(ui.status.textContent, serverError);
+    assert.equal(ui.status.scrolled, true);
+    assert.equal(ui.locks[0].releases, 1);
+    assert.equal(ui.document.listeners.has("visibilitychange"), false);
+  }
+});
+
+test("non-JSON uploads outside 5xx retain the German unreadable-response error", async () => {
+  for (const status of [201, 400]) {
+    const ui = await page();
+    await ui.submit();
+    ui.uploads[0].status = status;
+    ui.uploads[0].responseText = "synthetic non-JSON";
+    ui.uploads[0].onload();
+    assert.equal(ui.status.textContent, unreadable);
+  }
+});
+
+test("JSON 503 uploads preserve the app's German message", async () => {
+  const error =
+    "Speichern oder Lesen ist gerade nicht möglich. Bitte die Betreuung verständigen.";
   const ui = await page();
   await ui.submit();
-  assert.equal(ui.uploads[0].sent.size, 10);
-  assert.equal(ui.locks[0].released, false);
-  ui.uploads[0].status = 502;
-  ui.uploads[0].responseText = "<html>synthetic offline page</html>";
+  ui.uploads[0].status = 503;
+  ui.uploads[0].responseText = JSON.stringify({ error });
   ui.uploads[0].onload();
-  assert.equal(ui.status.textContent, unreadable);
-  assert.equal(ui.status.scrolled, true);
+  assert.equal(ui.status.textContent, error);
   assert.equal(ui.locks[0].releases, 1);
-  assert.equal(ui.document.listeners.has("visibilitychange"), false);
 });
 
 test("server 507 errors preserve the German storage message and release the lock", async () => {
@@ -207,5 +238,21 @@ test("uploads still work when screen wake locks are denied or unsupported", asyn
 test("non-JSON listing responses show the existing German error", async () => {
   const ui = await page({ invalidJSON: true });
   assert.equal(ui.status.textContent, unreadable);
+  assert.equal(ui.status.scrolled, true);
+});
+
+test("non-JSON 5xx listings request caregiver help", async () => {
+  for (const responseStatus of [500, 502, 503, 504, 507, 599]) {
+    const ui = await page({ invalidJSON: true, responseStatus });
+    assert.equal(ui.status.textContent, serverError);
+    assert.equal(ui.status.scrolled, true);
+  }
+});
+
+test("JSON 503 listings preserve the app's German message", async () => {
+  const errorMessage =
+    "Die Angaben können gerade nicht gelesen werden. Bitte die Betreuung verständigen.";
+  const ui = await page({ responseStatus: 503, errorMessage });
+  assert.equal(ui.status.textContent, errorMessage);
   assert.equal(ui.status.scrolled, true);
 });
