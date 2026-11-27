@@ -138,7 +138,9 @@ class Fixture:
                                    "{url}", "{version}", "{caps_sha256}"],
             "acceptance_url": "http://fixture.invalid", "acceptance_timeout": 2,
             "alarm_command": [str(self.bin / "alarm")],
-            "secondary_telegram_command": [str(self.bin / "secondary-telegram")],
+            "secondary_telegram_command": [str(self.bin / "ssh"), "-T", "-o", "BatchMode=yes",
+                                           "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=yes",
+                                           "mba@fixture-csb1", "sudo -n /run/current-system/sw/bin/hausnetz-cd-alert"],
             "mailbox_remote_file": str(root / "mbx-remote"),
             "local_mailbox_command": str(self.bin / "mbx"),
         }
@@ -1936,14 +1938,156 @@ class TestCD(unittest.TestCase):
     def rehearsal(self, variant="A"):
         self.f.orchestrator["enabled"] = False
         self.f.executor["health_timeout"] = 2
-        self.f.scenario["activation"] = "would activate the configuration..."
-        self.f.tick(args=("rehearse", "--variant", variant))
+        self.f.scenario["activation"] = ("Not checking switch inhibitors (action = dry-activate)\n"
+                                         "would activate the configuration...")
+        self.f.scenario["activation_stderr"] = True
+        self.f.tick(args=("rehearse", "--variant", variant, "--reason", "  operator rehearsal check  "))
         return self.f.terminal()
+
+    def test_rehearsal_chatter_accepts_real_capture_and_empty_only(self):
+        from execute import rehearsal_units
+        capture = ("Not checking switch inhibitors (action = dry-activate)\n"
+                   "would activate the configuration...\n")
+        rehearsal_units(capture)
+        rehearsal_units("")
+        for line in ("would start the following units: polkit.service",
+                     "would stop the following units: polkit.service",
+                     "would reload the following units: dbus-broker.service",
+                     "would restart the following units: hausnetz.service",
+                     "unknown dry-activate output", capture.splitlines()[0] + " "):
+            with self.subTest(line=line), self.assertRaisesRegex(Manual, "rehearsal_activation_not_empty"):
+                rehearsal_units(capture + line + "\n")
+
+    def test_rehearsal_requires_reason_before_any_work(self):
+        arguments = ("rehearse", "--variant", "A")
+        result = self.f.tick(args=arguments, expect_ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rehearse requires --reason <text>", result.stderr)
+        self.assertFalse(self.f.events())
+        self.assertFalse(Path(self.f.orchestrator["state_file"]).parent.exists())
+        self.assertFalse(Path(self.f.orchestrator["cache_dir"]).exists())
+        self.assertFalse(Path(self.f.executor["state_dir"]).exists())
+
+    def test_rehearsal_forward_fixture_rejects_unit_or_unknown_lines(self):
+        capture = ("Not checking switch inhibitors (action = dry-activate)\n"
+                   "would activate the configuration...\n")
+        self.f.executor["health_timeout"] = 2
+        self.f.scenario["activation_stderr"] = True
+        for line in ("would start the following units: polkit.service",
+                     "would reload the following units: dbus-broker.service",
+                     "would restart the following units: hausnetz.service", "unknown dry-activate output"):
+            with self.subTest(line=line):
+                self.f.scenario["activation"] = capture + line
+                self.f.tick(args=("rehearse", "--variant", "A", "--reason", "activation guard check"))
+                self.assertEqual(self.f.terminal()["reason"], "rehearsal_activation_not_empty")
+                self.assertEqual(self.f.terminal()["status"], "rehearsal_aborted")
+                self.assertFalse(self.f.events("switch"))
+        self.f.scenario["activation"] = ""
+        self.f.tick(args=("rehearse", "--variant", "A", "--reason", "empty activation check"))
+        self.assertEqual(self.f.terminal()["status"], "rolled_back")
+        self.assertEqual(len(self.f.events("switch")), 2)
+
+    def test_rehearsal_rollback_fixture_rejects_unit_or_unknown_lines(self):
+        capture = ("Not checking switch inhibitors (action = dry-activate)\n"
+                   "would activate the configuration...\n")
+        for line in ("would start the following units: polkit.service",
+                     "would reload the following units: dbus-broker.service",
+                     "would restart the following units: hausnetz.service", "unknown dry-activate output"):
+            with self.subTest(line=line), tempfile.TemporaryDirectory(prefix="t125-rollback-gate-") as tmp:
+                fixture = Fixture(Path(tmp))
+                try:
+                    fixture.executor["health_timeout"] = 2
+                    fixture.scenario.update(activation=capture, activation_stderr=True,
+                                            rehearsal_rollback_output=capture + line)
+                    fixture.tick(args=("rehearse", "--variant", "A", "--reason", "rollback gate check"))
+                    self.assertEqual(fixture.terminal()["status"], "rehearsal_aborted")
+                    self.assertEqual(fixture.terminal()["reason"], "rehearsal_activation_not_empty")
+                    self.assertEqual(len(fixture.events("switch")), 1)
+                finally:
+                    fixture.stop()
+
+    def test_rehearsal_reason_validation_and_shell_quoting(self):
+        arguments = ("rehearse", "--variant", "A", "--reason")
+        for value in ("", "  ", "x" * 501, "leading\n", "tab\tinside", "control\x7f", "control\x85",
+                      "format\u202e", "line\u2028separator"):
+            with self.subTest(value=repr(value)):
+                result = self.f.tick(args=(*arguments, value), expect_ok=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("rehearse", result.stderr)
+        for extra in ((), ("--once",), ("operator", "rehearsal")):
+            with self.subTest(extra=extra):
+                self.assertNotEqual(self.f.tick(args=(*arguments, *extra), expect_ok=False).returncode, 0)
+        from orchestrate import rehearsal_reason
+        self.assertEqual(rehearsal_reason("x" * 500), "x" * 500)
+        self.assertEqual(rehearsal_reason("  inspect $(true); `true` 'quoted'  "),
+                         "inspect $(true); `true` 'quoted'")
+        with self.assertRaises(Manual):
+            rehearsal_reason("nul\x00inside")
+        self.assertFalse(self.f.events())
+        self.assertFalse(Path(self.f.orchestrator["state_file"]).parent.exists())
+        self.assertFalse(Path(self.f.executor["state_dir"]).exists())
+
+    def test_rehearsal_probe_commands_send_no_message(self):
+        from orchestrate import rehearsal_preflight, rehearsal_probe_command
+        config = self.f.orchestrator
+        original = copy.deepcopy(config)
+        csb1 = rehearsal_probe_command(config, "csb1")
+        mailbox = rehearsal_probe_command(config, "remote mailbox")
+        self.assertEqual(csb1, [*config["secondary_telegram_command"][:-1], "true"])
+        self.assertEqual(mailbox, ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                                   "-o", "StrictHostKeyChecking=yes", "-p", "2222",
+                                   "agents@fixture-agents", "true"])
+        self.assertEqual(config, original)
+        with mock.patch("orchestrate.run", return_value="") as probe:
+            rehearsal_preflight(config)
+        self.assertEqual(probe.call_args_list, [mock.call(csb1[0], csb1[1:], data="", timeout=45),
+                                               mock.call(mailbox[0], mailbox[1:], data="", timeout=45)])
+        self.assertFalse(self.f.events())
+
+    def test_rehearsal_route_failure_refuses_before_state_or_token(self):
+        for route in ("csb1", "remote mailbox"):
+            with self.subTest(route=route):
+                self.f.scenario["probe_fail"] = route
+                result = self.f.tick(args=("rehearse", "--variant", "A", "--reason", "route check"),
+                                     expect_ok=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("alarm route unavailable: " + route, result.stderr)
+                self.assertTrue(self.f.events("alarm-route-probe"))
+                self.assertTrue(all(e["kind"] == "alarm-route-probe" and e["text"] == ""
+                                    and e["args"][-1] == "true" for e in self.f.events()))
+                self.assertFalse(Path(self.f.orchestrator["state_file"]).parent.exists())
+                self.assertFalse(Path(self.f.orchestrator["cache_dir"]).exists())
+                self.assertFalse(Path(self.f.executor["state_dir"]).exists())
+
+    def test_rehearsal_route_failure_preserves_existing_state_without_reporting(self):
+        state_path = Path(self.f.orchestrator["state_file"])
+        self.f.write(state_path, json.dumps(self.f.live_state))
+        before = state_path.read_bytes()
+        self.f.scenario["probe_fail"] = "remote mailbox"
+        result = self.f.tick(args=("rehearse", "--variant", "B", "--reason", "route check"), expect_ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(state_path.read_bytes(), before)
+        self.assertTrue(all(e["kind"] == "alarm-route-probe" for e in self.f.events()))
+
+    def test_rehearsal_invalid_routes_refuse_without_sending(self):
+        from orchestrate import AlarmRouteUnavailable, rehearsal_preflight
+        for command in ([], ["sender"], ["sender", "target", "message"], ["ssh", None, "command"]):
+            with self.subTest(command=command), mock.patch("orchestrate.run") as probe:
+                with self.assertRaisesRegex(AlarmRouteUnavailable, "alarm route unavailable: csb1"):
+                    rehearsal_preflight({**self.f.orchestrator, "secondary_telegram_command": command})
+                probe.assert_not_called()
+        Path(self.f.orchestrator["mailbox_remote_file"]).write_text("invalid endpoint\n")
+        with mock.patch("orchestrate.run", return_value="") as probe:
+            with self.assertRaisesRegex(AlarmRouteUnavailable, "alarm route unavailable: remote mailbox"):
+                rehearsal_preflight(self.f.orchestrator)
+            self.assertEqual(probe.call_count, 1)
 
     def test_rehearsal_a_real_switch_and_rollback_without_changes(self):
         result = self.rehearsal()
         self.assertEqual(result["status"], "rolled_back", result)
         self.assertEqual(result["rollback_health"], "pass")
+        self.assertEqual(result["rehearsal_reason"], "operator rehearsal check")
+        self.assertIn(' rehearsal_reason="operator rehearsal check"', self.f.events("ticket")[0]["text"])
         self.assertEqual(result["new_proof"]["revision"], self.f.old_hnet)
         self.assertNotEqual(result["new_proof"]["expected_revision"], self.f.old_hnet)
         self.assertEqual(result["old_proof"]["expected_revision"], self.f.old_hnet)
@@ -1957,6 +2101,8 @@ class TestCD(unittest.TestCase):
         self.assertTrue(self.f.events("telegram")[0]["text"].startswith("TEST (no action): "))
         self.assertFalse(self.f.events("mailbox"))
         self.assertFalse(self.f.events("secondary-telegram"))
+        self.assertEqual([e["route"] for e in self.f.events("alarm-route-probe")], ["csb1", "remote mailbox"])
+        self.assertEqual([e["kind"] for e in self.f.events()[:2]], ["alarm-route-probe"] * 2)
         self.assertNotIn("disabled", self.f.state())
         self.assertFalse(list(Path(self.f.executor["state_dir"]).glob("rehearsal-token-*")))
 
@@ -1976,6 +2122,8 @@ class TestCD(unittest.TestCase):
         ticket = self.f.events("ticket")[0]["text"]
         self.assertTrue(ticket.startswith("TEST (no action): "))
         self.assertIn("nixcfg=" + self.f.old + " hausnetz=" + self.f.old_hnet + " ", ticket)
+        self.assertIn(' rehearsal_reason="operator rehearsal check"', ticket)
+        self.assertEqual(result["rehearsal_reason"], "operator rehearsal check")
         events = self.f.events()
         self.f.tick(args=("--once", "--dry-run"))
         self.assertEqual(self.f.events(), events)
@@ -2009,7 +2157,7 @@ class TestCD(unittest.TestCase):
 
     def test_rehearsal_refuses_nonempty_activation(self):
         self.f.executor["health_timeout"] = 2
-        self.f.tick(args=("rehearse", "--variant", "A"))
+        self.f.tick(args=("rehearse", "--variant", "A", "--reason", "unit guard check"))
         self.assertEqual(self.f.terminal()["status"], "rehearsal_aborted")
         self.assertFalse(self.f.events("switch"))
         self.assertTrue(all(e["text"].startswith("TEST (no action): ") for e in self.f.events("mailbox")))
@@ -2022,7 +2170,7 @@ class TestCD(unittest.TestCase):
                     fixture.executor["health_timeout"] = 2
                     fixture.scenario.update(activation="would activate the configuration...")
                     fixture.scenario[scenario] = True
-                    fixture.tick(args=("rehearse", "--variant", "A"))
+                    fixture.tick(args=("rehearse", "--variant", "A", "--reason", "readback guard check"))
                     self.assertEqual(fixture.terminal()["status"], "rehearsal_aborted")
                     self.assertEqual(len(fixture.events("switch")), 1)
                     self.assertIn("disabled", fixture.state())
@@ -2057,7 +2205,7 @@ class TestCD(unittest.TestCase):
     def test_rehearsal_holds_shared_lock(self):
         with open(self.f.executor["lock_file"]) as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            self.f.tick(args=("rehearse", "--variant", "A"))
+            self.f.tick(args=("rehearse", "--variant", "A", "--reason", "shared lock check"))
         self.assertFalse(self.f.events("switch"))
         self.assertIsNone(self.f.state()["pending"])
 
@@ -3316,6 +3464,9 @@ def mutants():
         ("vm-test failure becomes permanent", "orchestrate.py", [('result.update(status="vm_test_wait", run_key=key + "-vm-test")', 'result.update(status="manual", run_key=key + "-vm-test")')], "test_vm_test_retryable_outage_alarm_once_and_recovery"),
         ("health revision identity ignored", "execute.py", [('revision(proof.get("expected_revision")) == revision(proof["revision"])', 'True')], "test_rehearsal_a_real_switch_and_rollback_without_changes"),
         ("rehearsal allows activation changes", "execute.py", [('rehearsal_units(activation.stdout)', 'pass')], "test_rehearsal_refuses_nonempty_activation"),
+        ("rehearsal real chatter rejected", "execute.py", [('               "Not checking switch inhibitors (action = dry-activate)",\n', '')], "test_rehearsal_a_real_switch_and_rollback_without_changes"),
+        ("rehearsal reason not required", "orchestrate.py", [('    require(reason, "rehearse requires --reason <text>")', '    pass')], "test_rehearsal_requires_reason_before_any_work"),
+        ("rehearsal route preflight skipped", "orchestrate.py", [('        rehearsal_preflight(config)', '        pass')], "test_rehearsal_route_failure_refuses_before_state_or_token"),
         ("csb1 sender bounds message", "hausnetz-cd-alert.py", [('len(message) > 2048', 'False')], "TestAlertSender.test_sender_rejects_bad_inputs_without_logging_credentials"),
         ("alarm uses release ticket", "orchestrate.py", [('return ["-t", ticket]', 'return ["-t", config["release_ticket"]]')], "test_alarm_ticket_is_separate_from_release_ticket_on_all_routes"),
         ("invalid alarm ticket accepted", "orchestrate.py", [('re.fullmatch(r"[A-Z][A-Z0-9]+-[0-9]+", ticket)', 'True')], "test_alarm_ticket_strict_validation"),
