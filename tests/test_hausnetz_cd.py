@@ -1619,7 +1619,7 @@ class TestCD(unittest.TestCase):
                     if e["kind"] in {"mailbox", "local-mailbox", "secondary-telegram", "alarm"}]
         self.assertTrue(messages)
         self.assertEqual(len(set(messages)), 1)
-        self.assertTrue(messages[0].startswith("TEST "))
+        self.assertTrue(messages[0].startswith("TEST (no action): "))  # LEAD 2026-11-27: Markus must not be alarmed
 
     def test_test_alarm_remote_success_without_fallback(self):
         self.alarm_cli()
@@ -2016,7 +2016,7 @@ def mutants():
         ("mailbox rejects host junk", "orchestrate.py", [('r"[A-Za-z0-9.:-]+", host', 'r".+", host'), ('require(len(host) <= 253 and re.fullmatch(', 'require(True or re.fullmatch(')], "test_mailbox_target_strictly_rejects_junk"),
         ("mailbox rejects port junk", "orchestrate.py", [('r"[0-9]{1,5}", values["port"]', 'r".+", values["port"]')], "test_mailbox_target_strictly_rejects_junk"),
         ("mailbox failed send triggers fallback", "orchestrate.py", [('fallback = True\n                alarm_route_failed("remote mailbox "', 'fallback = False\n                alarm_route_failed("remote mailbox "')], "test_either_remote_recipient_failure_falls_back_without_duplicate_csb1"),
-        ("test alarm never writes state", "orchestrate.py", [('"TEST CD ALARM", test=True)\n            return', '"TEST CD ALARM", test=True)\n            atomic_json(config["state_file"], {})\n            return')], "test_test_alarm_leaves_existing_state_and_deploy_paths_untouched"),
+        ("test alarm never writes state", "orchestrate.py", [('"TEST (no action): CD ALARM", test=True)\n            return', '"TEST (no action): CD ALARM", test=True)\n            atomic_json(config["state_file"], {})\n            return')], "test_test_alarm_leaves_existing_state_and_deploy_paths_untouched"),
         ("test alarm never writes alarm file", "orchestrate.py", [('if not test:', 'if True:')], "test_test_alarm_leaves_existing_state_and_deploy_paths_untouched"),
         ("test alarm explicit only", "orchestrate.py", [('if args.test_alarm:', 'if True:')], "test_test_alarm_is_explicit_and_rejects_deployment_flags"),
         ("test alarm cannot combine deploy flags", "orchestrate.py", [('if args.test_alarm and (args.once or args.dry_run):', 'if False:')], "test_test_alarm_is_explicit_and_rejects_deployment_flags"),

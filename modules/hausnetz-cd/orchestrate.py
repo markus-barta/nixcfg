@@ -529,7 +529,7 @@ def main():
             require(re.fullmatch(r"HNET-[0-9]+", config.get("release_ticket") or ""),
                     "release_ticket_unset")
             alarm(config, {"mode": "dry-run", "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
-                           "reason": "operator_alarm_test"}, "TEST CD ALARM", test=True)
+                           "reason": "operator_alarm_test"}, "TEST (no action): CD ALARM", test=True)
             return
         if args.once:
             config = {**config, "enabled": True, "mode": "dry-run", "manual_dry_run": True}
