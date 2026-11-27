@@ -49,6 +49,7 @@ in
   imports = [
     ../../modules/kernel-pin.nix
     ../../modules/kernel-cve-guard.nix
+    ../../modules/hostdash-status.nix # OPS-746 — runtime status for the local board
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/shared/smartd.nix # OPS-485 — SMART disk-health monitoring (bare metal)
     ./hardware-configuration.nix
@@ -77,10 +78,9 @@ in
     projectDirectory = "/home/mba/Code/nixcfg/hosts/hsb9/docker";
     # Carried over from hsb9-home-dashboard: hsb9-home mounts /etc/hostdash/hsb9,
     # whose target changes per generation while its compose definition does not.
-    postRecreate = [
-      "hsb9-media"
-      "hsb9-home"
-    ];
+    # Media content has its own compose hash; a dashboard/config change must
+    # only force-recreate the nginx container, not interrupt media playback.
+    postRecreate = [ "hsb9-home" ];
     extraRestartTriggers = [
       hostdashHsb9
       ./docker/media
@@ -114,6 +114,22 @@ in
           };
         };
       };
+  };
+
+  # OPS-746: containers are enumerated automatically; only systemd-owned
+  # services need explicit units. HTTP probe keys match the board's containers.
+  services.hostdash.status = {
+    enable = true;
+    host = "hsb9";
+    units = [
+      "compose-hsb9-update.timer"
+      "docker.service"
+      "sshd.service"
+    ];
+    httpProbes = {
+      homeassistant = "http://127.0.0.1:8123/";
+      hsb9-media = "http://127.0.0.1/fernsehen/healthz";
+    };
   };
 
   # ==========================================================================

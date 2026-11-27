@@ -35,6 +35,20 @@
 # DEPLOY VERB (OPS-124): `just switch`. The stack is rendered into the closure
 # and reconciled by compose-hsb9.service — never `docker compose up` by hand;
 # the file compose actually runs is /etc/compose/hsb9/docker-compose.yml.
+let
+  # The /etc bind has a stable path; compose needs a content change to notice
+  # updated app code without recreating media for unrelated dashboard changes.
+  mediaSourceHash = builtins.hashString "sha256" (
+    builtins.concatStringsSep "\n" (
+      map builtins.readFile [
+        ./media/app.py
+        ./media/app.js
+        ./media/app.css
+        ./media/index.html
+      ]
+    )
+  );
+in
 {
   services = {
     mosquitto = {
@@ -213,6 +227,7 @@
         retries = 3;
       };
       labels = [
+        "nixcfg.media-source-sha256=${mediaSourceHash}"
         "com.centurylinklabs.watchtower.enable=true"
         "com.centurylinklabs.watchtower.scope=weekly"
       ];
@@ -232,6 +247,8 @@
       ];
       volumes = [
         "/etc/hostdash/hsb9/share/hostdash-hsb9:/usr/share/nginx/html:ro"
+        # Outside the immutable app root; nginx aliases it at /status/.
+        "/var/lib/hostdash-status:/srv/hostdash-status:ro"
         "/etc/hsb9-home.conf:/etc/nginx/conf.d/default.conf:ro"
         "/srv/media/fernsehaufnahmen:/data:ro"
       ];
