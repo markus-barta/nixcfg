@@ -64,14 +64,14 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 74: v261127030049.0.0 (sequence 144; hausnetz main 110e5208 = merge of release PR #464; the tag is on
-    # the merge). Since 73: maintenance and reliability; the only non-test Go change is the CD checker's empty
-    # open-call allowlist (cmd/cd-prepare, not part of the service); UI, tests and CI files. Capability manifest
-    # unchanged (1a85d9dd…); no nix/, flake or Go-dependency change; no new listener, outbound call, credential or
-    # write path (capability review HNET-599). Rollback: previous generation (pin 73); a re-pin below 65 must drop
-    # the homeAssistant block.
+    # HNET pin 75: v261127051804.0.0 (sequence 145; hausnetz main 31fd6c51 = merge of release PR #468; the tag is on
+    # the merge). Since 74: room tags behind the Labs switch room-tags (default off): new GET/POST /api/ha/tags on the
+    # existing listener; POST is revision-checked and saves through the existing store only while the switch is on;
+    # the Home Assistant WebSocket command set is unchanged. Capability manifest unchanged (1a85d9dd…); no nix/,
+    # flake or Go-dependency change; no new listener, outbound call or credential (capability review HNET-601).
+    # Rollback: previous generation (pin 74); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=110e52080faf3c40f36c45528ceb2ef9c5eecc39";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=31fd6c51cd90f9f838216e634ab2ab5565d59056";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
