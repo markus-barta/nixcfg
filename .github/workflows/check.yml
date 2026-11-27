@@ -323,6 +323,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T118-hsb1-boot-race.sh
 
+      - name: Verify hsb1 archive share and Plex isolation (OPS-732)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash python3 --run "bash tests/T128-hsb1-archive-share.sh"
+
       - name: Verify hsb1 local home-config allowlist and secret gate (OPS-158)
         if: steps.pin.outputs.pin_only != 'true'
         # The fixture child installs a real mode-argument seccomp filter inherited
