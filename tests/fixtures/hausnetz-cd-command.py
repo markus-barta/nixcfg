@@ -64,9 +64,11 @@ if command == "sudo":
     if scenario.get("sudo_fail"):
         raise SystemExit(1)
     commands = {name: str(root / "bin" / name) for name in
-                ("systemd-run", "systemctl", "cat", "test", "tee", "chmod")}
+                ("systemd-run", "systemctl", "readlink", "cat", "test", "tee", "chmod")}
     # Only fixed local fixture programs or system utilities are executable.
-    commands.update({name: shutil.which(name) for name in ("cat", "test", "tee", "chmod")})
+    commands.update({name: shutil.which(name) for name in ("cat", "test", "tee", "chmod", "install", "mktemp", "mv")})
+    if args[:2] == ["mv", "-fT"]:
+        args[1] = "-f"  # BSD fixture host; both paths are regular fixture files.
     os.execv(commands[args[0]], args)
 elif command == "ssh":
     script = sys.stdin.read()
@@ -76,8 +78,10 @@ elif command == "ssh":
         assert args[-2] == "agents@fixture-agents" and args[-4:-2] == ["-p", "2222"]
         assert args[:6] == ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o"]
         assert call[2] in {"mac-lead", "lead"}
-        assert call[3:] == ["-f", "mac-ops", "-t", "HNET-570", "-m", "-"]
-        event("mailbox", recipient=call[2], text=script)
+        assert call[3:5] == ["-f", "mac-ops"] and call[-2:] == ["-m", "-"]
+        ticket_args = call[5:-2]
+        assert ticket_args == [] or (len(ticket_args) == 2 and ticket_args[0] == "-t")
+        event("mailbox", recipient=call[2], ticket=ticket_args[1] if ticket_args else None, text=script)
         if scenario.get("mailbox_fail") == call[2]:
             raise SystemExit(1)
         raise SystemExit(0)
@@ -100,6 +104,7 @@ elif command == "ssh":
             raise SystemExit(0)
     script = script.replace("/var/lib/hausnetz-cd", config["state_dir"])
     script = script.replace("/etc/pharos-deployment/evidence.json", config["evidence_file"])
+    script = script.replace("/nix/var/nix/profiles/system", config["system_profile"])
     script = script.replace("/run/current-system/sw/bin/hausnetz-cd-execute", config["executor"])
     result = subprocess.run(["bash", "-s", "--", *call[3:]], input=script.encode(), check=False)
     if action == "ack" and scenario.get("change_at_ack"):
@@ -128,13 +133,25 @@ elif command == "systemd-run":
             process = subprocess.Popen([config["executor"], *args[position + 1:]], stdout=output, stderr=output, start_new_session=True)
         (root / "executor.pid").write_text(str(process.pid))
 elif command == "systemctl":
+    if args[0] == "--failed":
+        event("failed-units")
+        failed = scenario.get("failed_units", "")
+        if scenario.get("failed_units_on_recheck") and occurrence("failed-units") > 1:
+            failed = "broken.service loaded failed failed Broken unit"
+        if scenario.get("failed_units_after_switch") and (active_new() or (root / "rolled-back").exists()):
+            failed = "broken.service loaded failed failed Broken unit"
+        print(failed)
+        raise SystemExit(0)
     assert args[0] == "show"
     if "--property=MemoryPeak" in args:
         event("memory-peak", unit=args[1])
         print(scenario.get("memory_peak", "536870912"))
     elif args[1] == "hausnetz.service":
-        assert "--property=MainPID" in args
-        print("0" if scenario.get("pid_missing") and active_new() else "123")
+        if "--property=InvocationID" in args:
+            print("b" * 32 if scenario.get("rehearsal_restart") and (root / "rolled-back").exists() else "a" * 32)
+        else:
+            assert "--property=MainPID" in args
+            print("0" if scenario.get("pid_missing") and active_new() else "123")
     else:
         assert "--property=ActiveState" in args
         print(scenario.get("unit_state", "active" if (root / "executor.pid").exists() else "inactive"))
@@ -212,6 +229,9 @@ elif command == "nix-store":
     event("gc-root", path=args[1], target=args[4])
     print(args[4])
 elif command == "nix-env":
+    if args == ["--profile", config["system_profile"], "--list-generations"]:
+        print("1 fixture generation" + ("\n2 changed" if scenario.get("rehearsal_generation") and (root / "rolled-back").exists() else ""))
+        raise SystemExit(0)
     assert args[:2] == ["--profile", config["system_profile"]] and args[2] == "--set"
     target = args[3]
     generation = "system-2-link" if target == config["new_system"] else "system-3-link"
@@ -231,6 +251,8 @@ elif command == "switch-to-configuration":
             print("would activate the configuration...")
             print("would reload the following units: dbus-broker.service")
             print("would start the following units: hausnetz.service, polkit.service")
+        if scenario.get("rehearsal_rollback_units") and (root / "rolled-back").exists():
+            print("would restart the following units: hausnetz.service")
         if scenario.get("extra_unit"):
             print("would restart the following units: sshd.service", file=sys.stderr)
         if scenario.get("change_during_g3"):
@@ -244,10 +266,16 @@ elif command == "switch-to-configuration":
         link(config["current_system"], target)
         if target == config["old_system"]:
             (root / "rolled-back").touch()
+            if scenario.get("rehearsal_boot_change"):
+                (root / "boot/grub/grubenv").write_text("changed default")
+            if "boot_after_switch" in scenario:
+                (root / "boot/grub/grub.cfg").write_text(scenario["boot_after_switch"])
         rev = config["old_rev"] if target == config["old_system"] else config["new_rev"]
         if not scenario.get("stale_evidence"):
             Path(config["evidence_file"]).write_text(json.dumps({
                 "schema": "inspr.pharos.nix-deployment-evidence.v1", "source_revision": rev}))
+        if target == config["old_system"] and scenario.get("rollback_exit4"):
+            raise SystemExit(4)  # activation completed, systemd reports failed units
         if target == config["new_system"] and scenario.get("partial_switch_fail"):
             raise SystemExit(1)
     else:
@@ -334,8 +362,10 @@ elif command == "paimos":
         raise SystemExit(1)
 elif command == "mbx":
     assert args[:1] == ["send"] and args[1] in {"mac-lead", "lead"}
-    assert args[2:] == ["-f", "mac-ops", "-t", "HNET-570", "-m", "-"]
-    event("local-mailbox", recipient=args[1], text=sys.stdin.read())
+    assert args[2:4] == ["-f", "mac-ops"] and args[-2:] == ["-m", "-"]
+    ticket_args = args[4:-2]
+    assert ticket_args == [] or (len(ticket_args) == 2 and ticket_args[0] == "-t")
+    event("local-mailbox", recipient=args[1], ticket=ticket_args[1] if ticket_args else None, text=sys.stdin.read())
     if scenario.get("local_mailbox_fail") == args[1]:
         raise SystemExit(1)
 elif command in {"alarm", "secondary-telegram"}:
@@ -343,6 +373,23 @@ elif command in {"alarm", "secondary-telegram"}:
     event(command, text=sys.stdin.read())
     if scenario.get("secondary_telegram_fail") and command == "secondary-telegram":
         raise SystemExit(1)
+elif command == "bootctl":
+    assert args == ["--json=short", "list"]
+    print(json.dumps([{"id": "nixos-generation-1.conf", "isDefault": True}]))
+elif command == "acceptance":
+    event("acceptance", args=args)
+    assert len(args) == 6 and args[1:3] == ["just", "acceptance"]
+    assert args[0] == config["old_hnet"] and args[0] != config["new_hnet"]
+    assert args[3:] == ["http://fixture.invalid", config["new_version"], config["manifest_sha"]]
+    if scenario.get("acceptance_orphan"):
+        subprocess.Popen([sys.executable, "-c", "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(12)"])
+        time.sleep(12)
+    if scenario.get("acceptance_hang"):
+        time.sleep(10)
+    if scenario.get("acceptance_missing"):
+        raise SystemExit(127)
+    print(scenario.get("acceptance_output", '{"ok":true}'))
+    raise SystemExit(scenario.get("acceptance_exit", 0))
 elif command == "gh":
     event("vm-test", args=args)
     assert args == ["api", "--method", "GET",

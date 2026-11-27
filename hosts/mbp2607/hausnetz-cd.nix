@@ -14,7 +14,13 @@ let
       enabled = cfg.enable;
       mode = cfg.mode;
       release_ticket = cfg.releaseTicket;
+      alarm_ticket = cfg.alarmTicket;
       alarm_command = cfg.alarmCommand;
+      attended_ack_minutes = cfg.attendedAckMinutes;
+      acceptance_command = cfg.acceptanceCommand;
+      acceptance_url = cfg.acceptanceUrl;
+      acceptance_timeout = cfg.acceptanceTimeout;
+      vm_test_wait_timeout = cfg.vmTestWaitTimeout;
       mailbox_remote_file = cfg.mailboxRemoteFile;
       local_mailbox_command = cfg.localMailboxCommand;
       secondary_telegram_command = cfg.secondaryTelegramCommand;
@@ -65,6 +71,36 @@ in
       type = lib.types.nullOr lib.types.str;
       default = null;
       description = "HNET release ticket for one result line per revision.";
+    };
+    alarmTicket = lib.mkOption {
+      type = lib.types.nullOr (lib.types.strMatching "[A-Z][A-Z0-9]+-[0-9]+");
+      default = null;
+      description = "Mailbox alarm ticket key ([A-Z][A-Z0-9]+-[0-9]+); null sends alarms without a ticket tag.";
+    };
+    attendedAckMinutes = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 30;
+      description = "Minutes for the operator's run-token acknowledgement during the first three live releases.";
+    };
+    acceptanceCommand = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      description = "Required live CI-VM adapter argv: materialize {trusted_rev}, run just acceptance {url} {version} {caps_sha256}, return one JSON object with ok=true. Empty refuses live.";
+    };
+    acceptanceUrl = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "Operator-selected URL passed to the trusted hausnetz acceptance checker in the Mac CI VM.";
+    };
+    acceptanceTimeout = lib.mkOption {
+      type = lib.types.ints.between 1 600;
+      default = 600;
+      description = "CI-VM acceptance timeout in seconds (bounded by executor recovery budget).";
+    };
+    vmTestWaitTimeout = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 1800;
+      description = "Alarm once after this many seconds of retryable vm-test unavailability.";
     };
     alarmCommand = lib.mkOption {
       type = lib.types.listOf lib.types.str;

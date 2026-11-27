@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import tempfile
 from urllib.parse import quote
@@ -33,16 +34,18 @@ G3_TIMEOUT = 2 * G3_COMMAND_TIMEOUT  # diff-closures + dry-activate
 ACK_TIMEOUT = 120
 HEALTH_TIMEOUT = 120
 SWITCH_BUDGET = 600  # observation budget only: activation is never killed
+ACCEPTANCE_TIMEOUT = 600
 SOURCE_BUDGET = 600
 EXECUTOR_BUDGET = (SOURCE_BUDGET + BUILD_TIMEOUT + G3_TIMEOUT + ACK_TIMEOUT
-                   + 3 * HEALTH_TIMEOUT + 2 * SWITCH_BUDGET + 120)
+                   + 3 * HEALTH_TIMEOUT + 2 * SWITCH_BUDGET + ACCEPTANCE_TIMEOUT + 240)
 SSH_RETRY_TIMEOUT = 300
 POLL_INTERVAL = 15
 POLL_BUDGET = EXECUTOR_BUDGET + SSH_RETRY_TIMEOUT + 120
 UNIT_RUNTIME_MAX = POLL_BUDGET + 300
 EVIDENCE_SCHEMA = "inspr.pharos.nix-deployment-evidence.v1"
 RESULT_SCHEMA = "inspr.pharos.guarded-deploy-result.v1"
-TERMINAL = {"manual", "dry-run", "succeeded", "failed", "rollback_failed", "skipped", "unknown", "fetch_failed"}
+EXECUTOR_TERMINAL = {"manual", "dry-run", "succeeded", "failed", "rollback_failed", "skipped", "rolled_back", "rehearsal_aborted", "preflight_refused"}
+TERMINAL = EXECUTOR_TERMINAL | {"unknown", "fetch_failed", "vm_test_wait", "ack_timeout", "preflight_refused"}
 
 
 def diagnostics(items):
@@ -96,14 +99,54 @@ def run(executable, args, *, timeout=60, data=None, binary=False):
     # select it from literals, the Nix-baked config, or a proved store output.
     # Diagnostics can contain credential-bearing URLs; never return them.
     try:
-        result = subprocess.run(
-            [str(executable), *[str(a) for a in args]], input=data, capture_output=True,
-            text=not binary, timeout=timeout, check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        process = subprocess.Popen([str(executable), *[str(a) for a in args]],
+                              stdin=subprocess.PIPE if data is not None else None,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=not binary,
+                              start_new_session=True)
+        try:
+            try:
+                stdout, _ = process.communicate(input=data, timeout=timeout)
+            except subprocess.TimeoutExpired as exc:
+                # Give VM adapters time to forward cancellation to their child.
+                def cancel_group(sig):
+                    try:
+                        os.killpg(process.pid, sig)
+                    except ProcessLookupError:
+                        pass
+                    except OSError:
+                        # Some hosts refuse signalling a group whose leader
+                        # already exited. Still reap our child within bounds.
+                        try:
+                            process.send_signal(sig)
+                        except OSError:
+                            pass
+                cancel_group(signal.SIGTERM)
+                try:
+                    process.communicate(timeout=3)
+                except subprocess.TimeoutExpired:
+                    pass
+                # The adapter may exit while a descendant that closed its
+                # pipes still survives. Always finish cancelling the group.
+                cancel_group(signal.SIGKILL)
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    raise Manual("command_unavailable_or_timeout") from exc
+                try:
+                    process.communicate(timeout=1)
+                except subprocess.TimeoutExpired:
+                    # An escaped descendant can still own a pipe. Closing
+                    # our ends must never wait for that descendant to exit.
+                    pass
+                raise Manual("command_unavailable_or_timeout") from exc
+            require(process.returncode == 0, "command_failed")
+            return stdout
+        finally:
+            for pipe in (process.stdin, process.stdout, process.stderr):
+                if pipe is not None:
+                    pipe.close()
+    except OSError as exc:
         raise Manual("command_unavailable_or_timeout") from exc
-    require(result.returncode == 0, "command_failed")
-    return result.stdout
 
 
 def http_get(url, timeout):
@@ -124,8 +167,11 @@ def strict_json(data):
             result[key] = value
         return result
 
+    def invalid_constant(_value):
+        raise Manual("unreadable_json")
+
     try:
-        return json.loads(data, object_pairs_hook=unique)
+        return json.loads(data, object_pairs_hook=unique, parse_constant=invalid_constant)
     except (ValueError, UnicodeError, RecursionError) as exc:
         raise Manual("unreadable_json") from exc
 
