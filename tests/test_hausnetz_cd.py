@@ -37,7 +37,7 @@ if mutant is not None:
     SOURCE = mutant_source(mutant)
 sys.path.insert(0, str(SOURCE))
 from common import (Manual, EXECUTOR_BUDGET, POLL_BUDGET, POLL_INTERVAL, SSH_RETRY_TIMEOUT,
-                    UNIT_RUNTIME_MAX, coordinate, gate_closures, gate_g1, gate_g2, gate_g4,
+                    UNIT_RUNTIME_MAX, coordinate, gate_closures, gate_g1, gate_g2, gate_g4, gate_units,
                     parse_export, prepare_result, strict_json)
 from orchestrate import REMOTE, ledger, save_state, tick, validate_result
 from execute import execute as execute_transaction, health
@@ -1230,6 +1230,39 @@ class TestCD(unittest.TestCase):
         # Empty/reset and multi-parameter SGR are permitted, too.
         gate_closures("\x1b[m\x1b[1;31m" + raw.decode() + "\x1b[0m", "old", "new")
 
+    def test_g3_real_activation_chatter_and_allowed_units_pass(self):
+        try:
+            gate_units("Not checking switch inhibitors (action = dry-activate)\n"
+                       "would activate the configuration...\n"
+                       "would stop the following units: hausnetz.service\n"
+                       "would start the following units: hausnetz.service, polkit.service\n"
+                       "would reload the following units: dbus-broker.service\n")
+        except Manual as exc:
+            self.fail("Captured chatter and allowed G3 units must pass: " + str(exc))
+
+    def test_g3_real_activation_chatter_extra_unit_fails(self):
+        with self.assertRaisesRegex(Manual, "^G3_extra_unit$"):
+            gate_units("Not checking switch inhibitors (action = dry-activate)\n"
+                       "would activate the configuration...\n"
+                       "would stop the following units: hausnetz.service\n"
+                       "would start the following units: hausnetz.service, polkit.service\n"
+                       "would reload the following units: dbus-broker.service\n"
+                       "would restart the following units: sshd.service\n")
+
+    def test_g3_real_activation_chatter_unknown_line_fails(self):
+        with self.assertRaisesRegex(Manual, "^G3_unrecognized_activation_output$"):
+            gate_units("Not checking switch inhibitors (action = dry-activate)\n"
+                       "would activate the configuration...\n"
+                       "would start the following units: hausnetz.service\n"
+                       "unknown dry-activate output\n")
+
+    def test_g3_real_activation_chatter_without_hausnetz_fails(self):
+        for units in ("", "would start the following units: polkit.service\n"
+                          "would reload the following units: dbus-broker.service\n"):
+            with self.subTest(units=units), self.assertRaisesRegex(Manual, "^G3_no_hausnetz_activation$"):
+                gate_units("Not checking switch inhibitors (action = dry-activate)\n"
+                           "would activate the configuration...\n" + units)
+
     def test_g3_captured_secret_addition_fails(self):
         raw = (REPO / "tests/fixtures/hausnetz-diffclosures-r64-r65.bin").read_bytes()
         self.assertEqual(raw, ("hausnetz: 261123075451.0.0 → 261126120508.0.0, 453.0 KiB\n"
@@ -2087,7 +2120,8 @@ class TestCD(unittest.TestCase):
         self.assertEqual(result["status"], "rolled_back", result)
         self.assertEqual(result["rollback_health"], "pass")
         self.assertEqual(result["rehearsal_reason"], "operator rehearsal check")
-        self.assertIn(' rehearsal_reason="operator rehearsal check"', self.f.events("ticket")[0]["text"])
+        self.assertTrue(self.f.events("ticket")[0]["text"].endswith(
+            ' mode=rehearse status=rolled_back rehearsal_reason="operator rehearsal check"'))
         self.assertEqual(result["new_proof"]["revision"], self.f.old_hnet)
         self.assertNotEqual(result["new_proof"]["expected_revision"], self.f.old_hnet)
         self.assertEqual(result["old_proof"]["expected_revision"], self.f.old_hnet)
@@ -2122,7 +2156,8 @@ class TestCD(unittest.TestCase):
         ticket = self.f.events("ticket")[0]["text"]
         self.assertTrue(ticket.startswith("TEST (no action): "))
         self.assertIn("nixcfg=" + self.f.old + " hausnetz=" + self.f.old_hnet + " ", ticket)
-        self.assertIn(' rehearsal_reason="operator rehearsal check"', ticket)
+        self.assertTrue(ticket.endswith(
+            ' mode=rehearse status=rollback_failed rehearsal_reason="operator rehearsal check"'))
         self.assertEqual(result["rehearsal_reason"], "operator rehearsal check")
         events = self.f.events()
         self.f.tick(args=("--once", "--dry-run"))
@@ -2429,6 +2464,26 @@ class TestCD(unittest.TestCase):
         self.f.tick("live")
         self.assertEqual(self.f.terminal()["status"], "succeeded")
         self.assertEqual(len(self.f.events("start")), 2)
+
+    def test_reconcile_pending_rehearsal_without_reason(self):
+        from orchestrate import reconcile
+        state = copy.deepcopy(self.f.live_state)
+        pending = {"nixcfg_rev": self.f.old, "hausnetz_rev": self.f.old_hnet, "mode": "rehearse",
+                   "rehearsal": "A", "run_id": "a" * 32, "run_key": self.f.key,
+                   "deadline": time.time() + 2}
+        state["pending"] = pending
+        response = {"unit_state": "inactive", "result": {
+            **pending, "schema": "inspr.pharos.guarded-deploy-result.v1",
+            "status": "rolled_back", "phase": "complete", "completed_at": "fixture"}}
+        self.f.orchestrator["ssh_retry_timeout"] = 0
+        with mock.patch("orchestrate.remote", return_value=json.dumps(response)), \
+                mock.patch("orchestrate.finish") as finish:
+            reconcile(self.f.orchestrator, state)
+        finish.assert_called_once()
+        result = finish.call_args.args[2]
+        self.assertEqual(result["status"], "rolled_back")
+        self.assertIsNone(result["rehearsal_reason"])
+        self.assertNotIn("unavailable_since", pending)
 
     def test_unknown_latches_all_controller_outcomes(self):
         from orchestrate import reconcile
@@ -3464,7 +3519,9 @@ def mutants():
         ("vm-test failure becomes permanent", "orchestrate.py", [('result.update(status="vm_test_wait", run_key=key + "-vm-test")', 'result.update(status="manual", run_key=key + "-vm-test")')], "test_vm_test_retryable_outage_alarm_once_and_recovery"),
         ("health revision identity ignored", "execute.py", [('revision(proof.get("expected_revision")) == revision(proof["revision"])', 'True')], "test_rehearsal_a_real_switch_and_rollback_without_changes"),
         ("rehearsal allows activation changes", "execute.py", [('rehearsal_units(activation.stdout)', 'pass')], "test_rehearsal_refuses_nonempty_activation"),
-        ("rehearsal real chatter rejected", "execute.py", [('               "Not checking switch inhibitors (action = dry-activate)",\n', '')], "test_rehearsal_a_real_switch_and_rollback_without_changes"),
+        ("shared inhibitor chatter removed for G3", "common.py", [('    "Not checking switch inhibitors (action = dry-activate)",\n', '')], "test_g3_real_activation_chatter_and_allowed_units_pass"),
+        ("shared inhibitor chatter removed for rehearsal", "common.py", [('    "Not checking switch inhibitors (action = dry-activate)",\n', '')], "test_rehearsal_a_real_switch_and_rollback_without_changes"),
+        ("G3 duplicates chatter without inhibitor", "common.py", [('line in DRY_ACTIVATE_CHATTER:', 'line in {"dry activating the configuration...", "would activate the configuration...", "would run sysinit-reactivation", "setting up /etc..."}:')], "test_g3_real_activation_chatter_and_allowed_units_pass"),
         ("rehearsal reason not required", "orchestrate.py", [('    require(reason, "rehearse requires --reason <text>")', '    pass')], "test_rehearsal_requires_reason_before_any_work"),
         ("rehearsal route preflight skipped", "orchestrate.py", [('        rehearsal_preflight(config)', '        pass')], "test_rehearsal_route_failure_refuses_before_state_or_token"),
         ("csb1 sender bounds message", "hausnetz-cd-alert.py", [('len(message) > 2048', 'False')], "TestAlertSender.test_sender_rejects_bad_inputs_without_logging_credentials"),

@@ -46,6 +46,11 @@ EVIDENCE_SCHEMA = "inspr.pharos.nix-deployment-evidence.v1"
 RESULT_SCHEMA = "inspr.pharos.guarded-deploy-result.v1"
 EXECUTOR_TERMINAL = {"manual", "dry-run", "succeeded", "failed", "rollback_failed", "skipped", "rolled_back", "rehearsal_aborted", "preflight_refused"}
 TERMINAL = EXECUTOR_TERMINAL | {"unknown", "fetch_failed", "vm_test_wait", "ack_timeout", "preflight_refused"}
+DRY_ACTIVATE_CHATTER = frozenset({
+    "dry activating the configuration...", "would activate the configuration...",
+    "Not checking switch inhibitors (action = dry-activate)",
+    "would run sysinit-reactivation", "setting up /etc...",
+})
 
 
 def diagnostics(items):
@@ -487,11 +492,9 @@ def gate_units(text):
                "start": {"hausnetz.service", "polkit.service"},
                "restart": {"hausnetz.service", "polkit.service"},
                "reload": {"dbus-broker.service"}}
-    chatter = {"dry activating the configuration...", "would activate the configuration...",
-               "would run sysinit-reactivation", "setting up /etc..."}
     actions = {}
     for line in text.splitlines():
-        if not line.strip() or line in chatter:
+        if not line.strip() or line in DRY_ACTIVATE_CHATTER:
             continue
         match = re.fullmatch(r"would (stop|start|restart|reload) the following units: (.+)", line)
         require(match is not None, "G3_unrecognized_activation_output")
