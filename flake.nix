@@ -65,8 +65,9 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # HNET pin 76: v261127062553.0.0 (sequence 146; hausnetz main 1b90188c = merge of release PR #472; the tag is on
-    # the merge). Since 75: steadier floor plans; front-end only (web/src/plan/view.ts, web/src/image-load.ts), tests
-    # and a justfile recipe; no non-test Go; CSP header and index.html unchanged; capability manifest unchanged
+    # the merge). Since 75: steadier floor plans; front-end runtime changes only (web/src/plan/view.ts,
+    # web/src/image-load.ts), plus tests, QA/CI and release bookkeeping; no non-test Go; CSP header and index.html
+    # unchanged; capability manifest unchanged
     # (1a85d9dd…); no nix/, flake or Go-dependency change (check on HNET-607). Rollback: previous generation (pin 75);
     # a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
