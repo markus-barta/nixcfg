@@ -64,15 +64,14 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 77: v261127105834.0.0 (sequence 147; hausnetz main 95e263e8 = merge of release PR #481; the tag is on
-    # the merge). Since 76: clearer Devices column menu (HNET-613); the plan view ends its image lifecycle even when a
-    # paint throws (HNET-604/606); the HNET-611 acceptance script and its just recipe; QA/CI and release bookkeeping.
-    # Only non-test Go change: hostcaps.DeployGate (stricter: the acceptance script is
-    # never host-inert). CSP header and index.html unchanged; capability manifest unchanged (1a85d9dd…); no nix/,
-    # flake or Go-dependency change (check on HNET-615). Rollback: previous generation (pin 76); a re-pin below 65
-    # must drop the homeAssistant block.
+    # HNET pin 78: v261127124715.0.0 (sequence 148; hausnetz main 55a14444 = merge of release PR #485; the tag is on
+    # the merge). Since 77: the Starlink dish's firmware and uptime are back in the Devices drawer (HNET-617); a
+    # Devices sweep (HNET-614); the HNET-611 acceptance script fixed for Local Network Access (HNET-618:
+    # route.continue, no browser protections disabled); front-end and QA changes only, no Go. CSP header and
+    # index.html unchanged; capability manifest unchanged (1a85d9dd…); no nix/, flake or Go-dependency change (check
+    # on HNET-620). Rollback: previous generation (pin 77); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=95e263e8dd4361ab4d678198aad5fa670710b6c3";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=55a14444eb43db59c28a71ee5d147ef46c492a57";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
