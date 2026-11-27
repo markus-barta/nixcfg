@@ -64,14 +64,14 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 73: v261127021523.0.0 (sequence 143; hausnetz main 4f565d04 = merge of release PR #461; the tag is on
-    # the merge). Since 72: saved-change records (HNET-318): the service also writes revisions.json, atomically inside
-    # its existing StateDirectory, so the capability manifest's data-dir note changes (capabilities_sha256 782631fc… →
-    # 1a85d9dd…); read-only GET /api/site/revisions and /api/site/revisions/{rev}/revert (returns a draft, no save).
-    # No nix/, flake or Go-dependency change; no new listener, outbound call or credential (capability review
-    # HNET-598). Rollback: previous generation (pin 72); a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 74: v261127030049.0.0 (sequence 144; hausnetz main 110e5208 = merge of release PR #464; the tag is on
+    # the merge). Since 73: maintenance and reliability; the only non-test Go change is the CD checker's empty
+    # open-call allowlist (cmd/cd-prepare, not part of the service); UI, tests and CI files. Capability manifest
+    # unchanged (1a85d9dd…); no nix/, flake or Go-dependency change; no new listener, outbound call, credential or
+    # write path (capability review HNET-599). Rollback: previous generation (pin 73); a re-pin below 65 must drop
+    # the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=4f565d04505ea18df3aa90d3f10b1929b1173ffa";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=110e52080faf3c40f36c45528ceb2ef9c5eecc39";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
