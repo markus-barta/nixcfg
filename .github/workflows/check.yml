@@ -418,6 +418,19 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash python3 --run "bash tests/T84-pi-inspr-kernel.sh"
 
+      # T129 evaluates offline against the exact locked sources and never
+      # fetches; materialise them first and prove each hash against flake.lock.
+      - name: Prefetch the locked public sources T129 evaluates (OPS-737)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: |
+          set -euo pipefail
+          for name in nixpkgs inspr-modules; do
+            ref=$(jq -er --arg n "$name" '.nodes[$n].locked | select(.type == "github") | "github:\(.owner)/\(.repo)/\(.rev)"' flake.lock)
+            want=$(jq -er --arg n "$name" '.nodes[$n].locked.narHash' flake.lock)
+            got=$(nix flake prefetch --json "$ref" | jq -er .hash)
+            [ "$got" = "$want" ] || { echo "::error::$name prefetch hash $got != flake.lock $want" >&2; exit 1; }
+          done
+
       - name: Verify opt-in AEON operator Mac kernel and mutants (OPS-737)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash python3 --run "nice -n 10 bash tests/T129-aeon-operator-mac.sh"
