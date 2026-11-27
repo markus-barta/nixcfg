@@ -13,7 +13,10 @@ let
         positive = null;
         between = _: _: null;
       };
-      nullOr = _: null;
+      nullOr = kind: { check = value: value == null || kind.check value; };
+      strMatching = pattern: {
+        check = value: builtins.isString value && builtins.match pattern value != null;
+      };
       listOf = _: null;
       enum = _: null;
     };
@@ -107,6 +110,26 @@ assert builtins.elem "f /run/hsb0-deploy.lock 0644 root root -"
   homeImports = map toString home.imports;
   homeAlarmTicket = home.inspr.hausnetzCdOrchestrator.alarmTicket;
   homeReleaseTicket = home.inspr.hausnetzCdOrchestrator.releaseTicket;
+  alarmTicketChecks =
+    let
+      check = orchestrator.options.inspr.hausnetzCdOrchestrator.alarmTicket.type.check;
+    in
+    {
+      valid = map check [
+        null
+        "OPS-705"
+        "HN3-0"
+        "AB-123"
+      ];
+      invalid = map check [
+        "ops-705"
+        "OPS-1\n"
+        "A-1"
+        "OPS-"
+        "OPS-1;id"
+        705
+      ];
+    };
   orchestratorDefaults = defaults orchestrator.options.inspr.hausnetzCdOrchestrator;
   agent = orchestrator.config.launchd.agents.hausnetz-cd;
   orchestratorRunner =

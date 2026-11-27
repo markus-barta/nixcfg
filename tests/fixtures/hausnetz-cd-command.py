@@ -64,9 +64,11 @@ if command == "sudo":
     if scenario.get("sudo_fail"):
         raise SystemExit(1)
     commands = {name: str(root / "bin" / name) for name in
-                ("systemd-run", "systemctl", "cat", "test", "tee", "chmod")}
+                ("systemd-run", "systemctl", "readlink", "cat", "test", "tee", "chmod")}
     # Only fixed local fixture programs or system utilities are executable.
-    commands.update({name: shutil.which(name) for name in ("cat", "test", "tee", "chmod", "install")})
+    commands.update({name: shutil.which(name) for name in ("cat", "test", "tee", "chmod", "install", "mktemp", "mv")})
+    if args[:2] == ["mv", "-fT"]:
+        args[1] = "-f"  # BSD fixture host; both paths are regular fixture files.
     os.execv(commands[args[0]], args)
 elif command == "ssh":
     script = sys.stdin.read()
@@ -102,6 +104,7 @@ elif command == "ssh":
             raise SystemExit(0)
     script = script.replace("/var/lib/hausnetz-cd", config["state_dir"])
     script = script.replace("/etc/pharos-deployment/evidence.json", config["evidence_file"])
+    script = script.replace("/nix/var/nix/profiles/system", config["system_profile"])
     script = script.replace("/run/current-system/sw/bin/hausnetz-cd-execute", config["executor"])
     result = subprocess.run(["bash", "-s", "--", *call[3:]], input=script.encode(), check=False)
     if action == "ack" and scenario.get("change_at_ack"):
@@ -130,6 +133,13 @@ elif command == "systemd-run":
             process = subprocess.Popen([config["executor"], *args[position + 1:]], stdout=output, stderr=output, start_new_session=True)
         (root / "executor.pid").write_text(str(process.pid))
 elif command == "systemctl":
+    if args[0] == "--failed":
+        event("failed-units")
+        failed = scenario.get("failed_units", "")
+        if scenario.get("failed_units_after_switch") and (active_new() or (root / "rolled-back").exists()):
+            failed = "broken.service loaded failed failed Broken unit"
+        print(failed)
+        raise SystemExit(0)
     assert args[0] == "show"
     if "--property=MemoryPeak" in args:
         event("memory-peak", unit=args[1])
@@ -256,6 +266,8 @@ elif command == "switch-to-configuration":
             (root / "rolled-back").touch()
             if scenario.get("rehearsal_boot_change"):
                 (root / "boot/grub/grubenv").write_text("changed default")
+            if "boot_after_switch" in scenario:
+                (root / "boot/grub/grub.cfg").write_text(scenario["boot_after_switch"])
         rev = config["old_rev"] if target == config["old_system"] else config["new_rev"]
         if not scenario.get("stale_evidence"):
             Path(config["evidence_file"]).write_text(json.dumps({
@@ -358,7 +370,8 @@ elif command in {"alarm", "secondary-telegram"}:
     if scenario.get("secondary_telegram_fail") and command == "secondary-telegram":
         raise SystemExit(1)
 elif command == "bootctl":
-    print("Current Boot Loader: fixture default")
+    assert args == ["--json=short", "list"]
+    print(json.dumps([{"id": "nixos-generation-1.conf", "isDefault": True}]))
 elif command == "acceptance":
     event("acceptance", args=args)
     assert len(args) == 6 and args[1:3] == ["just", "acceptance"]

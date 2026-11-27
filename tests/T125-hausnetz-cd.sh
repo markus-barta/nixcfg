@@ -19,6 +19,7 @@ assert not {"manifestPath", "versionUrl", "versionField", "healthUrl"}.intersect
 assert o["enable"] is False and o["mode"] == "dry-run"
 assert "manifestPath" not in o and o["releaseTicket"] is None
 assert o["alarmTicket"] is None
+assert all(c["alarmTicketChecks"]["valid"]) and not any(c["alarmTicketChecks"]["invalid"])
 assert c["homeAlarmTicket"] == "OPS-705" and c["homeReleaseTicket"] == "HNET-570"
 assert o["alarmCommand"] == [] and o["secondaryTelegramCommand"]
 assert o["acceptanceCommand"] == [] and o["acceptanceUrl"] == ""

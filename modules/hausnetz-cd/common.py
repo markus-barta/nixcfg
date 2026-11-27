@@ -43,8 +43,8 @@ POLL_BUDGET = EXECUTOR_BUDGET + SSH_RETRY_TIMEOUT + 120
 UNIT_RUNTIME_MAX = POLL_BUDGET + 300
 EVIDENCE_SCHEMA = "inspr.pharos.nix-deployment-evidence.v1"
 RESULT_SCHEMA = "inspr.pharos.guarded-deploy-result.v1"
-EXECUTOR_TERMINAL = {"manual", "dry-run", "succeeded", "failed", "rollback_failed", "skipped", "rolled_back", "rehearsal_aborted"}
-TERMINAL = EXECUTOR_TERMINAL | {"unknown", "fetch_failed", "vm_test_wait", "ack_timeout"}
+EXECUTOR_TERMINAL = {"manual", "dry-run", "succeeded", "failed", "rollback_failed", "skipped", "rolled_back", "rehearsal_aborted", "preflight_refused"}
+TERMINAL = EXECUTOR_TERMINAL | {"unknown", "fetch_failed", "vm_test_wait", "ack_timeout", "preflight_refused"}
 
 
 def diagnostics(items):
@@ -98,14 +98,24 @@ def run(executable, args, *, timeout=60, data=None, binary=False):
     # select it from literals, the Nix-baked config, or a proved store output.
     # Diagnostics can contain credential-bearing URLs; never return them.
     try:
-        result = subprocess.run(
-            [str(executable), *[str(a) for a in args]], input=data, capture_output=True,
-            text=not binary, timeout=timeout, check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        with subprocess.Popen([str(executable), *[str(a) for a in args]],
+                              stdin=subprocess.PIPE if data is not None else None,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=not binary) as process:
+            try:
+                stdout, _ = process.communicate(input=data, timeout=timeout)
+            except subprocess.TimeoutExpired as exc:
+                # Give VM adapters time to forward cancellation to their child.
+                process.terminate()
+                try:
+                    process.communicate(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                raise Manual("command_unavailable_or_timeout") from exc
+            require(process.returncode == 0, "command_failed")
+            return stdout
+    except OSError as exc:
         raise Manual("command_unavailable_or_timeout") from exc
-    require(result.returncode == 0, "command_failed")
-    return result.stdout
 
 
 def http_get(url, timeout):

@@ -73,7 +73,7 @@ in
       description = "HNET release ticket for one result line per revision.";
     };
     alarmTicket = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
+      type = lib.types.nullOr (lib.types.strMatching "[A-Z][A-Z0-9]+-[0-9]+");
       default = null;
       description = "Mailbox alarm ticket key ([A-Z][A-Z0-9]+-[0-9]+); null sends alarms without a ticket tag.";
     };

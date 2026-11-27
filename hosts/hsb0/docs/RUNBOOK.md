@@ -784,14 +784,20 @@ records `readback_before`, `readback_after_switch` and `readback_after`:
 
 - `nix-env --profile /nix/var/nix/profiles/system --list-generations`, the profile
   symlink and resolved `/run/current-system`;
-- digests of the bootloader default/entries: GRUB `grub.cfg` and `grubenv`,
-  plus its default assignments, menu entries and saved/next selectors, or
-  systemd-boot `loader.conf`, every entry and `bootctl status` (including EFI
-  default overrides). Missing defaults/entries or empty GRUB configuration refuses;
+- the resolved boot default and its complete entry (including kernel, initrd,
+  init and system paths), GRUB settings and `grubenv` saved/next selectors, or
+  systemd-boot `loader.conf`, entry bodies and `bootctl --json=short list`
+  default selection (including EFI overrides). Missing/ambiguous defaults or
+  entries refuse. Every non-default entry must also match, except removal of a
+  generation absent from the system profile; those removals are recorded in
+  `removed_stale_boot_entries` and the ticket line. This permits cleanup of
+  boot entries left stale by weekly `nh clean`, without permitting additions
+  or changes to surviving entries;
 - hausnetz.service `MainPID` and `InvocationID`, both required and compared.
 
 Inspect the complete readbacks in the Mac's latest `reports` result and the
-root-owned `results/<run-id>.json` on hsb0. All readbacks must be identical;
+root-owned `results/<run-id>.json` on hsb0. Readbacks must match except for
+those explicitly reported stale boot-entry removals;
 hausnetz must retain its PID **and** invocation ID. Any drift or unavailable
 readback yields `rehearsal_aborted` and a `TEST (no action): REHEARSAL ABORTED`
 alarm through the normal mailbox/csb1 chain. Drift stops any further switch;
@@ -799,8 +805,11 @@ do not repeat a rehearsal until the operator has inspected it.
 
 A deliberately wrong expected hausnetz revision (the all-zero sentinel) makes
 the forward health check fail against the recorded running pin. The same
-revision identity check runs in normal live health alongside executable,
-version and capability proofs. Variant A then activates the recorded old system
+revision comparison is a proof-to-expected consistency check in normal live
+health; G1 already binds both values to the lock pin. Live health independently
+checks the process executable, version, capabilities and readiness, and the
+switch path verifies the running nixcfg deployment evidence. Variant A then
+activates the recorded old system
 (the same closure and generation) and passes its original health proof:
 `status=rolled_back`, `rollback=succeeded`, `rollback_health=pass`.
 Variant B also sets the old proof's expected revision to the wrong sentinel:
@@ -827,13 +836,24 @@ ticket result line and never reserves a production revision pair.
 
 #### Persistent disable latch and attended live releases (gate 7)
 
-The first `rollback_failed`, including B, durably writes `disabled` in the Mac
-state **before** reporting the alarm. Every later tick, including
+The first `rollback_failed`, including B, every controller `unknown` outcome
+(interrupted switch, executor crash, status unavailable or poll timeout), and
+any rehearsal drift/unreadable readback after a switch durably write `disabled`
+with the reason in the Mac state **before** reporting the alarm. Every later
+tick, including
 `--once --dry-run` and operator rehearsal, refuses to start work while latched
 and logs the refusal. The triggering failure is the one alarm event; subsequent
 ticks do not repeat it. An unannounced persisted latch alarms once. Disable
 cannot clear itself after a restart, success, dry-run or a changed revision.
-After operator inspection, with no pending executor, clear it explicitly:
+Before clearing an uncertain result, the operator must read the executor's
+**final** root-owned result on hsb0, including `status`, `phase`, `rollback`,
+`rollback_health` and `reason`, and confirm that its systemd unit is inactive or
+failed. The executor may have finished rollback after the controller stopped
+polling. On hsb0, run `sudo cat /var/lib/hausnetz-cd/results/<run-id>.json` and
+`sudo systemctl show hausnetz-cd-<run-id>.service --property=ActiveState --value`;
+inspect the current system/profile and rehearsal readbacks as appropriate.
+An active/deactivating unit or unavailable final result is unresolved: keep the
+latch set. After inspection, with no pending executor, clear it explicitly:
 
 ```bash
 hausnetz-cd --clear-disable --reason 'operator inspected recovery and readbacks'
@@ -860,11 +880,25 @@ run-scoped acknowledgement to hsb0 before starting its executor. The executor
 independently refuses a live switch without that acknowledgement. Before the
 first three successful releases the controller never creates this approval
 without the operator file; afterwards it can acknowledge automatically.
-There is no executor start or switch while waiting. At the deadline the
+Awaiting-ack alarms include the recorded generation, reason, run token and
+exact file-writing command. There is no executor start or switch while waiting.
+At the deadline the
 controller alarms `ack timeout, release left manual`, completes `ack_timeout`
 and reserves that pair for manual handling. Late files do not restart it.
 Only a completed, healthy **and acceptance-green** live release decrements the
 counter. Dry-run, rehearsal, timeout, failed switch and rollback do not.
+
+The persistent latch and attended operator-ack policy are **controller-only**.
+The executor requires a controller-provided run ack, but a direct root invocation
+can supply it and is an operator action outside CD. The one-shot rehearsal token
+also binds the controller invocation; it is not protection against root on hsb0.
+Before every switch, including rehearsal rollback, the executor requires
+`systemctl --failed` to be empty. Existing failed unit names are recorded and
+refuse the switch: `rehearsal_aborted` for rehearsal, retryable
+`preflight_refused` before live activation, without failing or reserving the pair.
+Fix the units through the normal operator process before retrying. Failed units
+found after activation also block a rollback switch; `rollback_reason` retains
+the unit names, and the disabled latch requires operator recovery.
 
 #### Trusted acceptance invocation (gate 3 / HNET-611)
 
@@ -881,9 +915,21 @@ adapter must materialize that exact trusted revision in the Mac CI VM and run:
 just acceptance <url> <version> <caps_sha256>
 ```
 
+Before a live switch, the controller checks the running trusted revision's
+root `justfile`, `Justfile` or `.justfile` for the `acceptance` recipe. Missing
+entry points cause a retryable `trusted_acceptance_entrypoint_missing` refusal,
+no switch and one preflight alarm. One-time bootstrap: through the reviewed
+manual release process, deploy a hausnetz revision containing HNET-611's root
+`just acceptance` recipe, verify its acceptance contract manually, then enable
+CD through its separate go-live gates. A candidate adding the recipe cannot
+bootstrap its own trusted checker.
+
 The adapter is an operator-configured invocation, not a generic checker. It
-must forward stdout/exit status, terminate its VM-side child on cancellation,
-and emit exactly one JSON object with literal `"ok": true` for green. Log
+must forward stdout/exit status and handle SIGTERM by terminating its VM-side
+child. On timeout the controller sends SIGTERM, allows a three-second grace
+period, then sends SIGKILL if the adapter still runs; SIGKILL cannot be trapped.
+Cancellation cleanup therefore must complete within that grace period. The
+adapter must emit exactly one JSON object with literal `"ok": true` for green. Log
 chatter, duplicate JSON keys, missing/malformed JSON, missing checker, red,
 nonzero exit or timeout fails closed. `acceptanceTimeout` defaults to 600 s
 and is bounded to 1–600 s by the option and controller (within the executor's
@@ -895,8 +941,15 @@ candidate's validated version/capability digest. Only an explicit `pass`
 decision allows `succeeded`; `fail` or a missing controller decision invokes
 the executor's real automatic rollback and old-system health check. The
 controller persists its acceptance decision before acknowledging it to hsb0,
-so polling/restarts reuse that decision. Acceptance failure also alarms through
-both mailboxes and csb1. A lost controller times out on hsb0 and rolls back;
+so polling/restarts reuse that decision. The remote decision is written to a
+0600 temporary file in the same directory, then atomically renamed into place;
+the executor never observes a partial decision. Acceptance failure, awaiting-ack
+and ack-timeout alarms persist their generation/reason and pending alarm before
+sending. The next tick drains pending alarms; stable alarm IDs permit recipient
+deduplication if a crash occurs after delivery but before the local receipt.
+Completed ticks do not resend delivered alarms. Acceptance failure also alarms
+through both mailboxes and csb1. A lost controller times out on hsb0 and rolls
+back;
 missing/uncertain status follows the existing UNKNOWN alarm path. Dry-run
 records `acceptance=not_run` and never invokes the adapter.
 

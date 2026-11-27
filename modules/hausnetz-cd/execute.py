@@ -81,44 +81,134 @@ def health(config, proof):
     return False
 
 
+def grub_entries(text):
+    """Retain entry bodies and stable menu paths, including nested generation menus."""
+    entries, stack, counts, outside = {}, [], {(): 0}, []
+    depth = 0
+    active = None
+    for line in text.splitlines():
+        match = re.match(r"\s*(menuentry|submenu)\s+(.+?)\s*\{\s*$", line)
+        if match:
+            words = shlex.split(match[2])
+            path = tuple(item[0] for item in stack)
+            index = counts[path]
+            counts[path] += 1
+            identifier = words[words.index("--id") + 1] if "--id" in words else words[0]
+            if match[1] == "submenu":
+                require(identifier not in entries, "rehearsal_boot_entry_ambiguous")
+                generation = re.search(r"(?:nixos-generation-|[Gg]eneration |[Cc]onfiguration |system-)([0-9]+)", identifier)
+                entries[identifier] = {"path": ">".join((*path, str(index))), "body": line.strip(),
+                                       "kind": "submenu", "parent": [item[2] for item in stack], "generation": generation[1] if generation else None}
+                stack.append((str(index), depth, identifier))
+                counts[tuple(item[0] for item in stack)] = 0
+            else:
+                require(active is None, "rehearsal_boot_entry_ambiguous")
+                active = {"path": ">".join((*path, str(index))), "id": identifier,
+                          "title": words[0], "body": [], "depth": depth, "parent": [item[2] for item in stack]}
+        if active is not None:
+            active["body"].append(line.strip())
+        elif line.strip() and not match and not (stack and line.strip() == "}" and depth == stack[-1][1] + 1):
+            outside.append(line.strip())
+        # Ignore braces in variables and quoted strings when counting blocks.
+        structural = re.sub(r"\$\{[^}]*\}|\"[^\"]*\"|'[^']*'|#.*", "", line)
+        depth += structural.count("{") - structural.count("}")
+        if active is not None and depth == active["depth"]:
+            key = active["id"]
+            require(key not in entries, "rehearsal_boot_entry_ambiguous")
+            body = "\n".join(active["body"])
+            generation = re.search(r"(?:nixos-generation-|[Gg]eneration |[Cc]onfiguration |system-)([0-9]+)", key + " " + active["title"] + " " + body)
+            entries[key] = {"path": active["path"], "body": body, "kind": "entry", "parent": active["parent"],
+                            "generation": generation[1] if generation else None}
+            active = None
+        if stack and depth == stack[-1][1]:
+            stack.pop()
+    require(entries and active is None and depth == 0, "rehearsal_boot_entries_unreadable")
+    return entries, "\n".join(outside)
+
+
+def default_boot_paths(body, *, grub):
+    kernel = re.findall(r"(?m)^\s*linux(?:efi|16)?\s+(\S+)", body)
+    initrd = re.findall(r"(?m)^\s*initrd(?:efi|16)?\s+([^\n]+)", body)
+    init = re.findall(r"(?:^|\s)init=(/[^\s]+)", body)
+    require(len(kernel) == 1 and initrd and len(init) == 1 and init[0].endswith("/init"),
+            "rehearsal_boot_default_paths_unreadable")
+    require(grub or re.search(r"(?m)^options\s+", body), "rehearsal_boot_default_paths_unreadable")
+    return {"kernel": kernel[0], "initrd": [path for line in initrd for path in line.split()],
+            "init": init[0], "system": init[0][:-5]}
+
+
 def rehearsal_readback(config):
-    """Fail closed unless both boot configuration and service identity are readable."""
+    """Read resolved boot defaults and each entry; compare via rehearsal_unchanged."""
     profile = config["system_profile"]
     generations = run("nix-env", ["--profile", profile, "--list-generations"]).strip()
     require(generations, "rehearsal_generations_unreadable")
-    # grub.cfg contains its configured default and entries; grubenv contains any
-    # saved/next default. systemd-boot additionally exposes EFI overrides below.
     boot = Path(config.get("boot_dir", "/boot"))
-    files = [boot / "grub/grub.cfg", boot / "grub/grubenv", boot / "loader/loader.conf"]
-    files += sorted((boot / "loader/entries").glob("*.conf"))
-    entries = {str(path.relative_to(boot)): hashlib.sha256(path.read_bytes()).hexdigest()
-               for path in files if path.exists()}
-    require("grub/grub.cfg" in entries or (
-        "loader/loader.conf" in entries and any(k.startswith("loader/entries/") for k in entries)),
-        "rehearsal_boot_unreadable")
-    defaults = None
-    if "grub/grub.cfg" in entries:
+    if (boot / "grub/grub.cfg").exists():
         text = (boot / "grub/grub.cfg").read_text()
+        entries, settings = grub_entries(text)
         assignments = re.findall(r"(?m)^[ \t]*set default=(.+)$", text)
-        menu = re.findall(r"(?m)^[ \t]*(?:menuentry|submenu) .+$", text)
-        require(assignments and menu, "rehearsal_boot_default_unreadable")
-        environment = None
-        if "grub/grubenv" in entries:
-            environment = (boot / "grub/grubenv").read_text()
-        require(not any("saved" in value or "next_entry" in value for value in assignments)
-                or environment, "rehearsal_boot_saved_default_unreadable")
-        defaults = {"assignments": assignments, "menu_entries": menu,
-                    "environment": re.findall(r"(?m)^(?:saved_entry|next_entry)=[^\n]*$", environment or "")}
-    if "loader/loader.conf" in entries:
-        defaults = run("bootctl", ["--no-pager", "status"], timeout=15)
-        require(defaults.strip(), "rehearsal_boot_default_unreadable")
+        environment = (boot / "grub/grubenv").read_text() if (boot / "grub/grubenv").exists() else ""
+        variables = dict(re.findall(r"(?m)^(saved_entry|next_entry)=([^\n]*)$", environment))
+        literal = [value.strip('"\'') for value in assignments if "$" not in value and "saved" not in value]
+        selected = variables.get("next_entry") or (variables.get("saved_entry") if any("saved" in v for v in assignments) else None)
+        selected = selected or (literal[0] if len(set(literal)) == 1 else None)
+        require(selected is not None, "rehearsal_boot_default_unreadable")
+        matches = [key for key, entry in entries.items() if selected in (key, entry["path"]) and entry["kind"] == "entry"]
+        require(len(matches) == 1, "rehearsal_boot_default_unreadable")
+        default = matches[0]
+        settings += "\n" + environment
+        defaults = {"entry": default, "body": entries[default]["body"],
+                    "assignments": assignments, "environment": [k + "=" + v for k, v in variables.items()],
+                    "paths": default_boot_paths(entries[default]["body"], grub=True)}
+    else:
+        loader = boot / "loader/loader.conf"
+        require(loader.is_file(), "rehearsal_boot_unreadable")
+        entries = {path.name: {"body": path.read_text(), "generation": None}
+                   for path in sorted((boot / "loader/entries").glob("*.conf"))}
+        require(entries, "rehearsal_boot_unreadable")
+        listing = strict_json(run("bootctl", ["--json=short", "list"], timeout=15))
+        selected = [entry["id"] for entry in listing if entry.get("isDefault") is True]
+        require(len(selected) == 1 and selected[0] in entries, "rehearsal_boot_default_unreadable")
+        default = selected[0]
+        for key, entry in entries.items():
+            generation = re.search(r"(?:generation-|system-)([0-9]+)", key + " " + entry["body"])
+            entry["generation"] = generation[1] if generation else None
+        settings = loader.read_text()
+        defaults = {"entry": default, "body": entries[default]["body"],
+                    "paths": default_boot_paths(entries[default]["body"], grub=False)}
     pid = run("systemctl", ["show", "hausnetz.service", "--property=MainPID", "--value"]).strip()
     invocation = run("systemctl", ["show", "hausnetz.service", "--property=InvocationID", "--value"]).strip()
     require(re.fullmatch(r"[1-9][0-9]*", pid) and re.fullmatch(r"[0-9a-f]{32}", invocation),
             "rehearsal_service_identity_unreadable")
     return {"generations": generations, "current_system": str(Path(config["current_system"]).resolve(strict=True)),
             "profile": os.readlink(profile), "boot_entries": entries, "boot_default": defaults,
-            "MainPID": pid, "InvocationID": invocation}
+            "boot_settings": settings, "MainPID": pid, "InvocationID": invocation}
+
+
+def rehearsal_unchanged(before, after, result):
+    require(before is not None, "rehearsal_readback_missing")
+    require({k: v for k, v in before.items() if k != "boot_entries"}
+            == {k: v for k, v in after.items() if k != "boot_entries"}, "rehearsal_readback_drift")
+    old, new = before["boot_entries"], after["boot_entries"]
+    generations = set(re.findall(r"(?m)^\s*([0-9]+)\s", after["generations"]))
+    require(set(new) <= set(old), "rehearsal_boot_entry_added")
+    # Entry indices may shift when a stale non-default entry is removed.
+    require(all({k: v for k, v in new[key].items() if k != "path"}
+                == {k: v for k, v in old[key].items() if k != "path"} for key in new),
+            "rehearsal_boot_entry_changed")
+    require([key for key in old if key in new] == list(new), "rehearsal_boot_entry_reordered")
+    removed = sorted(set(old) - set(new))
+    require(all(old[key]["generation"] is not None and old[key]["generation"] not in generations
+                and key != before["boot_default"]["entry"] for key in removed),
+            "rehearsal_boot_entry_removed")
+    result["removed_stale_boot_entries"] = sorted(set(result.get("removed_stale_boot_entries", [])) | set(removed))
+    return True
+
+
+def failed_units():
+    units = run("systemctl", ["--failed", "--no-legend", "--plain", "--no-pager"]).splitlines()
+    names = [line.split()[0] for line in units if line.strip()]
+    require(not names, "preexisting_failed_units:" + ",".join(names))
 
 
 def rehearsal_units(text):
@@ -241,7 +331,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                 token_file = state_path(state / ("rehearsal-token-" + run_token))
                 require(token_file.is_file() and token_file.read_text().strip() == one_shot,
                         "rehearsal_token_missing_or_mismatch")
-                token_file.unlink()  # consume once while holding the deploy lock
+                token_file.unlink(missing_ok=True)  # consume once while holding the deploy lock
                 require(new_rev == gated_running and expected == gated_running,
                         "rehearsal_real_target_forbidden")
             coordinate(expected_version)
@@ -311,7 +401,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                                             text=True, timeout=G3_COMMAND_TIMEOUT, check=False)
                 require(activation.returncode == 0, "G3_dry_activate_failed")
                 rehearsal_units(activation.stdout)
-                require(rehearsal_readback(config) == result["readback_before"], "rehearsal_pre_switch_changed")
+                require(rehearsal_unchanged(result["readback_before"], rehearsal_readback(config), result), "rehearsal_pre_switch_changed")
             else:
                 save("build")
                 target = "git+file://" + str(repo) + "?rev=" + new_rev
@@ -362,6 +452,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                         and str(Path(config["current_system"]).resolve(strict=True)) == old_system
                         and str(Path(config["system_profile"]).resolve(strict=True)) == old_system,
                         "running_system_changed_before_switch")
+                failed_units()
                 save("switch")
                 # Set this before invoking switch: a nonzero switch can have
                 # partially activated the new generation and needs recovery.
@@ -373,10 +464,10 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                     run(new_system + "/bin/switch-to-configuration", ["switch"], timeout=None)
                 finally:
                     switching = False
-                result["generation"] = str(Path(config["system_profile"]).resolve(strict=True))
+                result["generation"] = os.readlink(config["system_profile"])
                 if mode == "rehearse":
                     result["readback_after_switch"] = rehearsal_readback(config)
-                    require(result["readback_after_switch"] == result["readback_before"], "rehearsal_switch_changed")
+                    require(rehearsal_unchanged(result["readback_before"], result["readback_after_switch"], result), "rehearsal_switch_changed")
                 save("health")
                 require(str(Path(config["current_system"]).resolve(strict=True)) == new_system
                         and evidence(Path(config["evidence_file"]).read_bytes()) == new_rev,
@@ -397,10 +488,14 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                 result["gates"][gate] = "manual"
             result["status"] = "manual"
             rehearsal_changed = mode == "rehearse" and result["reason"].startswith("rehearsal_")
+            if mode == "live" and not switched and result["reason"].startswith("preexisting_failed_units:"):
+                result["status"] = "preflight_refused"
             if mode == "rehearse" and not switched:
                 result["status"] = "rehearsal_aborted"
             if rehearsal_changed:
                 result["status"] = "rehearsal_aborted"
+                if switched:
+                    result["disable_reason"] = result["reason"]
             if switched and not rehearsal_changed:
                 result["health"] = "fail"
                 result["status"] = "failed"
@@ -417,7 +512,8 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                                                text=True, timeout=G3_COMMAND_TIMEOUT, check=False)
                         require(check.returncode == 0, "rehearsal_rollback_dry_activate_failed")
                         rehearsal_units(check.stdout)
-                        require(rehearsal_readback(config) == result["readback_before"], "rehearsal_changed_before_rollback")
+                        require(rehearsal_unchanged(result["readback_before"], rehearsal_readback(config), result), "rehearsal_changed_before_rollback")
+                    failed_units()
                     switching = True
                     try:
                         run(result["old_system"] + "/bin/switch-to-configuration", ["switch"], timeout=None)
@@ -431,22 +527,28 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                     if mode == "rehearse":
                         result["status"] = "rolled_back"
                 except Exception as rollback_exc:
+                    result["rollback_reason"] = str(rollback_exc) if isinstance(rollback_exc, Manual) else "rollback_execution_error"
                     result["status"] = "rollback_failed"
                     if mode == "rehearse" and isinstance(rollback_exc, Manual) and str(rollback_exc).startswith("rehearsal_"):
-                        result.update(status="rehearsal_aborted", reason=str(rollback_exc))
+                        result.update(status="rehearsal_aborted", reason=str(rollback_exc), disable_reason=str(rollback_exc))
                     result["rollback_health"] = "fail"
                 message = ("auto-rollback" if result["rollback"] == "succeeded" else "ROLLBACK FAILED")
                 if mode == "rehearse":
                     message = "TEST (no action): " + message
-                message += " hsb0 nixcfg=" + new_rev + " hausnetz=" + expected
+                message += " hsb0 nixcfg=" + new_rev + " hausnetz=" + (a if mode == "rehearse" else expected)
+                message += " generation=" + os.readlink(config["system_profile"]) + " reason=" + result["reason"]
                 result["telegram"] = "sent" if telegram(credentials, message) else "failed"
             result["generation"] = os.readlink(config["system_profile"]) if Path(config["system_profile"]).is_symlink() else None
         if mode == "rehearse":
             try:
                 result["readback_after"] = rehearsal_readback(config)
-                require(result.get("readback_before") == result["readback_after"], "rehearsal_readback_changed")
+                require(rehearsal_unchanged(result.get("readback_before"), result["readback_after"], result), "rehearsal_readback_changed")
             except Exception:
                 result.update(status="rehearsal_aborted", reason=result.get("reason") or "rehearsal_readback_changed_or_unavailable")
+                if switched:
+                    result["disable_reason"] = "rehearsal_post_switch_readback_drift_or_unavailable"
+        if result["status"] == "preflight_refused" and not trial:
+            attempt.unlink(missing_ok=True)
         if mode == "dry-run":
             try:
                 peak = run("systemctl", ["show", "hausnetz-cd-" + run_token + ".service",
