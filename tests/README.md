@@ -47,6 +47,27 @@ for t in tests/T*.sh; do bash "$t"; done
 bash tests/T04-markus-ssh-routes.sh
 ```
 
+## AEON operator Mac kernel (T129 / OPS-737)
+
+```bash
+nice -n 10 bash tests/T129-aeon-operator-mac.sh
+```
+
+Requires Python 3, Nix, and the exact `nixpkgs` and `inspr-modules` sources
+from `flake.lock` already cached. Runs offline scoped module evaluation with
+inert Home Manager/package surfaces, then executes the evaluated marker
+writers in a temporary home. It compares default/explicit OFF against the
+previous file set and activation, checks the enabled two-source inventory,
+compares payload bytes, preserves personal text, verifies idempotency and the
+disable rewrite, and rejects four source mutants. It performs no host build,
+switch, or network access.
+
+The option `inspr.aeonOperatorMac.enable` defaults to false and is enabled
+nowhere. A later opt-in requires a clean committed flake before switching.
+Disabling removes the account marker, inventory, and two kernel links through
+Home Manager and restores Claude's upstream inline marker writer. Codex, Pi,
+and Grok retain their existing payloads; no composite files enter the inventory.
+
 ## hausnetz continuous delivery (T125 / OPS-705)
 
 ```bash

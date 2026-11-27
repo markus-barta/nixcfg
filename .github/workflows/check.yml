@@ -418,6 +418,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash python3 --run "bash tests/T84-pi-inspr-kernel.sh"
 
+      - name: Verify opt-in AEON operator Mac kernel and mutants (OPS-737)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash python3 --run "nice -n 10 bash tests/T129-aeon-operator-mac.sh"
+
       - name: Verify JoeDesk production host gates at exact source pins (OPS-354)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 nodejs --run "python3 scripts/test-joedesk-ci.py tests/T102-joedesk-host-gate.mjs"
