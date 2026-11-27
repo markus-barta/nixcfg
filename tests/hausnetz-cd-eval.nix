@@ -8,6 +8,7 @@ let
     types = {
       bool = null;
       str = null;
+      port = null;
       nullOr = _: null;
       listOf = _: null;
       enum = _: null;
@@ -27,6 +28,7 @@ let
           "coreutils"
           "curl"
           "git"
+          "gh"
           "nix"
           "openssh"
           "python3"

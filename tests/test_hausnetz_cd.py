@@ -52,11 +52,13 @@ class Fixture:
         self.bin = root / "bin"
         self.bin.mkdir()
         self.env["PATH"] = str(self.bin) + os.pathsep + os.environ["PATH"]
-        fake = REPO / "tests/fixtures/hausnetz-cd-command.py"
+        fake = SOURCE / "hausnetz-cd-command.py"
+        if not fake.exists():
+            fake = REPO / "tests/fixtures/hausnetz-cd-command.py"
         # Use this test interpreter rather than relying on an executable bit
         # or a Python selected by the developer's global PATH.
         for command in ("nix", "nix-store", "nix-env", "systemctl", "systemd-run", "curl", "ssh", "sudo",
-                        "paimos", "alarm", "secondary-telegram", "switch-to-configuration", "readlink"):
+                        "paimos", "alarm", "secondary-telegram", "switch-to-configuration", "readlink", "gh"):
             target = self.bin / command
             target.write_text("#!" + sys.executable + "\n" + fake.read_text())
             target.chmod(0o700)
@@ -123,6 +125,7 @@ class Fixture:
             "ssh_retry_timeout": 0.4,
             "alarm_command": [str(self.bin / "alarm")],
             "secondary_telegram_command": [str(self.bin / "secondary-telegram")],
+            "agents_host": "fixture-agents", "agents_port": 2222,
         }
         self.executor_path = root / "execute"
         # A separate test entrypoint supplies fixture settings; production
@@ -209,11 +212,11 @@ class Fixture:
     def key(self):
         return self.old_hnet + "-" + self.new_hnet
 
-    def tick(self, mode=None, expect_ok=True):
+    def tick(self, mode=None, expect_ok=True, args=()):
         if mode:
             self.orchestrator["mode"] = mode
         self.save()
-        result = subprocess.run([str(self.orchestrator_path)], env=self.env, capture_output=True,
+        result = subprocess.run([str(self.orchestrator_path), *args], env=self.env, capture_output=True,
                                 text=True, timeout=18, check=False)
         if expect_ok and result.returncode:
             raise AssertionError(result.stderr)
@@ -249,7 +252,7 @@ class Fixture:
             raise AssertionError("Executor did not finish: " + details)
         if not state["reports"]:
             raise AssertionError("No completed report for the requested deployment")
-        return list(state["reports"].values())[-1]["result"]
+        return max(state["reports"].values(), key=lambda entry: entry["order"])["result"]
 
     def advance(self, path, text):
         self.write(self.repo / path, text)
@@ -323,7 +326,7 @@ class TestCD(unittest.TestCase):
         result = self.f.terminal()
         self.assertEqual(result["status"], "dry-run")
         self.assertEqual(result["gates"], {"G1": "pass", "G2": "controller_evidence",
-                                          "G3": "pass", "G4": "controller_evidence"})
+                                          "G3": "pass", "G4": "controller_evidence", "G5": "pass"})
         self.assertFalse(self.f.events("switch"))
         self.assertFalse(self.f.events("http"))
         self.assertFalse(self.f.events("telegram"))
@@ -378,6 +381,7 @@ class TestCD(unittest.TestCase):
         self.assertIn("ROLLBACK FAILED", self.f.events("telegram")[0]["text"])
         self.assertIn("ROLLBACK FAILED", self.f.events("alarm")[0]["text"])
         self.assertIn("ROLLBACK FAILED", self.f.events("secondary-telegram")[0]["text"])
+        self.assertEqual([e["recipient"] for e in self.f.events("mailbox")], ["mac-lead", "lead"])
 
     def test_rollback_must_prove_old_revision(self):
         self.f.scenario.update(health_fail=True, rollback_health_fail=True)
@@ -594,7 +598,7 @@ class TestCD(unittest.TestCase):
         self.f.tick()
         self.assertIsNone(self.f.state()["pending"])
         self.assertIn(self.f.new_hnet, self.f.state()["failed"])
-        self.assertTrue(Path(self.f.orchestrator["alarm_file"]).exists())
+        self.assertFalse(Path(self.f.orchestrator["alarm_file"]).exists())
         self.f.scenario["ssh_fail"] = None
         self.f.tick()
         self.assertEqual(len([e for e in self.f.events("ssh") if e["action"] == "start"]), 1)
@@ -615,7 +619,8 @@ class TestCD(unittest.TestCase):
         self.f.tick()
         self.assertFalse(self.f.events("ticket"))
         self.assertFalse(self.f.events("start"))
-        self.assertFalse(Path(self.f.orchestrator["state_file"]).exists())
+        self.assertIn("pre_pair_failure", self.f.state())
+        self.assert_no_delivery()
 
     def test_partial_switch_failure_recovers(self):
         self.f.scenario["partial_switch_fail"] = True
@@ -688,7 +693,8 @@ class TestCD(unittest.TestCase):
         self.f.tick()
         self.assertFalse(self.f.events("ticket"))
         self.assertFalse(self.f.events("start"))
-        self.assertFalse(Path(self.f.orchestrator["state_file"]).exists())
+        self.assertIn("evaluated", self.f.state())
+        self.assert_no_delivery()
 
     def test_attempted_pair_not_nixcfg_revision(self):
         self.f.tick()
@@ -735,7 +741,7 @@ class TestCD(unittest.TestCase):
         self.assertEqual(result["reason"], "executor_crashed_or_missing")
         self.assertIn(self.f.new_hnet, self.f.state()["failed"])
         self.assertIsNone(self.f.state()["pending"])
-        self.assertTrue(Path(self.f.orchestrator["alarm_file"]).exists())
+        self.assertFalse(Path(self.f.orchestrator["alarm_file"]).exists())
         self.assertFalse(self.f.events("alarm"))
         self.f.tick()
         self.assertEqual(len(self.f.events("ticket")), 1)
@@ -868,7 +874,8 @@ class TestCD(unittest.TestCase):
         self.f.tick("live")
         self.assertEqual(self.f.terminal()["status"], "rollback_failed")
 
-    def test_captured_readyz_and_capabilities_proof(self):
+    def test_captured_readyz_and_synthetic_capabilities_proof(self):
+        # Readiness is captured; the capabilities body is synthetic fixture data.
         self.f.tick("live")
         result = self.f.terminal()
         self.assertEqual(result["status"], "succeeded")
@@ -970,9 +977,10 @@ class TestCD(unittest.TestCase):
 
     def test_prepare_exact_command(self):
         self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "dry-run")
         clone = str(Path(self.f.orchestrator["cache_dir"]) / "hausnetz")
         self.assertEqual(self.f.events("prepare")[0]["args"],
-                         ["run", "--offline", "git+file://" + clone + "?rev=" + self.f.old_hnet + "#cd-prepare", "--", "--repo", clone,
+                         ["run", "--offline", "--no-write-lock-file", "git+file://" + clone + "?rev=" + self.f.old_hnet + "#cd-prepare", "--", "--repo", clone,
                           "--rev", self.f.new_hnet, "--running", self.f.old_hnet])
         self.assertEqual(self.f.events("prepare")[0]["checker_rev"], self.f.old_hnet)
 
@@ -1108,7 +1116,8 @@ class TestCD(unittest.TestCase):
             self.f.tick()
             self.assertFalse(self.f.events("ticket"))
             self.assertFalse(self.f.events("start"))
-            self.assertFalse(Path(self.f.orchestrator["state_file"]).exists())
+            self.assertIn("pre_pair_failure", self.f.state())
+            self.assert_no_delivery()
 
     def test_remote_rev_and_digest_regexes(self):
         Path(self.f.executor["state_dir"]).mkdir()
@@ -1372,6 +1381,8 @@ class TestCD(unittest.TestCase):
         self.assertEqual(result["controller_evidence"], expected)
         self.assertEqual(self.f.events("start")[0]["args"][-2], self.f.old)
         pending = {**result, "running_nixcfg_rev": self.f.old}
+        # G5 belongs to the controller's merged report, not executor status.
+        result = {**result, "gates": {key: value for key, value in result["gates"].items() if key != "G5"}}
         self.assertIs(validate_result(result, pending), result)
         for key in expected:
             changed = {**result, "controller_evidence": {**expected, key: "wrong"}}
@@ -1379,6 +1390,331 @@ class TestCD(unittest.TestCase):
                 validate_result(changed, pending)
         with self.assertRaises(Manual):
             validate_result({**result, "gates": {**result["gates"], "G2": "pass"}}, pending)
+
+
+    def prepare_value(self):
+        return {"rev": self.f.new_hnet, "narHash": "fixture", "version": self.f.new_version,
+                "persisted_ok": True, "manifest_changed": False,
+                "manifest_sha256": self.f.manifest_sha, "running_manifest_sha256": self.f.manifest_sha,
+                "changed_paths": [], "changed_paths_total": 0, "checker_rev": self.f.old_hnet, "problems": []}
+
+    def test_prepare_nonempty_paths_with_zero_total_is_manual(self):
+        self.f.scenario["prepare"] = {"changed_paths": ["state.json"], "changed_paths_total": 0}
+        self.manual()
+        self.assertEqual(self.f.terminal()["reason"], "G2_prepare_unsafe")
+
+    def test_schema_failure_diagnostics_are_bounded_at_all_boundaries(self):
+        from orchestrate import alarm, log_line
+        items = ["x" * 800 for _ in range(80)]
+        self.f.scenario["prepare"] = {"changed_paths": items, "problems": items, "extra": True}
+        self.manual()
+        result = self.f.terminal()
+        for name in ("changed_paths", "problems"):
+            self.assertEqual(len(result[name]), 20)
+            self.assertTrue(all(len(item) <= 200 for item in result[name]))
+            self.assertEqual(result[name][-1], "+61 more")
+        self.assertLess(len(self.f.events("ticket")[0]["text"]), 9000)
+        raw = {**result, "mode": "live", "changed_paths": items, "problems": items}
+        self.assertLess(len(log_line(raw)), 9000)
+        with mock.patch.dict(os.environ, self.f.env):
+            alarm(self.f.orchestrator, raw)
+        saved = json.loads(Path(self.f.orchestrator["alarm_file"]).read_text())
+        self.assertEqual(saved["result"]["changed_paths"], result["changed_paths"])
+        self.assertLess(len(saved["message"]), 600)
+
+    def test_checker_url_encodes_path_and_refuses_controls(self):
+        from urllib.parse import parse_qs, unquote, urlsplit
+        path = self.f.root / "cache ?#% ü" / "hausnetz"
+        completed = subprocess.CompletedProcess([], 0, json.dumps(self.prepare_value()).encode(), b"")
+        with mock.patch("common.git", return_value=""), mock.patch("common.subprocess.run", return_value=completed) as call:
+            gate_g2(path, self.f.old_hnet, self.f.new_hnet, "fixture")
+            url = next(a for a in call.call_args.args[0] if a.startswith("git+file://"))
+            parsed = urlsplit(url)
+            self.assertEqual(unquote(parsed.path), str(path))
+            self.assertEqual(parse_qs(parsed.query), {"rev": [self.f.old_hnet]})
+            self.assertEqual(parsed.fragment, "cd-prepare")
+            self.assertNotIn(" ", url)
+            for invalid in (Path("relative"), self.f.root / "bad\npath"):
+                with self.subTest(path=invalid), self.assertRaises(Manual) as caught:
+                    gate_g2(invalid, self.f.old_hnet, self.f.new_hnet, "fixture")
+                self.assertEqual(str(caught.exception), "G2_checker_path")
+
+    def test_hausnetz_fetch_failure_is_distinct_and_retryable(self):
+        from common import cache_repo
+        def fetch(*args, **kwargs):
+            if kwargs.get("worktree"):
+                raise Manual("command_failed")
+            return cache_repo(*args, **kwargs)
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.cache_repo", side_effect=fetch):
+            tick(self.f.orchestrator)
+            tick(self.f.orchestrator)
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "fetch_failed")
+        self.assertEqual(result["reason"], "hausnetz_fetch_failed")
+        self.assertEqual(result["gates"]["G1"], "pass")
+        self.assertEqual(self.f.state()["failed"], [])
+        self.assertEqual(self.f.state()["attempted"], {})
+        self.assertFalse(list((Path(self.f.orchestrator["state_file"]).parent / "hausnetz-cd-ledger/failed").glob("*")))
+        self.assertEqual(len(self.f.events("ticket")), 1)
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "dry-run")
+        self.assertEqual(len(self.f.events("start")), 1)
+
+    def test_pre_pair_failure_alarms_once_after_six_hours_even_dry_run(self):
+        with mock.patch.dict(os.environ, self.f.env), \
+                mock.patch("orchestrate.cache_repo", side_effect=Manual("command_failed")), \
+                mock.patch("orchestrate.time.time") as stamp:
+            stamp.return_value = 1000
+            tick(self.f.orchestrator)
+            stamp.return_value = 1000 + 6 * 3600 - 1
+            tick(self.f.orchestrator)
+            self.assertFalse(Path(self.f.orchestrator["alarm_file"]).exists())
+            self.assertFalse(self.f.events("mailbox"))
+            stamp.return_value += 1
+            tick(self.f.orchestrator)
+            tick(self.f.orchestrator)
+        self.assertEqual([e["recipient"] for e in self.f.events("mailbox")], ["mac-lead", "lead"])
+        self.assertEqual(len(self.f.events("secondary-telegram")), 1)
+        self.assertFalse(self.f.events("ticket"))
+        self.assert_no_delivery()
+        self.f.tick()
+        self.assertNotIn("pre_pair_failure", self.f.state())
+
+    def test_unchanged_tick_caches_evidence_until_thirty_minutes_or_main_moves(self):
+        self.f.pin(self.f.old_hnet, 3)
+        self.f.new = self.f.commit(self.f.repo)
+        self.f.tick()
+        self.f.tick()
+        self.assertEqual(len([e for e in self.f.events("ssh") if e["action"] == "evidence"]), 1)
+        state = self.f.state()
+        self.assertEqual(state["evaluated"]["main"], self.f.new)
+        self.assertEqual(state["evaluated"]["running"], self.f.old)
+        state["evaluated"]["at"] -= 1801
+        Path(self.f.orchestrator["state_file"]).write_text(json.dumps(state))
+        self.f.tick()
+        self.assertEqual(len([e for e in self.f.events("ssh") if e["action"] == "evidence"]), 2)
+        self.f.advance("unrelated.nix", "a change\n")
+        self.f.tick()
+        self.assertEqual(len([e for e in self.f.events("ssh") if e["action"] == "evidence"]), 3)
+        self.assert_no_delivery()
+
+    def test_persistent_unpushed_running_main_rewrite_and_sudo_failures_alarm(self):
+        from common import cache_repo
+        for cause in ("unpushed", "main-rewrite", "sudo"):
+            with self.subTest(cause=cause), tempfile.TemporaryDirectory(prefix="t125-preflight-") as tmp:
+                fixture = Fixture(Path(tmp))
+                try:
+                    if cause == "unpushed":
+                        Path(fixture.executor["evidence_file"]).write_text(json.dumps({
+                            "schema": "inspr.pharos.nix-deployment-evidence.v1", "source_revision": "f" * 40}))
+                    elif cause == "main-rewrite":
+                        cache = Path(fixture.orchestrator["cache_dir"]) / "nixcfg.git"
+                        cache.parent.mkdir(parents=True)
+                        cache_repo(cache, fixture.orchestrator["nixcfg_url"])
+                        fixture.git(fixture.repo, "update-ref", "refs/heads/main", fixture.old)
+                    else:
+                        fixture.scenario["sudo_fail"] = True
+                    fixture.tick()
+                    state = fixture.state()
+                    self.assertFalse(fixture.events("mailbox"))
+                    state["pre_pair_failure"]["since"] -= 6 * 3600 + 1
+                    Path(fixture.orchestrator["state_file"]).write_text(json.dumps(state))
+                    fixture.tick()
+                    fixture.tick()
+                    self.assertEqual(len(fixture.events("mailbox")), 2)
+                    self.assertEqual(len(fixture.events("secondary-telegram")), 1)
+                    self.assertFalse(fixture.events("start"))
+                    self.assertEqual(fixture.state()["failed"], [])
+                finally:
+                    fixture.stop()
+
+    def test_unsubstituted_entrypoints_refuse_existing_placeholder_file(self):
+        import execute as executor
+        import orchestrate as controller
+        for module, args in (("orchestrate.py", []), ("execute.py", [self.f.new, self.f.new_hnet, "dry-run",
+                             self.f.new_version, self.f.manifest_sha, self.f.old, "f" * 32])):
+            with self.subTest(module=module):
+                settings = self.f.orchestrator if module == "orchestrate.py" else self.f.executor
+                self.f.write(self.f.root / "@CONFIG@", json.dumps(settings))
+                result = subprocess.run([sys.executable, "-B", str(SOURCE / module), *args],
+                                        cwd=self.f.root, env=self.f.env, capture_output=True, text=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0)
+                entrypoint = controller if module == "orchestrate.py" else executor
+                action = "tick" if module == "orchestrate.py" else "execute"
+                with mock.patch.object(entrypoint, "CONFIG_FILE", "@CONFIG@"), \
+                        mock.patch.object(sys, "argv", [module, *args]), \
+                        mock.patch.object(Path, "read_bytes", return_value=json.dumps(settings).encode()) as read, \
+                        mock.patch.object(entrypoint, action) as transaction:
+                    with self.assertRaises(SystemExit):
+                        entrypoint.main()
+                    read.assert_not_called()
+                    transaction.assert_not_called()
+        self.assertFalse(self.f.events())
+
+    def test_sudo_fixture_resolves_utilities_from_path(self):
+        utility = self.f.bin / "cat"
+        utility.write_text("#!" + sys.executable + "\nprint('PATH-resolved-cat')\n")
+        utility.chmod(0o700)
+        result = subprocess.run([str(self.f.bin / "sudo"), "-n", "cat", str(self.f.root / "evidence.json")],
+                                env=self.f.env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "PATH-resolved-cat\n")
+
+    def test_vm_test_requires_latest_exact_revision_success(self):
+        from orchestrate import vm_test
+        good = {"id": 1, "head_sha": self.f.new_hnet, "status": "completed", "conclusion": "success"}
+        bad = [{"workflow_runs": []}, {"workflow_runs": [{**good, "head_sha": self.f.old_hnet}]},
+               {"workflow_runs": [{**good, "status": "in_progress", "conclusion": None}]},
+               {"workflow_runs": [{**good, "conclusion": "failure"}]},
+               {"workflow_runs": [good, {**good, "id": 2, "status": "queued"}]}, {}, {"workflow_runs": None}]
+        for response in bad:
+            with self.subTest(response=response), mock.patch("orchestrate.run", return_value=json.dumps(response)):
+                self.assertEqual(vm_test(self.f.new_hnet)[0], "manual")
+        with mock.patch("orchestrate.run", side_effect=Manual("command_failed")):
+            self.assertEqual(vm_test(self.f.new_hnet)[0], "manual")
+        with mock.patch("orchestrate.run", return_value=json.dumps({"workflow_runs": [good]})) as call:
+            self.assertEqual(vm_test(self.f.new_hnet)[0], "pass")
+            self.assertIn("vm-test.yml/runs?head_sha=" + self.f.new_hnet, call.call_args.args[1][-1])
+
+    def test_vm_test_error_blocks_live_before_executor(self):
+        self.f.scenario["vm_test_error"] = True
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["gates"]["G5"], "manual")
+        self.assertFalse(self.f.events("start"))
+        self.assertFalse(self.f.events("switch"))
+
+    def test_vm_test_error_is_recorded_but_dry_run_completes(self):
+        self.f.scenario["vm_test_error"] = True
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "dry-run")
+        self.assertEqual(self.f.terminal()["gates"]["G5"], "manual")
+        self.assertIn("G5:manual", self.f.events("ticket")[0]["text"])
+
+    def test_mailbox_failure_does_not_suppress_other_alarm_paths(self):
+        from orchestrate import alarm
+        self.f.scenario["mailbox_fail"] = "mac-lead"
+        self.f.save()
+        with mock.patch.dict(os.environ, self.f.env):
+            alarm(self.f.orchestrator, {"mode": "live", "nixcfg_rev": self.f.new,
+                  "hausnetz_rev": self.f.new_hnet, "reason": "rollback_failed"})
+        self.assertEqual(len(self.f.events("mailbox")), 2)
+        self.assertEqual(len(self.f.events("secondary-telegram")), 1)
+
+    def test_dry_run_never_alarms_on_executor_failure(self):
+        self.f.scenario["crash"] = True
+        self.f.tick()
+        self.assertFalse(Path(self.f.orchestrator["alarm_file"]).exists())
+        self.assertFalse(self.f.events("mailbox"))
+        self.assertFalse(self.f.events("secondary-telegram"))
+
+    def test_dry_run_measures_memory_peak_into_status_and_ticket(self):
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["memory_peak_bytes"], 536870912)
+        token = self.f.terminal()["run_id"]
+        self.assertEqual(self.f.events("memory-peak")[0]["unit"], "hausnetz-cd-" + token + ".service")
+        self.assertIn("memory_peak_bytes=536870912", self.f.events("ticket")[0]["text"])
+        self.assertIn("--property=MemoryAccounting=yes", self.f.events("start")[0]["args"])
+        events = self.f.events()
+        self.assertLess(next(i for i, e in enumerate(events) if e["kind"] == "dry-activate"),
+                        next(i for i, e in enumerate(events) if e["kind"] == "memory-peak"))
+
+    def test_memory_peak_unavailable_is_explicit_without_blocking_dry_run(self):
+        self.f.scenario["memory_peak"] = "[not set]"
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "dry-run")
+        self.assertIsNone(self.f.terminal()["memory_peak_bytes"])
+        self.assertEqual(self.f.terminal()["memory_peak_reason"], "systemd_memory_peak_unavailable")
+
+    def test_disabled_once_dry_run_runs_full_chain_and_forces_mode(self):
+        self.f.orchestrator.update(enabled=False, mode="live")
+        self.f.tick(args=("--once", "--dry-run"))
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "dry-run")
+        self.assertEqual(result["mode"], "dry-run")
+        self.assertEqual(result["gates"]["G1"], "pass")
+        self.assertEqual(result["gates"]["G3"], "pass")
+        self.assertTrue(self.f.events("prepare"))
+        self.assertTrue(self.f.events("start"))
+        self.assertTrue(self.f.events("ticket"))
+        self.assertFalse(self.f.events("http"))
+        self.assertFalse(self.f.events("switch"))
+        self.assertFalse(self.f.events("telegram"))
+        self.assertFalse(self.f.events("mailbox"))
+
+    def test_once_requires_both_flags_and_refuses_live_pending(self):
+        for args in (("--once",), ("--dry-run",), ("--once", "--live")):
+            with self.subTest(args=args):
+                self.assertNotEqual(self.f.tick(args=args, expect_ok=False).returncode, 0)
+        state = {"schema": "inspr.hausnetz-cd-state.v1", "attempted": {}, "failed": [], "reports": {},
+                 "pending": {"mode": "live", "nixcfg_rev": self.f.new, "hausnetz_rev": self.f.new_hnet,
+                             "run_id": "f" * 32, "run_key": self.f.key, "deadline": time.time() + 0.2}, "sequence": 0}
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.assertNotEqual(self.f.tick(args=("--once", "--dry-run"), expect_ok=False).returncode, 0)
+        self.assertFalse(self.f.events())
+
+
+class TestAlertSender(unittest.TestCase):
+    def setUp(self):
+        import types
+        path = SOURCE / "hausnetz-cd-alert.py"
+        if not path.exists():
+            path = REPO / "hosts/csb1/hausnetz-cd-alert.py"
+        self.sender = types.ModuleType("cd_alert")
+        exec(compile(path.read_text(), str(path), "exec"), self.sender.__dict__)
+        self.temporary = tempfile.TemporaryDirectory(prefix="t125-csb1-alert-")
+        self.addCleanup(self.temporary.cleanup)
+        self.credential = Path(self.temporary.name) / "notification-fixture"
+        self.credential.write_text('WATCHTOWER_NOTIFICATION_URL="telegram://123:fixture_token@telegram?chats=-123,456"\n')
+
+    def test_sender_uses_existing_target_in_process_and_stdin_only(self):
+        from urllib.parse import parse_qs
+        with mock.patch.object(self.sender.urllib.request, "build_opener") as build:
+            build.return_value.open.return_value.__enter__.return_value.status = 200
+            self.assertTrue(self.sender.send("ROLLBACK FAILED rev=fixture", str(self.credential)))
+            self.assertEqual(build.return_value.open.call_count, 2)
+            for call in build.return_value.open.call_args_list:
+                request = call.args[0]
+                self.assertTrue(request.full_url.startswith("https://api.telegram.org/bot"))
+                self.assertEqual(parse_qs(request.data.decode())["text"], ["ROLLBACK FAILED rev=fixture"])
+            self.assertEqual(build.call_args.args[0].proxies, {})
+            redirect = build.call_args.args[1]
+            self.assertIsNone(redirect.redirect_request(None, None, 302, "", {}, "https://other.invalid"))
+        with mock.patch.object(sys, "argv", ["sender"]), mock.patch.object(sys, "stdin") as stdin:
+            stdin.read.return_value = "alarm"
+            self.sender.NOTIFICATION_ENV = str(self.credential)
+            with mock.patch.object(self.sender, "send", return_value=True) as send:
+                self.assertEqual(self.sender.main(), 0)
+                stdin.read.assert_called_once_with(2049)
+                send.assert_called_once_with("alarm", str(self.credential))
+
+    def test_sender_rejects_bad_inputs_without_logging_credentials(self):
+        import contextlib
+        import io
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr), \
+                mock.patch.object(self.sender.urllib.request, "build_opener") as build:
+            for message in ("", "x" * 2049, "bad\rline"):
+                self.assertFalse(self.sender.send(message, str(self.credential)))
+            build.assert_not_called()
+            for target in ("https://other.invalid", "telegram://bad@telegram?chats=123",
+                           "telegram://123:fixture_token@other.invalid?chats=123",
+                           "telegram://123:fixture_token@telegram?chats=not-a-chat"):
+                self.credential.write_text("WATCHTOWER_NOTIFICATION_URL=" + target + "\n")
+                self.assertFalse(self.sender.send("alarm", str(self.credential)))
+            build.assert_not_called()
+            self.credential.write_text("WATCHTOWER_NOTIFICATION_URL=telegram://123:fixture_token@telegram?chats=123\n")
+            build.return_value.open.side_effect = OSError("synthetic sensitive diagnostic")
+            self.assertFalse(self.sender.send("alarm", str(self.credential)))
+            self.sender.NOTIFICATION_ENV = "@NOTIFICATION_ENV@"
+            with mock.patch.object(sys, "argv", ["sender"]):
+                self.assertEqual(self.sender.main(), 1)
+        self.assertEqual(stdout.getvalue() + stderr.getvalue(), "")
+
+    def test_sender_module_reuses_existing_secret_without_defining_one(self):
+        source = (REPO / "hosts/csb1/hausnetz-cd-alert.nix").read_text()
+        self.assertIn("config.age.secrets.csb1-watchtower-env.path", source)
+        self.assertNotIn("age.secrets.csb1-watchtower-env =", source)
+        self.assertIn("./hausnetz-cd-alert.nix", (REPO / "hosts/csb1/configuration.nix").read_text())
 
 
 def mutants():
@@ -1423,7 +1759,7 @@ def mutants():
         ("SSH retry grace", "orchestrate.py", [('retry = fixture_limit(config, "ssh_retry_timeout", SSH_RETRY_TIMEOUT)', 'retry = 0')], "test_short_ssh_drop_does_not_alarm"),
         ("executor observation budget", "common.py", [('POLL_BUDGET = EXECUTOR_BUDGET + SSH_RETRY_TIMEOUT + 120', 'POLL_BUDGET = 720')], "test_poll_and_runtime_budgets"),
         ("transient memory limit", "orchestrate.py", [('--property=MemoryMax=1500M', '--property=MemoryMax=4G')], "test_dry_run_success_and_limits"),
-        ("dry-run isolation", "execute.py", [('if mode == "dry-run":', 'if False:')], "test_dry_run_success_and_limits"),
+        ("dry-run isolation", "execute.py", [('if mode == "dry-run":\n                result["status"]', 'if False:\n                result["status"]')], "test_dry_run_success_and_limits"),
         ("binary store-path proof", "execute.py", [('require(executable == proof["exe"],', 'require(True,')], "test_exe_mismatch_rolls_back"),
         ("metadata version proof", "execute.py", [('isinstance(value, dict) and value.get("version") == proof["version"]', 'True')], "test_meta_version_mismatch_rolls_back"),
         ("bare HTTP 200 rejected", "execute.py", [('isinstance(value, dict) and value.get("version") == proof["version"]', 'True'), ('value.get("capabilities_sha256") == proof["manifest_sha256"]', 'True')], "test_bare_200_is_not_revision_health"),
@@ -1462,7 +1798,7 @@ def mutants():
         ("G2 extra stdout", "common.py", [('value = strict_json(stdout)', 'value = json.JSONDecoder().raw_decode(stdout.decode())[0]')], "test_prepare_extra_stdout_is_manual"),
         ("G2 app timeout", "common.py", [('capture_output=True, timeout=600, check=False)', 'capture_output=True, timeout=None, check=False)')], "test_prepare_timeout_is_manual"),
         ("fresh starting status", "execute.py", [('    save()\n    attempt = state', '    attempt = state')], "test_starting_status_precedes_lock"),
-        ("lock parse errors per tick", "orchestrate.py", [('except (Manual, OSError, KeyError, TypeError, ValueError):\n            print("hausnetz-cd: tick skipped;', 'except OSError:\n            print("hausnetz-cd: tick skipped;')], "test_lock_parse_errors_retry_silently"),
+        ("lock parse errors per tick", "orchestrate.py", [('except (Manual, OSError, KeyError, TypeError, ValueError):\n            pre_pair_failure(config, state)', 'except OSError:\n            pre_pair_failure(config, state)')], "test_lock_parse_errors_retry_silently"),
         ("built package versus prepared version", "execute.py", [('require(result["new_proof"]["version"] == expected_version,', 'require(True,')], "test_built_version_must_match_prepare"),
         ("activation never killed by timeout", "execute.py", [('run(new_system + "/bin/switch-to-configuration", ["switch"], timeout=None)', 'run(new_system + "/bin/switch-to-configuration", ["switch"], timeout=120)')], "test_poll_and_runtime_budgets"),
         ("remote expected revision regex", "orchestrate.py", [('[[ "$expected" =~ ^[0-9a-f]{40}$ ]]', 'true')], "test_remote_rev_and_digest_regexes"),
@@ -1489,6 +1825,38 @@ def mutants():
         ("controller evidence values", "execute.py", [('"running_nixcfg_rev": gated_running,', '"running_nixcfg_rev": new_rev,')], "test_executor_labels_controller_evidence_and_preserves_values"),
         ("controller evidence validation", "orchestrate.py", [('require(result.get("running_nixcfg_rev") == pending["running_nixcfg_rev"]', 'require(True or result.get("running_nixcfg_rev") == pending["running_nixcfg_rev"]')], "test_executor_labels_controller_evidence_and_preserves_values"),
         ("remote running baseline regex", "orchestrate.py", [('[[ "$running" =~ ^[0-9a-f]{40}$ ]]', 'true')], "test_remote_rev_and_digest_regexes"),
+        ("G2 checker URL pin", "common.py", [(' + "?rev=" + old + "#cd-prepare"', ' + "#cd-prepare"')], "test_prepare_exact_command"),
+        ("G2 offline checker", "common.py", [('\"--offline\", ', '')], "test_prepare_exact_command"),
+        ("G2 no lock writes", "common.py", [('\"--no-write-lock-file\", ', '')], "test_prepare_exact_command"),
+        ("G2 nonempty paths despite zero total", "common.py", [('and not paths', 'and True')], "test_prepare_nonempty_paths_with_zero_total_is_manual"),
+        ("bounded diagnostic count", "common.py", [('limit = 19 if len(items) > 20 else 20', 'limit = len(items)')], "test_schema_failure_diagnostics_are_bounded_at_all_boundaries"),
+        ("bounded diagnostic strings", "common.py", [('if len(item) > 200 else item', 'if False else item')], "test_schema_failure_diagnostics_are_bounded_at_all_boundaries"),
+        ("checker URL encoding", "common.py", [('quote(path, safe="/")', 'path')], "test_checker_url_encodes_path_and_refuses_controls"),
+        ("checker path validation", "common.py", [('Path(repo).is_absolute() and all(c.isprintable() for c in path)', 'True')], "test_checker_url_encodes_path_and_refuses_controls"),
+        ("fetch phase is distinct", "orchestrate.py", [('result["phase"] = "fetch"', 'pass')], "test_hausnetz_fetch_failure_is_distinct_and_retryable"),
+        ("fetch failures have no reservation", "orchestrate.py", [('if result["status"] != "fetch_failed":', 'if True:')], "test_hausnetz_fetch_failure_is_distinct_and_retryable"),
+        ("pre-pair six hour alarm", "orchestrate.py", [('>= 6 * 60 * 60', '>= 7 * 60 * 60')], "test_pre_pair_failure_alarms_once_after_six_hours_even_dry_run"),
+        ("pre-pair alarms once", "orchestrate.py", [('failure["alarmed"] = True', 'failure["alarmed"] = False')], "test_pre_pair_failure_alarms_once_after_six_hours_even_dry_run"),
+        ("cached unchanged main", "orchestrate.py", [('evaluated.get("main") == new', 'False')], "test_unchanged_tick_caches_evidence_until_thirty_minutes_or_main_moves"),
+        ("cache expires at thirty minutes", "orchestrate.py", [('< 30 * 60', '< 60 * 60')], "test_unchanged_tick_caches_evidence_until_thirty_minutes_or_main_moves"),
+        ("cache invalidates on main movement", "orchestrate.py", [('evaluated.get("main") == new', 'True')], "test_unchanged_tick_caches_evidence_until_thirty_minutes_or_main_moves"),
+        ("state path confinement", "common.py", [('if not resolved.startswith(STATE_ROOT + os.sep):', 'if False:')], "test_state_path_refuses_traversal_prefix_siblings_and_symlinks"),
+        ("fixture utilities use PATH", "hausnetz-cd-command.py", [('shutil.which(name)', '"/usr/bin/" + name')], "test_sudo_fixture_resolves_utilities_from_path"),
+        ("executor raw source refuses", "execute.py", [('require(not CONFIG_FILE.startswith("@"), "unsubstituted_configuration")', 'pass')], "test_unsubstituted_entrypoints_refuse_existing_placeholder_file"),
+        ("orchestrator raw source refuses", "orchestrate.py", [('require(not CONFIG_FILE.startswith("@"), "unsubstituted_configuration")', 'pass')], "test_unsubstituted_entrypoints_refuse_existing_placeholder_file"),
+        ("G5 exact revision", "orchestrate.py", [('r.get("head_sha") == rev', 'True')], "test_vm_test_requires_latest_exact_revision_success"),
+        ("G5 completed workflow", "orchestrate.py", [('latest.get("status") == "completed"', 'True')], "test_vm_test_requires_latest_exact_revision_success"),
+        ("G5 successful conclusion", "orchestrate.py", [('latest.get("conclusion") == "success"', 'True')], "test_vm_test_requires_latest_exact_revision_success"),
+        ("G5 latest run", "orchestrate.py", [('latest = max(runs,', 'latest = min(runs,')], "test_vm_test_requires_latest_exact_revision_success"),
+        ("G5 live gate", "orchestrate.py", [('config["mode"] == "dry-run" or result["gates"]["G5"] == "pass"', 'True')], "test_vm_test_error_blocks_live_before_executor"),
+        ("G5 dry-run observation", "orchestrate.py", [('config["mode"] == "dry-run" or result["gates"]["G5"] == "pass"', 'result["gates"]["G5"] == "pass"')], "test_vm_test_error_is_recorded_but_dry_run_completes"),
+        ("dry-run never alarms", "orchestrate.py", [('if result["mode"] != "live" and not pre_pair:', 'if False:')], "test_dry_run_never_alarms_on_executor_failure"),
+        ("mailbox both recipients", "orchestrate.py", [('for recipient in ("mac-lead", "lead"):', 'for recipient in ("mac-lead",):')], "test_mailbox_failure_does_not_suppress_other_alarm_paths"),
+        ("dry-run memory measurement", "execute.py", [('result["memory_peak_bytes"] = int(peak)', 'pass')], "test_dry_run_measures_memory_peak_into_status_and_ticket"),
+        ("manual dry-run forced mode", "orchestrate.py", [('"enabled": True, "mode": "dry-run", "manual_dry_run": True', '"enabled": True, "manual_dry_run": True')], "test_disabled_once_dry_run_runs_full_chain_and_forces_mode"),
+        ("manual dry-run requires both flags", "orchestrate.py", [('if args.once != args.dry_run:', 'if False:')], "test_once_requires_both_flags_and_refuses_live_pending"),
+        ("manual dry-run refuses live pending", "orchestrate.py", [('not state["pending"] or state["pending"]["mode"] == "dry-run"', 'True')], "test_once_requires_both_flags_and_refuses_live_pending"),
+        ("csb1 sender bounds message", "hausnetz-cd-alert.py", [('len(message) > 2048', 'False')], "TestAlertSender.test_sender_rejects_bad_inputs_without_logging_credentials"),
     ]
     def check_mutant(case):
         label, file, edits, test = case
@@ -1497,13 +1865,16 @@ def mutants():
             for path in SOURCE.glob("*"):
                 if path.suffix in {".py", ".sh"}:
                     shutil.copyfile(path, source / path.name)
+            for path in (REPO / "tests/fixtures/hausnetz-cd-command.py", REPO / "hosts/csb1/hausnetz-cd-alert.py"):
+                shutil.copyfile(path, source / path.name)
             text = (source / file).read_text()
             for before, after in edits:
                 if text.count(before) != 1:
                     raise AssertionError("Mutant no longer matches exactly once: " + label)
                 text = text.replace(before, after, 1)
             (source / file).write_text(text)
-            result = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()), "TestCD." + test],
+            target = test if "." in test else "TestCD." + test
+            result = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()), target],
                                     env=dict(os.environ, HAUSNETZ_CD_SOURCE=source.name),
                                     capture_output=True, text=True, timeout=45, check=False)
             if result.returncode == 0:
@@ -1513,9 +1884,8 @@ def mutants():
             if "FAIL: " not in result.stderr:
                 raise AssertionError("Invalid mutant run: " + label + "\n" + result.stderr)
             return label
-    with ThreadPoolExecutor(max_workers=4) as workers:
-        for label in workers.map(check_mutant, cases):
-            print("must-fail mutant killed: " + label, flush=True)
+    for case in cases:
+        print("must-fail mutant killed: " + check_mutant(case), flush=True)
     print("T125: " + str(len(cases)) + " guard-removal mutants killed", flush=True)
 
 

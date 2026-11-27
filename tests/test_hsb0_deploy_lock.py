@@ -44,10 +44,19 @@ class TestRecipes(unittest.TestCase):
 name = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
 def event():
+    locked = os.environ.get("RECIPE_LOCKED")
+    if name in {"nh", "nixos-rebuild", "just"}:
+        try:
+            with open(pathlib.Path(os.environ["RECIPE_DESCRIPTORS"]).parent / "deploy.lock") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            locked = "1"
+        except FileNotFoundError:
+            pass  # no lock file yet: the helper notes it and runs unlocked
     with open(os.environ["RECIPE_LOG"], "a") as out:
         out.write(json.dumps({"name": name, "args": args,
                               "root": os.environ["RECIPE_ROOT"],
-                              "locked": os.environ.get("RECIPE_LOCKED")}) + "\\n")
+                              "locked": locked}) + "\\n")
 if name == "hostname":
     assert args == ["-s"]
     if os.environ.get("RECIPE_HOST_FAIL"):
@@ -125,7 +134,7 @@ else:
         command = next(e for e in events if e["name"] in COMMANDS)
         locks = [e for e in events if e["name"] == "flock"]
         self.assertEqual(len(locks), 1)
-        self.assertEqual(locks[0]["args"][4], str(self.lock))
+        self.assertTrue(locks[0]["args"][4].isdigit())
         expected_root = "1" if name in ROOT_RECIPES else "0"
         self.assertEqual(locks[0]["root"], expected_root)
         self.assertEqual(command["root"], expected_root)
@@ -204,6 +213,26 @@ else:
             with self.subTest(recipe=name):
                 result, _ = self.run_recipe(name)
                 self.assertEqual(result.returncode, 42)
+
+    def test_command_exit_75_is_not_lock_busy(self):
+        self.env["RECIPE_COMMAND_EXIT"] = "75"
+        for name in RECIPES:
+            with self.subTest(recipe=name):
+                result, events = self.run_recipe(name)
+                self.assertEqual(result.returncode, 75)
+                self.assertNotIn("lock busy", result.stderr)
+                self.assertTrue([e for e in events if e["name"] in COMMANDS])
+        # Regression mutant: conflate a child exit with a failed acquisition.
+        path = self.root / "scripts/hsb0-deploy-lock.sh"
+        original = path.read_text()
+        before = 'if flock -w 900 -E 75 9; then\n  exec "$@"'
+        self.assertEqual(original.count(before), 1)
+        path.write_text(original.replace(before, 'if flock -w 900 -E 75 "$lock" "$@"; then\n  exit 0'))
+        result, _ = self.run_recipe("switch")
+        self.assertEqual(result.returncode, 75)
+        with self.assertRaises(AssertionError):
+            self.assertNotIn("lock busy", result.stderr)
+        print("must-fail mutant killed: child exit 75 is not lock contention", flush=True)
 
     def test_all_recipe_lock_removal_mutants_are_killed(self):
         # Require a behavior assertion failure, never a syntax/fixture error.
@@ -285,10 +314,11 @@ else:
         print("must-fail mutant killed: CI must provide just", flush=True)
         runner = (REPO / "tests/T125-hausnetz-cd.sh").read_text()
         def check_runner(text):
-            self.assertIn('test_hausnetz_cd.py" --parallel', text)
+            self.assertIn('test_hausnetz_cd.py"\n', text)
+            self.assertNotIn('test_hausnetz_cd.py" --parallel', text)
             self.assertIn('test_hausnetz_cd.py" --mutants', text)
         check_runner(runner)
-        for flag in ('--parallel', '--mutants'):
+        for flag in ('test_hausnetz_cd.py"\n', '--mutants'):
             with self.subTest(removed=flag), self.assertRaises(AssertionError):
                 check_runner(runner.replace(flag, ''))
             print("must-fail mutant killed: T125 must retain " + flag, flush=True)
@@ -299,8 +329,15 @@ else:
             self.assertIn('same-version changes under 8 KiB', text)
             self.assertIn('G4 guards module changes', text)
             self.assertIn('root recipes directly without an outer flock', text)
+            self.assertIn('weekly `nh clean` GC runs without the deploy lock', text)
+            self.assertIn('both systems throughout the transaction', text)
+            self.assertIn("`/api/meta`'s `capabilities_sha256`", text)
+            self.assertIn('`sha256(GET /api/host-capabilities response bytes)`', text)
         check_runbook(runbook)
-        for before in ('same-version changes under 8 KiB', 'G4 guards module changes', '`cleanup`'):
+        for before in ('same-version changes under 8 KiB', 'G4 guards module changes', '`cleanup`',
+                       'weekly `nh clean` GC runs without the deploy lock',
+                       "`/api/meta`'s `capabilities_sha256`",
+                       '`sha256(GET /api/host-capabilities response bytes)`'):
             with self.subTest(removed=before), self.assertRaises(AssertionError):
                 check_runbook(runbook.replace(before, 'omitted'))
             print("must-fail mutant killed: RUNBOOK " + before, flush=True)

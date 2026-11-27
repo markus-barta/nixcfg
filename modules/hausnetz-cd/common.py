@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+from urllib.parse import quote
 import zipfile
 
 
@@ -41,7 +42,19 @@ POLL_BUDGET = EXECUTOR_BUDGET + SSH_RETRY_TIMEOUT + 120
 UNIT_RUNTIME_MAX = POLL_BUDGET + 300
 EVIDENCE_SCHEMA = "inspr.pharos.nix-deployment-evidence.v1"
 RESULT_SCHEMA = "inspr.pharos.guarded-deploy-result.v1"
-TERMINAL = {"manual", "dry-run", "succeeded", "failed", "rollback_failed", "skipped", "unknown"}
+TERMINAL = {"manual", "dry-run", "succeeded", "failed", "rollback_failed", "skipped", "unknown", "fetch_failed"}
+
+
+def diagnostics(items):
+    """Bound untrusted checker diagnostics at every evidence boundary."""
+    if not isinstance(items, list):
+        return []
+    limit = 19 if len(items) > 20 else 20
+    result = [item[:197] + "..." if len(item) > 200 else item
+              for item in items[:limit] if isinstance(item, str)]
+    if len(items) > 20:
+        result.append("+" + str(len(items) - limit) + " more")
+    return result
 
 
 def require(condition, reason):
@@ -368,8 +381,8 @@ def prepare_result(stdout, returncode, expected, nar_hash, running):
         if isinstance(value, dict):
             for name in ("problems", "changed_paths"):
                 items = value.get(name)
-                if isinstance(items, list) and all(isinstance(p, str) for p in items):
-                    setattr(exc, name, items)
+                if isinstance(items, list):
+                    setattr(exc, name, diagnostics(items))
         raise
     return value
 
@@ -383,8 +396,11 @@ def gate_g2(repo, old, new, nar_hash):
     # The running release supplies the checker; the candidate cannot grade itself.
     git(repo, "checkout", "--quiet", "--detach", old)
     try:
-        checker = "git+file://" + str(repo) + "?rev=" + old + "#cd-prepare"
-        result = subprocess.run(["nix", "run", "--offline", checker, "--",
+        path = str(Path(repo).resolve())
+        require(Path(repo).is_absolute() and all(c.isprintable() for c in path), "G2_checker_path")
+        revision(old)
+        checker = "git+file://" + quote(path, safe="/") + "?rev=" + old + "#cd-prepare"
+        result = subprocess.run(["nix", "run", "--offline", "--no-write-lock-file", checker, "--",
                                  "--repo", str(repo), "--rev", new, "--running", old],
                                 capture_output=True, timeout=600, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:

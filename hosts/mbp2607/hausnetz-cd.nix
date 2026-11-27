@@ -15,6 +15,8 @@ let
       mode = cfg.mode;
       release_ticket = cfg.releaseTicket;
       alarm_command = cfg.alarmCommand;
+      agents_host = cfg.agentsHost;
+      agents_port = cfg.agentsPort;
       secondary_telegram_command = cfg.secondaryTelegramCommand;
       target = "mba@hsb0.lan";
       nixcfg_url = "https://github.com/markus-barta/nixcfg.git";
@@ -37,6 +39,7 @@ let
     runtimeInputs = with pkgs; [
       coreutils
       git
+      gh
       config.nix.package
       openssh
       python3
@@ -66,12 +69,35 @@ in
     alarmCommand = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
-      description = "Optional alarm argv; the value-free alarm text is appended as one argument.";
+      description = "Optional additional alarm argv; receives value-free text on stdin.";
+    };
+    agentsHost = lib.mkOption {
+      type = lib.types.str;
+      default = "agents";
+      description = "SSH host or existing alias for the agents mailbox; uses the agents account.";
+    };
+    agentsPort = lib.mkOption {
+      type = lib.types.port;
+      default = 2222;
+      description = "SSH port for the agents mailbox.";
     };
     secondaryTelegramCommand = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ ];
-      description = "Coordinator-supplied argv invoking csb1's existing sender over SSH; required for live.";
+      default = [
+        "${pkgs.openssh}/bin/ssh"
+        "-T"
+        "-o"
+        "BatchMode=yes"
+        "-o"
+        "ConnectTimeout=10"
+        "-o"
+        "StrictHostKeyChecking=yes"
+        "-p"
+        "2222"
+        "mba@csb1"
+        "sudo -n /run/current-system/sw/bin/hausnetz-cd-alert"
+      ];
+      description = "Independent csb1 one-shot sender argv; message on stdin, credential stays on csb1.";
     };
   };
   config = {

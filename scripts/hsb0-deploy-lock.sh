@@ -56,8 +56,12 @@ for ((depth = 0; depth < 64 && ancestor > 1; depth++)); do
   ancestor=$parent
 done
 
-if flock -w 900 -E 75 "$lock" "$@"; then
-  exit 0
+# Acquire separately: a wrapped command may itself return 75, which is not
+# evidence of lock contention. The descriptor survives exec for the full run.
+# A fixed descriptor (not {var}) keeps this working on bash 3.2 (macOS tests).
+exec 9<"$lock"
+if flock -w 900 -E 75 9; then
+  exec "$@"
 else
   status=$?
   if [[ $status == 75 ]]; then

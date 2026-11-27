@@ -8,6 +8,7 @@ import os
 import re
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -60,15 +61,24 @@ def active_new():
 
 if command == "sudo":
     assert args.pop(0) == "-n"
+    if scenario.get("sudo_fail"):
+        raise SystemExit(1)
     commands = {name: str(root / "bin" / name) for name in
                 ("systemd-run", "systemctl", "cat", "test", "tee", "chmod")}
     # Only fixed local fixture programs or system utilities are executable.
-    commands.update({"cat": "/bin/cat", "test": "/bin/test",
-                     "tee": "/usr/bin/tee", "chmod": "/bin/chmod"})
+    commands.update({name: shutil.which(name) for name in ("cat", "test", "tee", "chmod")})
     os.execv(commands[args[0]], args)
 elif command == "ssh":
     script = sys.stdin.read()
     call = shlex.split(args[-1])
+    if call[:2] == ["mbx", "send"]:
+        assert args[-2] == "agents@fixture-agents" and args[-4:-2] == ["-p", "2222"]
+        assert call[2] in {"mac-lead", "lead"}
+        assert call[3:] == ["-f", "mac-ops", "-t", "HNET-570", "-m", "-"]
+        event("mailbox", recipient=call[2], text=script)
+        if scenario.get("mailbox_fail") == call[2]:
+            raise SystemExit(1)
+        raise SystemExit(0)
     assert call[:3] == ["bash", "-s", "--"], call
     assert args[-2] == "mba@hsb0.lan"
     action = call[3]
@@ -117,7 +127,10 @@ elif command == "systemd-run":
         (root / "executor.pid").write_text(str(process.pid))
 elif command == "systemctl":
     assert args[0] == "show"
-    if args[1] == "hausnetz.service":
+    if "--property=MemoryPeak" in args:
+        event("memory-peak", unit=args[1])
+        print(scenario.get("memory_peak", "536870912"))
+    elif args[1] == "hausnetz.service":
         assert "--property=MainPID" in args
         print("0" if scenario.get("pid_missing") and active_new() else "123")
     else:
@@ -139,15 +152,16 @@ elif command == "readlink":
 elif command == "nix":
     if args[0] == "run":
         assert args[1] == "--offline"
-        checker = urllib.parse.urlsplit(args[2])
+        assert args[2] == "--no-write-lock-file"
+        checker = urllib.parse.urlsplit(args[3])
         repo = urllib.parse.unquote(checker.path)
         assert checker.scheme == "git+file" and checker.fragment == "cd-prepare"
         checker_rev = urllib.parse.parse_qs(checker.query)["rev"][0]
         event("prepare", args=args,
               checker_rev=subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"], text=True).strip())
-        assert args[3:5] == ["--", "--repo"] and args[5] == repo
-        assert args[6] == "--rev" and args[8] == "--running"
-        assert checker_rev == args[9]
+        assert args[4:6] == ["--", "--repo"] and args[6] == repo
+        assert args[7] == "--rev" and args[9] == "--running"
+        assert checker_rev == args[10]
         assert subprocess.check_output(["git", "-C", repo, "rev-parse", "--is-shallow-repository"], text=True).strip() == "false"
         if scenario.get("prepare_missing"):
             raise SystemExit(1)
@@ -155,8 +169,8 @@ elif command == "nix":
             result = subprocess.run(["git", "-C", repo, "show", rev + ":capabilities.json"],
                                     capture_output=True, check=False)
             return result.stdout if result.returncode == 0 else b""
-        before, after = manifest(args[9]), manifest(args[7])
-        value = {"rev": args[7], "narHash": config["nar_hash"], "version": config["new_version"],
+        before, after = manifest(args[10]), manifest(args[8])
+        value = {"rev": args[8], "narHash": config["nar_hash"], "version": config["new_version"],
                  "persisted_ok": True, "manifest_changed": before != after,
                  "manifest_sha256": hashlib.sha256(after).hexdigest(),
                  "running_manifest_sha256": hashlib.sha256(before).hexdigest(),
@@ -317,6 +331,16 @@ elif command == "paimos":
     if scenario.get("ticket_fail"):
         raise SystemExit(1)
 elif command in {"alarm", "secondary-telegram"}:
-    event(command, text=args[-1])
+    assert args == []
+    event(command, text=sys.stdin.read())
+elif command == "gh":
+    event("vm-test", args=args)
+    assert args == ["api", "--method", "GET",
+                    "repos/inspr-at/hausnetz/actions/workflows/vm-test.yml/runs?head_sha="
+                    + config["new_hnet"] + "&per_page=100"]
+    if scenario.get("vm_test_error"):
+        raise SystemExit(1)
+    print(json.dumps(scenario.get("vm_test_response", {"workflow_runs": [
+        {"id": 1, "head_sha": config["new_hnet"], "status": "completed", "conclusion": "success"}]})))
 else:
     raise AssertionError((command, args))

@@ -117,6 +117,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
         "gates": {"G1": "not_run", "G2": "not_run", "G3": "not_run", "G4": "not_run"},
         "health": "not_run", "rollback": "not_required", "rollback_health": "not_run",
         "backup": "not_run", "telegram": "not_required", "reason": None,
+        "memory_peak_bytes": None,
     }
 
     def save(phase=None):
@@ -308,6 +309,15 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                 message += " hsb0 nixcfg=" + new_rev + " hausnetz=" + expected
                 result["telegram"] = "sent" if telegram(credentials, message) else "failed"
             result["generation"] = os.readlink(config["system_profile"]) if Path(config["system_profile"]).is_symlink() else None
+        if mode == "dry-run":
+            try:
+                peak = run("systemctl", ["show", "hausnetz-cd-" + run_token + ".service",
+                           "--property=MemoryPeak", "--value"]).strip()
+                require(re.fullmatch(r"[0-9]{1,20}", peak) and 0 < int(peak) < 2**64 - 1,
+                        "memory_peak_unavailable")
+                result["memory_peak_bytes"] = int(peak)
+            except Manual:
+                result["memory_peak_reason"] = "systemd_memory_peak_unavailable"
         result["completed_at"] = now()
         save("complete")
 
@@ -327,6 +337,7 @@ def main():
     parser.add_argument("run_id")
     args = parser.parse_args()
     try:
+        require(not CONFIG_FILE.startswith("@"), "unsubstituted_configuration")
         config = strict_json(Path(CONFIG_FILE).read_bytes())
         execute(config, args.nixcfg_rev, args.hausnetz_rev, args.mode,
                 args.version, args.manifest_sha256, args.running_nixcfg_rev, args.run_id)
