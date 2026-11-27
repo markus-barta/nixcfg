@@ -236,6 +236,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash git python3 just --run "bash tests/T125-hausnetz-cd.sh"
 
+      - name: Verify CI guest nix-daemon delegates no cpuset (OPS-719)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: bash tests/T126-ci-vm-cgroup-delegation.sh
+
       - name: Verify night-levels retired-host loop (OPS-595)
         if: steps.pin.outputs.pin_only != 'true'
         run: bash tests/night-levels-loop-test.sh
