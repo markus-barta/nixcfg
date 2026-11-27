@@ -2,32 +2,22 @@
 <html lang="de">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f4f6f4" />
     <title>Fernsehaufnahmen</title>
     <link rel="stylesheet" href="/fernsehen/app.css" />
     <script src="/fernsehen/app.js" defer></script>
   </head>
   <body>
-    <header>
-      <a href="/" class="home">Zur Startseite</a>
-      <h1>Fernsehaufnahmen</h1>
-      <nav aria-label="Aufnahmen auswählen">
-        <a href="/fernsehen/" id="list-link">Alle Aufnahmen</a>
-        <a href="/fernsehen/?trash=1" id="trash-link">Papierkorb</a>
-        <a href="/fernsehen/?add=1" id="add-link">Video hinzufügen</a>
-      </nav>
-    </header>
-    <main id="main" tabindex="-1">
-      <p id="space" class="details"></p>
-      <p id="status" role="status" aria-live="polite">
-        Die Aufnahmen werden geladen …
-      </p>
-      <section id="content" aria-label="Aufnahmen"></section>
-    </main>
+    <div id="app" class="app"></div>
     <noscript
-      ><p>
+      ><p class="noscript">
         Bitte JavaScript im Browser einschalten, damit Sie die Aufnahmen ansehen
-        können.
+        können. · Please turn on JavaScript to watch the recordings.
       </p></noscript
     >
   </body>

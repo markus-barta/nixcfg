@@ -1,5 +1,6 @@
 """Run here with python3 -B -m unittest -v. Only synthetic recordings are used."""
 
+import ast
 import concurrent.futures
 import errno
 import http.client
@@ -19,6 +20,10 @@ import app
 
 def filesystem(free=100 * 1024 ** 3, total=500 * 1024 ** 3):
     return SimpleNamespace(f_bavail=free, f_blocks=total, f_frsize=1)
+
+
+# Smallest byte pattern the thumbnail check accepts: SOI marker ... EOI marker.
+JPEG = b"\xff\xd8\xff\xe0" + b"synthetic thumbnail" + b"\xff\xd9"
 
 
 class LibraryTests(unittest.TestCase):
@@ -332,6 +337,237 @@ class LibraryTests(unittest.TestCase):
                 self.library.edit(self.name, {"title": "Beispiel"})
             self.assertEqual(self.library.metadata.read_text(), data)
 
+    def test_data_directories_are_created_0750_or_narrower(self):
+        # The service runs with umask 0027; a fallback mkdir never widens 0750.
+        for mask, expected in ((0o027, 0o750), (0o022, 0o750), (0o000, 0o750), (0o077, 0o700)):
+            directory = Path(self.temporary.name) / f"umask-{mask:03o}"
+            previous = app.os.umask(mask)
+            try:
+                library = app.Library(directory)
+            finally:
+                app.os.umask(previous)
+            for path in (library.trash, library.thumbs):
+                with self.subTest(umask=oct(mask), path=path.name):
+                    self.assertTrue(path.is_dir())
+                    self.assertEqual(path.stat().st_mode & 0o777, expected)
+        # Directories the host already created (tmpfiles) keep their mode.
+        existing = Path(self.temporary.name) / "existing"
+        (existing / ".thumbs").mkdir(parents=True, mode=0o700)
+        (existing / ".thumbs").chmod(0o700)
+        app.Library(existing)
+        self.assertEqual((existing / ".thumbs").stat().st_mode & 0o777, 0o700)
+
+    def test_thumb_url_only_for_regular_sidecar_files(self):
+        self.assertTrue(self.library.thumbs.is_dir())
+        entry, = self.library.listing()
+        self.assertNotIn("thumb_url", entry)
+        thumb = self.library.thumbs / (self.name + ".jpg")
+        thumb.write_bytes(JPEG)
+        entry, = self.library.listing()
+        prefix = "/fernsehen/thumb/" + quote(self.name + ".jpg", safe="") + "?v="
+        self.assertTrue(entry["thumb_url"].startswith(prefix), entry["thumb_url"])
+        self.assertEqual(entry["thumb_url"][len(prefix):], str(thumb.lstat().st_mtime_ns))
+        # Trash and restore keep the sidecar thumbnail.
+        self.assertIn("thumb_url", self.library.move(self.name))
+        self.assertIn("thumb_url", self.library.listing(True)[0])
+        self.library.move(self.name, restore=True)
+        self.assertTrue(thumb.is_file())
+        self.assertIn("thumb_url", self.library.listing()[0])
+
+    def test_symlinked_or_directory_thumbs_are_ignored(self):
+        outside = Path(self.temporary.name) / "outside.jpg"
+        outside.write_bytes(JPEG)
+        (self.library.thumbs / (self.name + ".jpg")).symlink_to(outside)
+        self.assertNotIn("thumb_url", self.library.listing()[0])
+        second = "Beispielaufnahme 2.mp4"
+        (self.directory / second).write_bytes(b"synthetic")
+        (self.library.thumbs / (second + ".jpg")).mkdir()
+        self.assertTrue(all("thumb_url" not in entry for entry in self.library.listing()))
+
+    def test_thumbs_directory_symlink_is_refused(self):
+        other = Path(self.temporary.name) / "other"
+        other.mkdir()
+        (other / ".trash").mkdir()
+        (other / ".thumbs").symlink_to(Path(self.temporary.name))
+        with self.assertRaises(ValueError):
+            app.Library(other)
+
+    def test_put_thumbnail_validation(self):
+        for data, status, code in ((b"not a jpeg", 400, "invalid_thumbnail"),
+                                   (b"\xff\xd8\xff\xe0 truncated", 400, "invalid_thumbnail"),
+                                   (b"\x89PNG\r\n\xff\xd9", 400, "invalid_thumbnail"),
+                                   (b"", 400, "invalid_thumbnail"),
+                                   (b"\xff\xd8\xff" + b"a" * app.THUMB_MAX_BYTES + b"\xff\xd9", 413,
+                                    "thumbnail_too_large")):
+            with self.subTest(data=data[:12]), self.assertRaises(app.Problem) as caught:
+                self.library.put_thumbnail(self.name, data)
+            self.assertEqual((caught.exception.status, caught.exception.code), (status, code))
+        with self.assertRaises(app.Problem) as caught:
+            self.library.put_thumbnail("Fehlt.mp4", JPEG)
+        self.assertEqual((caught.exception.status, caught.exception.code), (404, "not_found"))
+        self.library.move(self.name)
+        with self.assertRaises(app.Problem) as caught:
+            self.library.put_thumbnail(self.name, JPEG)
+        self.assertEqual((caught.exception.status, caught.exception.code), (404, "not_found"))
+        with self.assertRaises(app.Problem) as caught:
+            self.library.put_thumbnail("../Beispiel.mp4", JPEG)
+        self.assertEqual(caught.exception.code, "invalid_name")
+        self.assertEqual(list(self.library.thumbs.iterdir()), [])
+
+    def test_put_thumbnail_is_atomic_with_mode_0640(self):
+        entry = self.library.put_thumbnail(self.name, JPEG)
+        thumb = self.library.thumbs / (self.name + ".jpg")
+        self.assertEqual(thumb.read_bytes(), JPEG)
+        self.assertEqual(thumb.stat().st_mode & 0o7777, 0o640)
+        self.assertIn("thumb_url", entry)
+        with mock.patch.object(app.os, "replace", side_effect=OSError("synthetic failure")):
+            with self.assertRaises(OSError):
+                self.library.put_thumbnail(self.name, JPEG[:-2] + b"new\xff\xd9")
+        self.assertEqual(thumb.read_bytes(), JPEG)
+        self.assertEqual(list(self.library.thumbs.glob(".thumb-*")), [])
+        replacement = JPEG[:-2] + b"replacement\xff\xd9"
+        self.library.put_thumbnail(self.name, replacement)
+        self.assertEqual(thumb.read_bytes(), replacement)
+        # A symlink at the target is replaced as an entry, never written through.
+        outside = Path(self.temporary.name) / "outside.jpg"
+        outside.write_bytes(b"preserved")
+        thumb.unlink()
+        thumb.symlink_to(outside)
+        self.library.put_thumbnail(self.name, JPEG)
+        self.assertFalse(thumb.is_symlink())
+        self.assertEqual(outside.read_bytes(), b"preserved")
+
+    def test_put_thumbnail_respects_the_free_space_reserve(self):
+        reserve = 50 * 1024 ** 3
+        thumb = self.library.thumbs / (self.name + ".jpg")
+        # Exactly enough room above the reserve: stored.
+        self.usage.return_value = filesystem(free=reserve + len(JPEG))
+        self.library.put_thumbnail(self.name, JPEG)
+        self.assertEqual(thumb.read_bytes(), JPEG)
+        # One byte short: refused before any temporary file exists. A
+        # replacement needs room for a full copy, even if it is the same size.
+        replacement = JPEG[:-2] + b"new\xff\xd9"
+        for free in (reserve + len(replacement) - 1, reserve, 0):
+            self.usage.return_value = filesystem(free=free)
+            with self.subTest(free=free), mock.patch.object(app.tempfile, "mkstemp") as create, \
+                    mock.patch("sys.stderr", new_callable=io.StringIO) as log:
+                with self.assertRaises(app.Problem) as caught:
+                    self.library.put_thumbnail(self.name, replacement)
+                create.assert_not_called()
+            self.assertEqual((caught.exception.status, caught.exception.code), (507, "insufficient_space"))
+            self.assertEqual(caught.exception.message, app.THUMB_SPACE_ERROR)
+            self.assertEqual(len(log.getvalue().splitlines()), 1)
+            self.assertNotIn("Beispielaufnahme", log.getvalue())
+            self.assertEqual(thumb.read_bytes(), JPEG, "the existing thumbnail stays")
+            self.assertEqual(list(self.library.thumbs.glob(".thumb-*")), [])
+        # The same boundary applies to a first thumbnail, and an operator
+        # override of the reserve is honoured.
+        second = "Beispielaufnahme 2.mp4"
+        (self.directory / second).write_bytes(b"synthetic")
+        self.usage.return_value = filesystem(free=reserve + len(JPEG) - 1)
+        with mock.patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(app.Problem):
+            self.library.put_thumbnail(second, JPEG)
+        self.assertFalse((self.library.thumbs / (second + ".jpg")).exists())
+        with mock.patch.dict(app.os.environ, {"MEDIA_RESERVE_BYTES": "0"}):
+            relaxed = app.Library(self.directory)
+        self.usage.return_value = filesystem(free=len(JPEG))
+        self.assertIn("thumb_url", relaxed.put_thumbnail(second, JPEG))
+
+    def test_put_thumbnail_disk_full_returns_507(self):
+        with mock.patch.object(app.tempfile, "mkstemp", side_effect=OSError(errno.ENOSPC, "synthetic")):
+            with self.assertRaises(app.Problem) as caught:
+                self.library.put_thumbnail(self.name, JPEG)
+        self.assertEqual((caught.exception.status, caught.exception.code), (507, "insufficient_space"))
+
+    def test_startup_cleans_only_regular_thumbnail_temporaries(self):
+        thumbs = self.library.thumbs
+        (thumbs / ".thumb-abandoned").write_bytes(b"synthetic")
+        (thumbs / ".staging-admin-1.jpg").write_bytes(b"synthetic")
+        outside = Path(self.temporary.name) / "outside"
+        outside.write_bytes(b"preserved")
+        (thumbs / ".thumb-link").symlink_to(outside)
+        (thumbs / ".thumb-directory").mkdir()
+        (thumbs / (self.name + ".jpg")).write_bytes(JPEG)
+        app.Library(self.directory)
+        self.assertFalse((thumbs / ".thumb-abandoned").exists())
+        self.assertTrue((thumbs / ".staging-admin-1.jpg").is_file())
+        self.assertTrue((thumbs / ".thumb-link").is_symlink())
+        self.assertTrue((thumbs / ".thumb-directory").is_dir())
+        self.assertEqual((thumbs / (self.name + ".jpg")).read_bytes(), JPEG)
+        self.assertEqual(outside.read_bytes(), b"preserved")
+
+    def test_upload_removes_stale_thumbnail_for_its_final_name(self):
+        name = "Beispielaufnahme 3.mp4"
+        stale = self.library.thumbs / (name + ".jpg")
+        stale.write_bytes(JPEG)
+        outside = Path(self.temporary.name) / "outside.jpg"
+        outside.write_bytes(b"preserved")
+        linked = self.library.thumbs / ("Beispielaufnahme 4.mp4" + ".jpg")
+        linked.symlink_to(outside)
+        kept = self.library.thumbs / (self.name + ".jpg")
+        kept.write_bytes(JPEG)
+        entry = self.library.upload(name, io.BytesIO(b"new"), 3)
+        self.assertEqual(entry["filename"], name)
+        self.assertNotIn("thumb_url", entry)
+        self.assertFalse(stale.exists())
+        self.library.upload("Beispielaufnahme 4.mp4", io.BytesIO(b"new"), 3)
+        self.assertFalse(linked.is_symlink())
+        self.assertEqual(outside.read_bytes(), b"preserved")
+        # A duplicate upload gets a new name and leaves the original's thumbnail alone.
+        duplicate = self.library.upload(self.name, io.BytesIO(b"dup"), 3)
+        self.assertNotEqual(duplicate["filename"], self.name)
+        self.assertEqual(kept.read_bytes(), JPEG)
+
+    def test_problems_carry_stable_codes(self):
+        cases = (
+            (lambda: app.filename("../x.mp4"), 400, "invalid_name"),
+            (lambda: app.upload_filename("a/b.mp4"), 400, "invalid_name"),
+            (lambda: app.upload_filename("Beispiel.txt"), 400, "unsupported_type"),
+            (lambda: app.text_field("x" * 201, 200), 400, "invalid_text"),
+            (lambda: self.library.require("Fehlt.mp4"), 404, "not_found"),
+            (lambda: self.library.edit(self.name, {}), 400, "invalid_edit"),
+            (lambda: self.library.edit(self.name, {"title": " "}), 400, "title_required"),
+            (lambda: self.library.upload("Beispiel.mp4", io.BytesIO(), 0), 400, "empty_file"),
+            (lambda: self.library.upload("Beispiel.mp4", io.BytesIO(b"a"), 2), 400, "transfer_interrupted"),
+            (lambda: self.library.put_thumbnail(self.name, b"x"), 400, "invalid_thumbnail"),
+        )
+        for call, status, code in cases:
+            with self.subTest(code=code), self.assertRaises(app.Problem) as caught:
+                call()
+            self.assertEqual((caught.exception.status, caught.exception.code), (status, code))
+            self.assertEqual(caught.exception.body()["code"], code)
+            self.assertTrue(caught.exception.body()["error"])
+        with self.assertRaises(app.Problem) as caught:
+            app.text_field("x" * 201, 200)
+        self.assertEqual(caught.exception.body()["limit"], 200)
+        self.library.move(self.name)
+        (self.directory / self.name).write_bytes(b"conflict")
+        with self.assertRaises(app.Problem) as caught:
+            self.library.move(self.name, restore=True)
+        self.assertEqual(caught.exception.code, "name_conflict")
+        self.library.metadata.write_text("{broken")
+        with self.assertRaises(app.Problem) as caught:
+            self.library.load()
+        self.assertEqual((caught.exception.status, caught.exception.code), (503, "metadata_unreadable"))
+        self.usage.return_value = filesystem(free=0)
+        with mock.patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(app.Problem) as caught:
+            self.library.upload("Beispiel.mp4", io.BytesIO(b"a"), 1)
+        self.assertEqual((caught.exception.status, caught.exception.code), (507, "insufficient_space"))
+
+    def test_every_problem_construction_names_a_snake_case_code(self):
+        tree = ast.parse(Path(app.__file__).read_text(encoding="utf-8"))
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name) and node.func.id == "Problem"]
+        self.assertGreater(len(calls), 20)
+        for call in calls:
+            with self.subTest(line=call.lineno):
+                self.assertGreaterEqual(len(call.args), 3)
+                code = call.args[2]
+                if isinstance(code, ast.Constant):
+                    self.assertRegex(code.value, r"^[a-z]+(?:_[a-z]+)*$")
+                else:
+                    self.assertIsInstance(code, ast.Name)
+
 
 class HTTPTests(unittest.TestCase):
     @classmethod
@@ -450,6 +686,84 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(response.status, 411)
         response.read()
 
+    def test_put_thumbnail_over_http(self):
+        library = self.server.library
+        name = "HTTP Vorschau.mp4"
+        (Path(library.directory) / name).write_bytes(b"synthetic")
+        self.addCleanup(lambda: (Path(library.directory) / name).unlink(missing_ok=True))
+        self.addCleanup(lambda: library.thumbnail(name).unlink(missing_ok=True))
+        path = "api/videos/" + quote(name) + "/thumb"
+        headers = {**self.mutation_headers(), "Content-Type": "image/jpeg"}
+        for bad in ({}, {"X-Media-Request": "1"}, {"Origin": "http://" + self.host},
+                    {**self.mutation_headers(), "Sec-Fetch-Site": "cross-site"}):
+            status, _, body = self.call("PUT", path, JPEG, bad)
+            self.assertEqual((status, json.loads(body)["code"]), (403, "request_refused"))
+        status, _, body = self.call("PUT", "api/videos/" + quote("Fehlt.mp4") + "/thumb", JPEG, headers)
+        self.assertEqual((status, json.loads(body)["code"]), (404, "not_found"))
+        status, _, body = self.call("PUT", path, b"not a jpeg", headers)
+        self.assertEqual((status, json.loads(body)["code"]), (400, "invalid_thumbnail"))
+        status, _, body = self.call("PUT", path, b"\xff" * (app.THUMB_MAX_BYTES + 1), headers)
+        self.assertEqual((status, json.loads(body)["code"]), (413, "thumbnail_too_large"))
+        for other in ("PATCH", "DELETE", "POST"):
+            status, _, body = self.call(other, path, JPEG, headers)
+            self.assertEqual((status, json.loads(body)["code"]), (404, "page_not_found"))
+        for invalid in ("%2e%2e%2fBeispiel.mp4/thumb", "a/b.mp4/thumb", "sub%2FBeispiel.mp4/thumb"):
+            status, _, _ = self.call("PUT", "api/videos/" + invalid, JPEG, headers)
+            self.assertIn(status, {400, 404})
+        self.assertFalse(library.thumbnail(name).exists())
+        status, _, body = self.call("PUT", path, JPEG, headers)
+        self.assertEqual(status, 200)
+        self.assertIn("/fernsehen/thumb/" + quote(name + ".jpg", safe="") + "?v=", json.loads(body)["thumb_url"])
+        self.assertEqual(library.thumbnail(name).read_bytes(), JPEG)
+        status, _, body = self.call("DELETE", "api/videos/" + quote(name), headers=self.mutation_headers())
+        self.assertEqual(status, 200)
+        status, _, body = self.call("PUT", path, JPEG, headers)
+        self.assertEqual((status, json.loads(body)["code"]), (404, "not_found"))
+        self.call("POST", "api/restore/" + quote(name), headers=self.mutation_headers())
+
+    def test_http_problem_responses_carry_codes(self):
+        cases = (
+            (("GET", "nichts"), 404, "page_not_found"),
+            (("PATCH", "api/videos/Fehlt.mp4", b"{}", self.mutation_headers()), 400, "invalid_edit"),
+            (("PATCH", "api/videos/Fehlt.mp4", b'{"title":"x"}', self.mutation_headers()), 404, "not_found"),
+            (("PATCH", "api/videos/Beispiel.mp4", b"{broken", self.mutation_headers()), 400, "invalid_json"),
+            (("PATCH", "api/videos/Beispiel.mp4", b"a" * 20001, self.mutation_headers()), 413, "too_large"),
+            (("PUT", "api/videos/Beispiel.txt", b"a", self.mutation_headers()), 400, "unsupported_type"),
+            (("PUT", "api/videos/Beispiel.mp4", b"", self.mutation_headers()), 400, "empty_file"),
+            (("PUT", "api/videos/%2e%2e%2fBeispiel.mp4", b"a", self.mutation_headers()), 400, "invalid_name"),
+            (("PUT", "api/videos/Beispiel%FF.mp4", b"a", self.mutation_headers()), 400, "invalid_input"),
+            (("POST", "api/restore/Fehlt.mp4", b"", self.mutation_headers()), 404, "not_found"),
+            (("DELETE", "api/videos/Beispiel.mp4", b"", {}), 403, "request_refused"),
+            (("POST", "api/unbekannt", b"", self.mutation_headers()), 404, "page_not_found"),
+        )
+        for args, status, code in cases:
+            with self.subTest(args=args[:2]):
+                got, headers, body = self.call(*args)
+                self.assertEqual(got, status)
+                result = json.loads(body)
+                self.assertEqual(result["code"], code)
+                self.assertTrue(result["error"])
+                self.assertIn("media-src 'self' blob:", headers["Content-Security-Policy"])
+        headers = {**self.mutation_headers(), "Transfer-Encoding": "chunked"}
+        status, _, body = self.call("PUT", "api/videos/Beispiel.mp4", b"0\r\n\r\n", headers)
+        self.assertEqual((status, json.loads(body)["code"]), (411, "length_required"))
+        with mock.patch.object(app.Library, "listing", side_effect=OSError("synthetic")):
+            status, _, body = self.call("GET")
+        self.assertEqual((status, json.loads(body)["code"]), (503, "storage_unavailable"))
+        with mock.patch.object(app.Library, "listing", side_effect=app.Problem(503, app.METADATA_ERROR, "metadata_unreadable")):
+            status, _, body = self.call("GET")
+        self.assertEqual((status, json.loads(body)["code"]), (503, "metadata_unreadable"))
+
+    def test_csp_allows_blob_media_only(self):
+        _, headers, _ = self.call("GET", "")
+        policy = headers["Content-Security-Policy"]
+        self.assertIn("media-src 'self' blob:;", policy)
+        self.assertEqual(policy.count("blob:"), 1)
+        self.assertNotIn("unsafe-inline", policy)
+        self.assertNotIn("unsafe-eval", policy)
+        self.assertIn("script-src 'self';", policy)
+        self.assertIn("style-src 'self';", policy)
+
     def test_assets_head_and_private_files_not_served(self):
         for asset in ("", "app.js", "app.css", "healthz"):
             status, headers, body = self.call("GET", asset)
@@ -460,7 +774,8 @@ class HTTPTests(unittest.TestCase):
         status, _, body = self.call("HEAD", "")
         self.assertEqual(status, 200)
         self.assertEqual(body, b"")
-        for path in ("metadata.json", ".trash/Beispiel.mp4", "../app.py", "video/Beispiel.mp4"):
+        for path in ("metadata.json", ".trash/Beispiel.mp4", "../app.py", "video/Beispiel.mp4",
+                     ".thumbs/Beispiel.mp4.jpg", "thumb/Beispiel.mp4.jpg"):
             self.assertEqual(self.call("GET", path)[0], 404)
 
 
