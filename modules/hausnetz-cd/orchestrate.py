@@ -2,10 +2,12 @@
 
 import argparse
 import fcntl
+import ipaddress
 import json
 from pathlib import Path
 import re
 import shlex
+import sys
 import time
 import uuid
 
@@ -98,35 +100,86 @@ def comment(config, message):
          config["release_ticket"], "--body", message], timeout=30)
 
 
-def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False):
-    if result["mode"] != "live" and not pre_pair:
+def mailbox_target(path):
+    """Read only the local, non-repo endpoint; never source it as shell code."""
+    with open(path, "rb") as source:
+        raw = source.read(4097)
+    require(len(raw) <= 4096, "invalid_mailbox_file")
+    text = raw.decode("ascii")
+    lines = text.removesuffix("\n").split("\n")
+    require(len(lines) == 3, "invalid_mailbox_file")
+    values = {}
+    for line in lines:
+        key, separator, value = line.partition("=")
+        require(separator and key in {"host", "port", "user"} and key not in values,
+                "invalid_mailbox_file")
+        values[key] = value
+    host = values["host"]
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        require(len(host) <= 253 and re.fullmatch(
+            r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+            r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?", host),
+            "invalid_mailbox_host")
+    # Exclude scoped IPv6 addresses and all shell/SSH option characters.
+    require(re.fullmatch(r"[A-Za-z0-9.:-]+", host), "invalid_mailbox_host")
+    require(re.fullmatch(r"[0-9]{1,5}", values["port"])
+            and 1 <= int(values["port"]) <= 65535, "invalid_mailbox_port")
+    require(re.fullmatch(r"[a-z_][a-z0-9_-]*", values["user"]), "invalid_mailbox_user")
+    return host, int(values["port"]), values["user"]
+
+
+def alarm_route_failed(route):
+    # Values and command diagnostics are deliberately excluded from logs.
+    print("hausnetz-cd: alarm route failed: " + route, file=sys.stderr, flush=True)
+
+
+def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False):
+    if result["mode"] != "live" and not pre_pair and not test:
         return
     result = {**result, "changed_paths": diagnostics(result.get("changed_paths")),
               "problems": diagnostics(result.get("problems"))}
     message = (label + " nixcfg=" + result["nixcfg_rev"] + " hausnetz=" + result["hausnetz_rev"]
                + " generation=" + str(result.get("generation") or "unknown")[:200]
                + " reason=" + str(result.get("reason") or "unknown")[:200])
-    atomic_json(Path(config["alarm_file"]), {"at": now(), "message": message, "result": result})
-    for recipient in ("mac-lead", "lead"):
-        try:
-            host = config.get("agents_host", "")
-            port = config.get("agents_port")
-            require(isinstance(host, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]*", host)
-                    and type(port) is int and 1 <= port <= 65535, "invalid_agents_endpoint")
-            command = "mbx send " + recipient + " -f mac-ops -t " + shlex.quote(config["release_ticket"]) + " -m -"
-            run("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
-                        "-o", "StrictHostKeyChecking=yes", "-p", str(port), "agents@" + host,
-                        command], data=message, timeout=45)
-        except Manual:
-            pass
-    # Optional existing local hook, and the independent csb1 sender. Messages
-    # travel on stdin, never as shell fragments or credential-bearing argv.
-    for command in (config.get("alarm_command"), config.get("secondary_telegram_command")):
-        if command:
+    if not test:
+        atomic_json(Path(config["alarm_file"]), {"at": now(), "message": message, "result": result})
+    fallback = False
+    try:
+        host, port, user = mailbox_target(config["mailbox_remote_file"])
+    except (Manual, OSError, UnicodeError, KeyError, TypeError, ValueError):
+        fallback = True
+        alarm_route_failed("remote mailbox file missing/invalid")
+    else:
+        for recipient in ("mac-lead", "lead"):
             try:
-                run(command[0], command[1:], data=message, timeout=45)
+                command = ("PATH=$HOME/.local/bin:$PATH mbx send " + recipient
+                           + " -f mac-ops -t " + shlex.quote(config["release_ticket"]) + " -m -")
+                run("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                            "-o", "StrictHostKeyChecking=yes", "-p", str(port), user + "@" + host,
+                            command], data=message, timeout=45)
             except Manual:
-                pass
+                fallback = True
+                alarm_route_failed("remote mailbox " + recipient)
+    if fallback:
+        for recipient in ("mac-lead", "lead"):
+            try:
+                run(config["local_mailbox_command"], ["send", recipient, "-f", "mac-ops",
+                    "-t", config["release_ticket"], "-m", "-"], data=message, timeout=45)
+            except (Manual, KeyError):
+                alarm_route_failed("local mailbox " + recipient)
+    # Exactly one csb1 attempt, including when remote delivery needed fallback.
+    for route, command in (("local hook", config.get("alarm_command")),
+                           ("csb1 Telegram", config.get("secondary_telegram_command"))):
+        if not command:
+            if route == "csb1 Telegram":
+                alarm_route_failed(route + " unconfigured")
+            continue
+        try:
+            run(command[0], command[1:], data=message, timeout=45)
+        except Manual:
+            alarm_route_failed(route)
 
 
 def copy_export(config, result):
@@ -340,7 +393,6 @@ def tick(config):
     require(re.fullmatch(r"HNET-[0-9]+", config.get("release_ticket") or ""), "release_ticket_unset")
     if config["mode"] == "live":
         require(config.get("secondary_telegram_command"), "independent_alert_path_unset")
-        require(config.get("agents_host") and config.get("agents_port"), "mailbox_alert_path_unset")
     private_dir(Path(config["state_file"]).parent)
     directory = private_dir(config["cache_dir"])
     with open(directory / "orchestrator.lock", "a", encoding="utf-8") as lock:
@@ -461,15 +513,24 @@ CONFIG_FILE = "@CONFIG@"
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--test-alarm", action="store_true")
     args = parser.parse_args()
     if args.once != args.dry_run:
         parser.error("manual execution requires both --once and --dry-run")
+    if args.test_alarm and (args.once or args.dry_run):
+        parser.error("--test-alarm cannot be combined with deployment flags")
     try:
         require(not CONFIG_FILE.startswith("@"), "unsubstituted_configuration")
         config = strict_json(Path(CONFIG_FILE).read_bytes())
+        if args.test_alarm:
+            require(re.fullmatch(r"HNET-[0-9]+", config.get("release_ticket") or ""),
+                    "release_ticket_unset")
+            alarm(config, {"mode": "dry-run", "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
+                           "reason": "operator_alarm_test"}, "TEST CD ALARM", test=True)
+            return
         if args.once:
             config = {**config, "enabled": True, "mode": "dry-run", "manual_dry_run": True}
         tick(config)

@@ -681,15 +681,49 @@ proof. `/healthz` is only liveness. `requireReadyz` defaults to true; setting it
 false refuses live mode. No configurable version endpoint or rev field remains.
 The existing local bot reports `auto-rollback` or `ROLLBACK FAILED`. Rollback
 failure also persists a Mac alarm and invokes the configured independent csb1
-sender without moving credentials. It sends the same short revision/generation/
-reason message on stdin to `mac-lead` and `lead` through
-`ssh -p <agentsPort> agents@<agentsHost> mbx send ... -f mac-ops -t <ticket> -m -`.
-Both options live in `hosts/mbp2607/hausnetz-cd.nix` (defaults: the `agents` SSH
-alias, port 2222); confirm that alias on mbp2607 before a live trial.
+sender without moving credentials. Rollback and six-hour preflight alarms send
+the same short revision/generation/reason message on stdin to **both** `mac-lead`
+and `lead`. The remote endpoint comes only from the local, non-repo file
+`~/.config/inspr/mbx-remote` (`mailboxRemoteFile` option); nixcfg supplies no
+default mailbox host. This file is not a secret, must stay outside nixcfg, and
+contains exactly three `key=value` lines: `host`, `port`, and `user`, in any
+order. Set them to the coordinator-confirmed hostname/IP, port (1–65535), and
+SSH user (`[a-z_][a-z0-9_-]*`). Duplicate/extra/missing keys, comments, blank
+lines, whitespace, shell syntax, and invalid values reject the whole file.
+The remote command is:
+
+```bash
+ssh -T -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes \
+  -p <port> <user>@<host> \
+  'PATH=$HOME/.local/bin:$PATH mbx send <recipient> -f mac-ops -t <ticket> -m -'
+```
+
+If the file is missing/invalid or **either** remote send fails, both messages
+also go to the local mailbox via `~/.local/bin/mbx send <recipient> -f mac-ops
+-t <ticket> -m -` (`localMailboxCommand` option). Each recipient is attempted
+independently; failure of one cannot suppress the other. Route failures are
+logged by route/recipient without endpoint values or command diagnostics.
 `secondaryTelegramCommand` defaults to SSH to csb1 running
 `sudo -n /run/current-system/sw/bin/hausnetz-cd-alert` with the message on stdin.
 That one-shot sender reads csb1's existing `csb1-watchtower-env` notification
 target in-process; no credential leaves csb1 or enters process arguments/logs.
+csb1 is attempted exactly once per event, including fallback events; its failure
+is logged. The optional `alarmCommand` local hook is retained. Before go-live,
+set the approved release ticket and local endpoint file, then run once on the
+Mac:
+
+```bash
+hausnetz-cd --test-alarm
+```
+
+This explicit mode sends one `TEST` message through both remote recipients,
+the same fallback rules, and csb1 Telegram, even while the timer is disabled.
+Confirm receipt at both leads and in Telegram and inspect route-failure logs.
+It does not read/write deployment state, overwrite the persisted alarm, create
+deploy/cache/export paths, or contact the deployment target. It refuses
+`--once`/`--dry-run` combinations. Keep the timer disabled and `allowLive=false`
+until the separate live gate is approved.
+
 One failed alarm route does not suppress the other routes. The existing hsb0
 hausnetz-bot path is unchanged. A running result with an inactive/unknown
 unit becomes failed/UNKNOWN once, stops polling, and cannot auto-retry. Dry-run

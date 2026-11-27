@@ -15,8 +15,8 @@ let
       mode = cfg.mode;
       release_ticket = cfg.releaseTicket;
       alarm_command = cfg.alarmCommand;
-      agents_host = cfg.agentsHost;
-      agents_port = cfg.agentsPort;
+      mailbox_remote_file = cfg.mailboxRemoteFile;
+      local_mailbox_command = cfg.localMailboxCommand;
       secondary_telegram_command = cfg.secondaryTelegramCommand;
       target = "mba@hsb0.lan";
       nixcfg_url = "https://github.com/markus-barta/nixcfg.git";
@@ -71,15 +71,15 @@ in
       default = [ ];
       description = "Optional additional alarm argv; receives value-free text on stdin.";
     };
-    agentsHost = lib.mkOption {
+    mailboxRemoteFile = lib.mkOption {
       type = lib.types.str;
-      default = "agents";
-      description = "SSH host or existing alias for the agents mailbox; uses the agents account.";
+      default = "${home}/.config/inspr/mbx-remote";
+      description = "Local non-repo file containing exactly host, port and user key=value lines for remote mailbox delivery.";
     };
-    agentsPort = lib.mkOption {
-      type = lib.types.port;
-      default = 2222;
-      description = "SSH port for the agents mailbox.";
+    localMailboxCommand = lib.mkOption {
+      type = lib.types.str;
+      default = "${home}/.local/bin/mbx";
+      description = "Local mailbox executable used for both recipients if remote delivery is unavailable.";
     };
     secondaryTelegramCommand = lib.mkOption {
       type = lib.types.listOf lib.types.str;

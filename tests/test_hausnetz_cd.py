@@ -58,7 +58,7 @@ class Fixture:
         # Use this test interpreter rather than relying on an executable bit
         # or a Python selected by the developer's global PATH.
         for command in ("nix", "nix-store", "nix-env", "systemctl", "systemd-run", "curl", "ssh", "sudo",
-                        "paimos", "alarm", "secondary-telegram", "switch-to-configuration", "readlink", "gh"):
+                        "paimos", "alarm", "secondary-telegram", "switch-to-configuration", "readlink", "gh", "mbx"):
             target = self.bin / command
             target.write_text("#!" + sys.executable + "\n" + fake.read_text())
             target.chmod(0o700)
@@ -125,8 +125,10 @@ class Fixture:
             "ssh_retry_timeout": 0.4,
             "alarm_command": [str(self.bin / "alarm")],
             "secondary_telegram_command": [str(self.bin / "secondary-telegram")],
-            "agents_host": "fixture-agents", "agents_port": 2222,
+            "mailbox_remote_file": str(root / "mbx-remote"),
+            "local_mailbox_command": str(self.bin / "mbx"),
         }
+        self.write(root / "mbx-remote", "host=fixture-agents\nport=2222\nuser=agents\n")
         self.executor_path = root / "execute"
         # A separate test entrypoint supplies fixture settings; production
         # entrypoints have no config override via argv or environment.
@@ -382,6 +384,8 @@ class TestCD(unittest.TestCase):
         self.assertIn("ROLLBACK FAILED", self.f.events("alarm")[0]["text"])
         self.assertIn("ROLLBACK FAILED", self.f.events("secondary-telegram")[0]["text"])
         self.assertEqual([e["recipient"] for e in self.f.events("mailbox")], ["mac-lead", "lead"])
+        self.assertFalse(self.f.events("local-mailbox"))
+        self.assertEqual(len(self.f.events("secondary-telegram")), 1)
 
     def test_rollback_must_prove_old_revision(self):
         self.f.scenario.update(health_fail=True, rollback_health_fail=True)
@@ -1598,7 +1602,161 @@ class TestCD(unittest.TestCase):
             alarm(self.f.orchestrator, {"mode": "live", "nixcfg_rev": self.f.new,
                   "hausnetz_rev": self.f.new_hnet, "reason": "rollback_failed"})
         self.assertEqual(len(self.f.events("mailbox")), 2)
+        self.assertEqual([e["recipient"] for e in self.f.events("local-mailbox")], ["mac-lead", "lead"])
         self.assertEqual(len(self.f.events("secondary-telegram")), 1)
+
+    def alarm_cli(self):
+        # No live switch or production command is reachable: all commands are PATH fakes.
+        self.f.orchestrator.update(enabled=False, mode="dry-run")
+        return self.f.tick(args=("--test-alarm",))
+
+    def assert_alarm_chain(self, *, remote=True, fallback=False):
+        expected = ["mac-lead", "lead"]
+        self.assertEqual([e["recipient"] for e in self.f.events("mailbox")], expected if remote else [])
+        self.assertEqual([e["recipient"] for e in self.f.events("local-mailbox")], expected if fallback else [])
+        self.assertEqual(len(self.f.events("secondary-telegram")), 1)
+        messages = [e["text"] for e in self.f.events()
+                    if e["kind"] in {"mailbox", "local-mailbox", "secondary-telegram", "alarm"}]
+        self.assertTrue(messages)
+        self.assertEqual(len(set(messages)), 1)
+        self.assertTrue(messages[0].startswith("TEST "))
+
+    def test_test_alarm_remote_success_without_fallback(self):
+        self.alarm_cli()
+        self.assert_alarm_chain()
+        self.assertFalse(self.f.events("ssh"))
+        self.assertFalse(self.f.events("ticket"))
+        self.assertFalse(Path(self.f.orchestrator["alarm_file"]).exists())
+
+    def test_test_alarm_missing_file_falls_back_to_both_local_mailboxes(self):
+        self.f.orchestrator["mailbox_remote_file"] = str(self.f.root / "absent")
+        result = self.alarm_cli()
+        self.assert_alarm_chain(remote=False, fallback=True)
+        self.assertIn("remote mailbox file missing/invalid", result.stderr)
+
+    def test_test_alarm_invalid_file_falls_back_to_both_local_mailboxes(self):
+        Path(self.f.orchestrator["mailbox_remote_file"]).write_text(
+            "host=fixture-agents\nport=2222\nuser=agents\njunk=true\n")
+        result = self.alarm_cli()
+        self.assert_alarm_chain(remote=False, fallback=True)
+        self.assertIn("remote mailbox file missing/invalid", result.stderr)
+
+    def test_either_remote_recipient_failure_falls_back_without_duplicate_csb1(self):
+        for recipient in ("mac-lead", "lead"):
+            with self.subTest(recipient=recipient), tempfile.TemporaryDirectory(prefix="t125-alarm-") as root:
+                fixture = Fixture(Path(root))
+                fixture.scenario["mailbox_fail"] = recipient
+                fixture.orchestrator["enabled"] = False
+                result = fixture.tick(args=("--test-alarm",))
+                self.assertEqual([e["recipient"] for e in fixture.events("mailbox")], ["mac-lead", "lead"])
+                self.assertEqual([e["recipient"] for e in fixture.events("local-mailbox")], ["mac-lead", "lead"])
+                self.assertEqual(len(fixture.events("secondary-telegram")), 1)
+                self.assertIn("remote mailbox " + recipient, result.stderr)
+
+    def test_csb1_failure_is_logged_after_mailbox_fallback(self):
+        self.f.orchestrator["mailbox_remote_file"] = str(self.f.root / "absent")
+        self.f.scenario["secondary_telegram_fail"] = True
+        result = self.alarm_cli()
+        self.assert_alarm_chain(remote=False, fallback=True)
+        self.assertIn("alarm route failed: csb1 Telegram", result.stderr)
+
+    def test_local_mailbox_failure_does_not_suppress_other_recipient_or_csb1(self):
+        self.f.orchestrator["mailbox_remote_file"] = str(self.f.root / "absent")
+        self.f.scenario["local_mailbox_fail"] = "mac-lead"
+        result = self.alarm_cli()
+        self.assert_alarm_chain(remote=False, fallback=True)
+        self.assertIn("local mailbox mac-lead", result.stderr)
+
+    def test_mailbox_target_strictly_rejects_junk(self):
+        from orchestrate import mailbox_target
+        path = self.f.root / "mbx-remote"
+        valid = "host=fixture-agents\nport=2222\nuser=agents\n"
+        junk = [valid + "extra=yes\n", valid + "\n", valid.replace("host=", " host="),
+                valid.replace("user=", "host="), valid.replace("user=", "username="),
+                valid.replace("2222", "0"), valid.replace("2222", "65536"),
+                valid.replace("2222", "+22"), valid.replace("2222", "22 "),
+                valid.replace("2222", "2_2"), valid.replace("agents\n", "Agents\n"),
+                valid.replace("user=agents", "user=agents;id"), valid.replace("user=agents", "user="),
+                valid.replace("fixture-agents", "-option"), valid.replace("fixture-agents", "a/b"),
+                valid.replace("fixture-agents", "a b"), valid.replace("fixture-agents", "a;id"),
+                valid.replace("fixture-agents", "$(id)"), valid.replace("fixture-agents", "a_underscore"),
+                valid.replace("fixture-agents", "fe80::1%scope"), valid.replace("\n", "\r\n"),
+                "host=a\nport=22\n", "\xff", "x" * 4097]
+        for value in junk:
+            with self.subTest(value=value):
+                path.write_bytes(value.encode("latin1"))
+                with self.assertRaises((Manual, UnicodeError)):
+                    mailbox_target(path)
+
+    def test_mailbox_target_accepts_hostnames_ipv4_ipv6_and_port_boundaries(self):
+        from orchestrate import mailbox_target
+        path = self.f.root / "mbx-remote"
+        for host in ("fixture-agents", "mbx.example.test", "192.0.2.1", "2001:db8::1", "::1"):
+            for port in (1, 65535):
+                with self.subTest(host=host, port=port):
+                    path.write_text(f"user=_agents-1\nhost={host}\nport={port}")
+                    self.assertEqual(mailbox_target(path), (host, port, "_agents-1"))
+
+    def test_test_alarm_leaves_existing_state_and_deploy_paths_untouched(self):
+        state = Path(self.f.orchestrator["state_file"])
+        alarm_file = Path(self.f.orchestrator["alarm_file"])
+        self.f.write(state, 'existing state: do not parse or change\n')
+        self.f.write(alarm_file, 'previous alarm\n')
+        before = {path: (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_mode)
+                  for path in (state, alarm_file, self.f.root / "evidence.json", self.f.root / "deploy.lock")}
+        self.alarm_cli()
+        self.assert_alarm_chain()
+        for path, snapshot in before.items():
+            self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_mode), snapshot)
+        self.assertEqual(Path(self.f.executor["current_system"]).resolve(), self.f.old_system)
+        self.assertFalse((self.f.root / "remote-state").exists())
+        self.assertFalse((self.f.root / "cache").exists())
+        self.assertFalse((self.f.root / "exports").exists())
+        self.assertEqual({e["kind"] for e in self.f.events()}, {"mailbox", "alarm", "secondary-telegram"})
+
+    def test_test_alarm_does_not_create_state_or_deploy_directories(self):
+        self.alarm_cli()
+        self.assertFalse(Path(self.f.orchestrator["state_file"]).parent.exists())
+        self.assertFalse((self.f.root / "cache").exists())
+        self.assertFalse((self.f.root / "remote-state").exists())
+
+    def test_test_alarm_is_explicit_and_rejects_deployment_flags(self):
+        self.f.orchestrator["enabled"] = False
+        self.f.tick()
+        self.assertFalse(self.f.events())
+        for args in (("--test-alarm", "--once", "--dry-run"), ("--test-alarm", "--dry-run"),
+                     ("--test-alarm", "--once"), ("--test-alarm", "--live"), ("--test",)):
+            self.assertNotEqual(self.f.tick(args=args, expect_ok=False).returncode, 0)
+        self.assertFalse(self.f.events())
+
+    def test_preflight_missing_mailbox_file_uses_full_fallback_once(self):
+        self.f.orchestrator["mailbox_remote_file"] = str(self.f.root / "absent")
+        with mock.patch.dict(os.environ, self.f.env), \
+                mock.patch("orchestrate.cache_repo", side_effect=Manual("command_failed")), \
+                mock.patch("orchestrate.time.time", return_value=1000) as stamp, \
+                mock.patch("sys.stderr") as log:
+            tick(self.f.orchestrator)
+            stamp.return_value += 6 * 3600
+            tick(self.f.orchestrator)
+            tick(self.f.orchestrator)
+        self.assertFalse(self.f.events("mailbox"))
+        self.assertEqual([e["recipient"] for e in self.f.events("local-mailbox")], ["mac-lead", "lead"])
+        self.assertEqual(len(self.f.events("secondary-telegram")), 1)
+        self.assertIn("CD PREFLIGHT UNAVAILABLE", self.f.events("secondary-telegram")[0]["text"])
+        self.assertIn("remote mailbox file missing/invalid", str(log.write.call_args_list))
+
+    def test_rollback_failure_missing_mailbox_file_falls_back_once(self):
+        self.f.orchestrator["mailbox_remote_file"] = str(self.f.root / "absent")
+        self.f.scenario.update(health_fail=True, rollback_fail=True)
+        output = self.f.tick("live")
+        self.assertEqual(self.f.terminal()["status"], "rollback_failed")
+        self.assertFalse(self.f.events("mailbox"))
+        self.assertEqual([e["recipient"] for e in self.f.events("local-mailbox")], ["mac-lead", "lead"])
+        self.assertEqual(len(self.f.events("secondary-telegram")), 1)
+        self.assertIn("remote mailbox file missing/invalid", output.stderr)
+        self.f.tick("live")
+        self.assertEqual(len(self.f.events("secondary-telegram")), 1)
+        self.assertEqual(len(self.f.events("local-mailbox")), 2)
 
     def test_dry_run_never_alarms_on_executor_failure(self):
         self.f.scenario["crash"] = True
@@ -1850,8 +2008,18 @@ def mutants():
         ("G5 latest run", "orchestrate.py", [('latest = max(runs,', 'latest = min(runs,')], "test_vm_test_requires_latest_exact_revision_success"),
         ("G5 live gate", "orchestrate.py", [('config["mode"] == "dry-run" or result["gates"]["G5"] == "pass"', 'True')], "test_vm_test_error_blocks_live_before_executor"),
         ("G5 dry-run observation", "orchestrate.py", [('config["mode"] == "dry-run" or result["gates"]["G5"] == "pass"', 'result["gates"]["G5"] == "pass"')], "test_vm_test_error_is_recorded_but_dry_run_completes"),
-        ("dry-run never alarms", "orchestrate.py", [('if result["mode"] != "live" and not pre_pair:', 'if False:')], "test_dry_run_never_alarms_on_executor_failure"),
-        ("mailbox both recipients", "orchestrate.py", [('for recipient in ("mac-lead", "lead"):', 'for recipient in ("mac-lead",):')], "test_mailbox_failure_does_not_suppress_other_alarm_paths"),
+        ("dry-run never alarms", "orchestrate.py", [('if result["mode"] != "live" and not pre_pair and not test:', 'if False:')], "test_dry_run_never_alarms_on_executor_failure"),
+        ("mailbox both recipients", "orchestrate.py", [('else:\n        for recipient in ("mac-lead", "lead"):', 'else:\n        for recipient in ("mac-lead",):')], "test_mailbox_failure_does_not_suppress_other_alarm_paths"),
+        ("mailbox fallback required", "orchestrate.py", [('if fallback:', 'if False:')], "test_test_alarm_missing_file_falls_back_to_both_local_mailboxes"),
+        ("mailbox fallback both recipients", "orchestrate.py", [('if fallback:\n        for recipient in ("mac-lead", "lead"):', 'if fallback:\n        for recipient in ("mac-lead",):')], "test_test_alarm_missing_file_falls_back_to_both_local_mailboxes"),
+        ("mailbox rejects extra lines", "orchestrate.py", [('text.removesuffix("\\n").split("\\n")', 'text.removesuffix("\\n").split("\\n")[:3]')], "test_test_alarm_invalid_file_falls_back_to_both_local_mailboxes"),
+        ("mailbox rejects host junk", "orchestrate.py", [('r"[A-Za-z0-9.:-]+", host', 'r".+", host'), ('require(len(host) <= 253 and re.fullmatch(', 'require(True or re.fullmatch(')], "test_mailbox_target_strictly_rejects_junk"),
+        ("mailbox rejects port junk", "orchestrate.py", [('r"[0-9]{1,5}", values["port"]', 'r".+", values["port"]')], "test_mailbox_target_strictly_rejects_junk"),
+        ("mailbox failed send triggers fallback", "orchestrate.py", [('fallback = True\n                alarm_route_failed("remote mailbox "', 'fallback = False\n                alarm_route_failed("remote mailbox "')], "test_either_remote_recipient_failure_falls_back_without_duplicate_csb1"),
+        ("test alarm never writes state", "orchestrate.py", [('"TEST CD ALARM", test=True)\n            return', '"TEST CD ALARM", test=True)\n            atomic_json(config["state_file"], {})\n            return')], "test_test_alarm_leaves_existing_state_and_deploy_paths_untouched"),
+        ("test alarm never writes alarm file", "orchestrate.py", [('if not test:', 'if True:')], "test_test_alarm_leaves_existing_state_and_deploy_paths_untouched"),
+        ("test alarm explicit only", "orchestrate.py", [('if args.test_alarm:', 'if True:')], "test_test_alarm_is_explicit_and_rejects_deployment_flags"),
+        ("test alarm cannot combine deploy flags", "orchestrate.py", [('if args.test_alarm and (args.once or args.dry_run):', 'if False:')], "test_test_alarm_is_explicit_and_rejects_deployment_flags"),
         ("dry-run memory measurement", "execute.py", [('result["memory_peak_bytes"] = int(peak)', 'pass')], "test_dry_run_measures_memory_peak_into_status_and_ticket"),
         ("manual dry-run forced mode", "orchestrate.py", [('"enabled": True, "mode": "dry-run", "manual_dry_run": True', '"enabled": True, "manual_dry_run": True')], "test_disabled_once_dry_run_runs_full_chain_and_forces_mode"),
         ("manual dry-run requires both flags", "orchestrate.py", [('if args.once != args.dry_run:', 'if False:')], "test_once_requires_both_flags_and_refuses_live_pending"),

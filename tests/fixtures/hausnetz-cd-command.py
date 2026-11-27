@@ -71,8 +71,10 @@ if command == "sudo":
 elif command == "ssh":
     script = sys.stdin.read()
     call = shlex.split(args[-1])
-    if call[:2] == ["mbx", "send"]:
+    if call[:3] == ["PATH=$HOME/.local/bin:$PATH", "mbx", "send"]:
+        call = call[1:]
         assert args[-2] == "agents@fixture-agents" and args[-4:-2] == ["-p", "2222"]
+        assert args[:6] == ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o"]
         assert call[2] in {"mac-lead", "lead"}
         assert call[3:] == ["-f", "mac-ops", "-t", "HNET-570", "-m", "-"]
         event("mailbox", recipient=call[2], text=script)
@@ -330,9 +332,17 @@ elif command == "paimos":
     event("ticket", ticket=args[4], text=args[6])
     if scenario.get("ticket_fail"):
         raise SystemExit(1)
+elif command == "mbx":
+    assert args[:1] == ["send"] and args[1] in {"mac-lead", "lead"}
+    assert args[2:] == ["-f", "mac-ops", "-t", "HNET-570", "-m", "-"]
+    event("local-mailbox", recipient=args[1], text=sys.stdin.read())
+    if scenario.get("local_mailbox_fail") == args[1]:
+        raise SystemExit(1)
 elif command in {"alarm", "secondary-telegram"}:
     assert args == []
     event(command, text=sys.stdin.read())
+    if scenario.get("secondary_telegram_fail") and command == "secondary-telegram":
+        raise SystemExit(1)
 elif command == "gh":
     event("vm-test", args=args)
     assert args == ["api", "--method", "GET",
