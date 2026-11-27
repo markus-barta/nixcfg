@@ -64,14 +64,15 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 78: v261127124715.0.0 (sequence 148; hausnetz main 55a14444 = merge of release PR #485; the tag is on
-    # the merge). Since 77: the Starlink dish's firmware and uptime are back in the Devices drawer (HNET-617); a
-    # Devices sweep (HNET-614); the HNET-611 acceptance script fixed for Local Network Access (HNET-618:
-    # route.continue, no browser protections disabled); front-end and QA changes only, no Go. CSP header and
-    # index.html unchanged; capability manifest unchanged (1a85d9dd…); no nix/, flake or Go-dependency change (check
-    # on HNET-620). Rollback: previous generation (pin 77); a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 79: v261127140245.0.0 (sequence 149; hausnetz main c6891522 = merge of release PR #489; the tag is on
+    # the merge). Since 78: a write audit trail (HNET-616): one journal line per write, refused ones included, naming
+    # the client; Activity shows the source; X-Forwarded-For only from --allow-from peers; nothing leaves the house,
+    # no new flag. The Plan no longer writes on open (HNET-612); the acceptance script's proxy bypass is the exact
+    # origin incl. port (HNET-621). CSP header and index.html unchanged; capability manifest unchanged (1a85d9dd…);
+    # no nix/, flake or Go-dependency change; persisted formats pass (check on HNET-622). Rollback: previous
+    # generation (pin 78); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=55a14444eb43db59c28a71ee5d147ef46c492a57";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=c6891522f942dc2aea8668d47b46e43b99d2d32c";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
