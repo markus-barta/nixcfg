@@ -413,6 +413,9 @@ let confirmResolve = null;
 let confirmVideo = null;
 let editVideo = null;
 let editFresh = false;
+// Bumped by every openEdit(): a save that answers after its dialog closed or a
+// newer edit opened must not touch the dialog that is showing now.
+let editSession = 0;
 let dragDepth = 0;
 
 // ---------------------------------------------------------------- language
@@ -1361,8 +1364,11 @@ function settleConfirm(value) {
   if (resolve) resolve(value);
 }
 function openEdit(video, fresh = false) {
+  editSession++;
   editVideo = video;
   editFresh = fresh;
+  // An older save may still be pending; this edit starts ready to save.
+  ui.editSave.disabled = false;
   localizeEdit();
   ui.editTitle.value = video.title;
   ui.editDescription.value = video.description || "";
@@ -1375,6 +1381,10 @@ async function saveEdit(event) {
   if (event && event.preventDefault) event.preventDefault();
   const video = editVideo;
   if (!video || ui.editSave.disabled) return;
+  const session = editSession;
+  const sameSession = () => session === editSession;
+  // Still this save's dialog: same edit session and not closed meanwhile.
+  const showing = () => sameSession() && ui.edit.open;
   ui.editSave.disabled = true;
   ui.editSaveLabel.textContent = t("edit.saving");
   ui.editError.hidden = true;
@@ -1396,17 +1406,23 @@ async function saveEdit(event) {
     if (current && current.thumb_url && !updated.thumb_url)
       updated.thumb_url = current.thumb_url;
     state.videos = replaceIn(state.videos, updated);
-    editVideo = null;
-    closeDialog(ui.edit);
+    if (showing()) {
+      editVideo = null;
+      closeDialog(ui.edit);
+    }
     if (state.playing === updated.filename) fillPlayer(updated);
     render();
     toast(t("toast.saved"));
   } catch (error) {
-    ui.editError.textContent = error.message;
-    ui.editError.hidden = false;
+    if (showing()) {
+      ui.editError.textContent = error.message;
+      ui.editError.hidden = false;
+    } else toast(error.message || t("error.generic"), { error: true });
   } finally {
-    ui.editSave.disabled = false;
-    ui.editSaveLabel.textContent = t("edit.save");
+    if (sameSession()) {
+      ui.editSave.disabled = false;
+      ui.editSaveLabel.textContent = t("edit.save");
+    }
   }
 }
 
@@ -1851,7 +1867,9 @@ async function startUpload(file) {
         renderHeader();
       })
       .catch(() => {});
-    openEdit(result, true);
+    // Never replace an edit in progress (its draft); the new card is in the
+    // library and can be named from there.
+    if (!ui.edit.open) openEdit(result, true);
     toast(t("toast.added"));
     void storeThumbnail(file, result);
   };

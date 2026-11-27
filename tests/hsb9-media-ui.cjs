@@ -1298,6 +1298,119 @@ test("edit saves title and description with PATCH", async () => {
   assert.equal(ui.lastToast(), "Die Angaben wurden gespeichert.");
 });
 
+// A save of recording 1 that answers only after its dialog was closed and
+// recording 2's dialog opened must leave recording 2's dialog alone.
+async function staleSave() {
+  const first = sample(1);
+  const second = sample(2);
+  const calls = [];
+  let answerFirst;
+  const ui = await page({
+    videos: [first, second],
+    routes: {
+      "PATCH /fernsehen/api/videos/Beispielaufnahme%201.mp4": (options) => {
+        calls.push(JSON.parse(options.body));
+        return new Promise((resolve, reject) => {
+          answerFirst = { resolve, reject };
+        });
+      },
+      "PATCH /fernsehen/api/videos/Beispielaufnahme%202.mp4": async (options) => {
+        calls.push(JSON.parse(options.body));
+        return { ok: true, status: 200, json: async () => ({ ...second, title: "Beispiel zwei neu" }) };
+      },
+    },
+  });
+  const edit = ui.dialog("sheet");
+  const form = findAll(edit, (node) => node.localName === "form")[0];
+  const save = findAll(edit, (node) => node.localName === "button" && node.getAttribute("type") === "submit")[0];
+  const title = ui.document.getElementById("edit-title");
+  const error = byClass(edit, "form-error")[0];
+  const cardFor = (video) => ui.cards().find((node) => node.getAttribute("data-filename") === video.filename);
+  buttonByText(cardFor(first), "Bearbeiten")[0].click();
+  title.value = "Beispiel eins neu";
+  form.dispatch("submit");
+  await settle();
+  assert.equal(save.disabled, true);
+  assert.equal(save.textContent, "Wird gespeichert …");
+  buttonByText(edit, "Abbrechen")[0].click();
+  await settle();
+  assert.equal(edit.open, false);
+  buttonByText(cardFor(second), "Bearbeiten")[0].click();
+  assert.equal(edit.open, true);
+  assert.equal(save.disabled, false, "a new edit starts with Speichern ready while the old save is pending");
+  assert.equal(save.textContent, "Speichern");
+  title.value = "Beispiel zwei Entwurf";
+  return { ui, first, second, calls, answerFirst, edit, form, save, title, error, cardFor };
+}
+function assertSecondUntouched({ edit, save, title, error }) {
+  assert.equal(edit.open, true, "the newer edit dialog stays open");
+  assert.equal(title.value, "Beispiel zwei Entwurf", "its draft is kept");
+  assert.equal(save.disabled, false, "its Speichern stays ready");
+  assert.equal(save.textContent, "Speichern");
+  assert.equal(error.hidden, true, "no error from the older save appears in it");
+}
+async function saveSecond({ ui, form, edit, calls, second, cardFor }) {
+  form.dispatch("submit");
+  await settle();
+  assert.deepEqual(calls[calls.length - 1], {
+    title: "Beispiel zwei Entwurf",
+    description: second.description,
+  }, "Speichern still saves the newer recording");
+  assert.equal(edit.open, false);
+  assert.equal(byClass(cardFor(second), "card-title-text")[0].textContent, "Beispiel zwei neu");
+  assert.equal(ui.lastToast(), "Die Angaben wurden gespeichert.");
+}
+
+test("a delayed save never closes or resets a newer edit dialog", async () => {
+  const run = await staleSave();
+  run.answerFirst.resolve({
+    ok: true,
+    status: 200,
+    json: async () => ({ ...run.first, title: "Beispiel eins neu" }),
+  });
+  await settle();
+  assertSecondUntouched(run);
+  assert.equal(
+    byClass(run.cardFor(run.first), "card-title-text")[0].textContent,
+    "Beispiel eins neu",
+    "the older save still reaches the library",
+  );
+  assert.equal(run.ui.lastToast(), "Die Angaben wurden gespeichert.");
+  await settle();
+  assertSecondUntouched(run);
+  await saveSecond(run);
+});
+
+test("a delayed failing save reports as a toast, never in a newer edit dialog", async () => {
+  const run = await staleSave();
+  run.answerFirst.reject(new Error("synthetic network failure"));
+  await settle();
+  assertSecondUntouched(run);
+  assert.equal(byClass(run.cardFor(run.first), "card-title-text")[0].textContent, "Beispielaufnahme 1");
+  assert.equal(run.ui.lastToast(), "Die Verbindung ist unterbrochen. Bitte erneut versuchen.");
+  await settle();
+  assertSecondUntouched(run);
+  await saveSecond(run);
+});
+
+test("a finishing upload never replaces an edit in progress", async () => {
+  const ui = await page({ videos: [sample(2)] });
+  await ui.upload();
+  const edit = ui.dialog("sheet");
+  const title = ui.document.getElementById("edit-title");
+  buttonByText(ui.cards()[0], "Bearbeiten")[0].click();
+  title.value = "Beispiel zwei Entwurf";
+  ui.uploads[0].status = 201;
+  ui.uploads[0].responseText = JSON.stringify(sample(1, { filename: "Beispiel.mp4", title: "Beispiel", description: "" }));
+  ui.uploads[0].onload();
+  await settle();
+  assert.equal(edit.open, true);
+  assert.equal(title.value, "Beispiel zwei Entwurf", "the draft survives the finished upload");
+  assert.equal(ui.document.getElementById("edit-heading").textContent, "Aufnahme bearbeiten");
+  assert.equal(ui.cards().length, 2, "the new recording is in the library");
+  assert.match(ui.lastToast(), /Video wurde hinzugefügt/);
+});
+
 // ------------------------------------------------------------ listing (OPS-729)
 
 test("non-JSON listing responses show the existing German error", async () => {
