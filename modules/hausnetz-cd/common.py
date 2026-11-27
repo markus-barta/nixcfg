@@ -161,8 +161,16 @@ def cancel_child(process):
     cancelled = True
     try:
         os.killpg(process.pid, signal.SIGTERM)
-        # Allow adapters to forward cancellation before the final group kill.
-        time.sleep(0.1)
+        # Match the timeout path's bounded three-second TERM grace. Descendants
+        # which call setsid leave this group and are out of reach.
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            process.poll()  # reap the leader so signal zero can prove group exit
+            try:
+                os.killpg(process.pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
@@ -279,7 +287,9 @@ def communicate(process, timeout, data):
                 if pipe is not None:
                     pipe.close()
     finally:
-        if not cancelled and CHILD_RECORD is None and process.poll() is None:
+        # An unbounded activation must never be killed on an exception, even
+        # if its caller's signal handling changes.
+        if timeout is not None and not cancelled and CHILD_RECORD is None and process.poll() is None:
             cancel_child(process)
 
 

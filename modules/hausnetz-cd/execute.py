@@ -455,6 +455,11 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                         and str(Path(config["current_system"]).resolve(strict=True)) == old_system
                         and str(Path(config["system_profile"]).resolve(strict=True)) == old_system,
                         "running_system_changed_before_switch")
+                if mode == "rehearse":
+                    # The controller reuses the fail decision as a pre-switch
+                    # stop; after switching, rehearsal must finish its rollback.
+                    decision = state_path(state / ("acceptance-" + run_token))
+                    require(not decision.exists() or decision.read_text().strip() != "fail", "operator_disabled")
                 failed_units()
                 save("switch")
                 # Set this before invoking switch: a nonzero switch can have

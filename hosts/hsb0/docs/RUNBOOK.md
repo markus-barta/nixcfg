@@ -513,13 +513,38 @@ strings removed.
 mbp2607's two-minute launchd agent stays disabled by default
 (`inspr.hausnetzCdOrchestrator.enable = false`). Stop immediately on the Mac:
 `hausnetz-cd --disable --reason 'operator requested CD stop'`. This works during
-a tick, persists across restarts and suppresses acceptance PASS; a pending live
+a tick and persists across restarts. A stop observed before backup acknowledgment
+withholds the acknowledgment: the live executor exits before switching with
+`backup_copy_not_acknowledged` and needs no rollback. A stop observed before an
+acceptance decision write forces FAIL. If the stop lands during the SSH write of
+an already-decided PASS (up to 45 seconds), that one PASS may still be consumed;
+the next poll cannot undo a completed pass. After switching, a pending live
 executor receives FAIL and rolls back (or rolls back at its deadline if unreachable).
-Dry-run/trial reports record `operator_disabled`. A malformed stop marker also
-disables CD. Resume is OPS only, after recovery inspection, with
+A rehearsal honors FAIL before switching, or finishes its own rollback if already
+switched. Stopped reports record `operator_disabled`; stopped pairs remain retryable.
+A malformed stop marker fails closed and logs once per tick. Alarm/report retries
+continue while stopped after reconciliation, outside an acceptance window.
+Resume is OPS only, after recovery inspection, with
 `hausnetz-cd --clear-disable --reason 'operator inspected recovery and readbacks'`;
-this clears both marker and latch and requires no pending run. Disabling the
-timer option and applying Home Manager also pauses future ticks. A detached executor finishes its transaction;
+this clears only the operator stop and requires no pending run. The separate
+rollback/unknown/acceptance safety latch stays in place. After independently
+inspecting its cause, clear it explicitly with
+`hausnetz-cd --clear-disable --latch --reason 'operator inspected safety latch'`.
+Each command prints which stop/latch it cleared.
+
+A prior controller's live child group or malformed child record blocks ticks and
+clear-disable/clear-failed (the clear commands exit non-zero with the reason).
+After inspecting the recorded pid/pgid and verifying the group has exited, recover
+with `hausnetz-cd --clear-child --reason 'verified previous child group dead'`.
+This recovery is lock-free. It refuses live or unverifiable records; a malformed
+record requires
+`hausnetz-cd --clear-child --force --pgid <verified-group> --reason 'operator verified recorded group dead'`.
+Even force verifies that the supplied
+and any readable recorded groups are absent; it never clears a live group.
+TERM cancellation gives adapters up to three seconds before KILL. Descendants
+which create their own session with setsid are outside the tracked group.
+A reused group leader PID remains a fail-closed block requiring inspection.
+Disabling the timer option and applying Home Manager also pauses future ticks. A detached executor finishes its transaction;
 pausing the timer does not interrupt recovery. Live activation remains a
 separate LEAD gate after attended dry-run trials and HNET-570 readiness.
 
