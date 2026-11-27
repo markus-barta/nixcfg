@@ -9,6 +9,7 @@ import re
 import shlex
 import sys
 import time
+import unicodedata
 import uuid
 
 from common import (ACCEPTANCE_TIMEOUT, EXECUTOR_TERMINAL, Manual, POLL_BUDGET, POLL_INTERVAL, RESULT_SCHEMA, SSH_RETRY_TIMEOUT,
@@ -131,6 +132,7 @@ def log_line(result):
             + " acceptance=" + result.get("acceptance", "not_run")
             + " failed_units_after_activation=" + json.dumps(diagnostics(result.get("failed_units_after_activation", [])), separators=(",", ":"))
             + " memory_peak_bytes=" + str(result.get("memory_peak_bytes") or "unknown")
+            + (" rehearsal_reason=" + json.dumps(result.get("rehearsal_reason")) if result.get("rehearsal") else "")
             + " mode=" + result["mode"] + " status=" + result["status"])
 
 
@@ -167,6 +169,48 @@ def mailbox_target(path):
             and 1 <= int(values["port"]) <= 65535, "invalid_mailbox_port")
     require(re.fullmatch(r"[a-z_][a-z0-9_-]*", values["user"]), "invalid_mailbox_user")
     return host, int(values["port"]), values["user"]
+
+
+def rehearsal_reason(value):
+    value = value if isinstance(value, str) else ""
+    reason = value.strip()
+    require(reason, "rehearse requires --reason <text>")
+    require(len(value) <= 500 and all(unicodedata.category(c) not in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+                                    for c in value),
+            "rehearse --reason must be at most 500 characters with no control characters")
+    return reason
+
+
+class AlarmRouteUnavailable(Manual):
+    pass
+
+
+def rehearsal_probe_command(config, route):
+    """Reuse alarm SSH arguments, replacing the complete remote command."""
+    if route == "csb1":
+        command = config.get("secondary_telegram_command")
+        require(isinstance(command, list) and len(command) >= 3
+                and all(isinstance(arg, str) and arg for arg in command)
+                and Path(command[0]).name == "ssh", "invalid_secondary_telegram_command")
+        return [*command[:-1], "true"]
+    require(route == "remote mailbox", "invalid_probe_route")
+    host, port, user = mailbox_target(config["mailbox_remote_file"])
+    return ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+            "-o", "StrictHostKeyChecking=yes", "-p", str(port), user + "@" + host, "true"]
+
+
+def rehearsal_preflight(config):
+    routes = ["csb1"]
+    # An absent endpoint file means remote mailbox delivery is unconfigured;
+    # the existing local mailbox fallback remains available in that case.
+    if config.get("mailbox_remote_file") and Path(config["mailbox_remote_file"]).exists():
+        routes.append("remote mailbox")
+    for route in routes:
+        try:
+            command = rehearsal_probe_command(config, route)
+            run(command[0], command[1:], data="", timeout=45)
+        except (Manual, OSError, UnicodeError, KeyError, TypeError, ValueError):
+            raise AlarmRouteUnavailable("alarm route unavailable: " + route) from None
 
 
 def alarm_route_failed(route):
@@ -438,6 +482,7 @@ def reconcile(config, state):
                 result["trial"] = pending.get("trial", False)
                 if pending.get("rehearsal"):
                     require(result.get("rehearsal") == pending["rehearsal"], "rehearsal_result_variant")
+                    result["rehearsal_reason"] = pending["rehearsal_reason"]
                 if result["status"] in TERMINAL and (
                     result["status"] == "skipped"
                     or (result.get("phase") == "complete" and result.get("completed_at"))
@@ -596,6 +641,9 @@ def tick(config):
     alarm_ticket_args(config)
     if config["mode"] == "live":
         require(config.get("secondary_telegram_command"), "independent_alert_path_unset")
+    if config.get("rehearsal"):
+        rehearsal_reason(config.get("rehearsal_reason"))
+        rehearsal_preflight(config)
     private_dir(Path(config["state_file"]).parent)
     directory = private_dir(config["cache_dir"])
     with open(directory / "orchestrator.lock", "a", encoding="utf-8") as lock:
@@ -687,6 +735,7 @@ def tick(config):
             token = uuid.uuid4().hex
             pending = {"nixcfg_rev": running, "hausnetz_rev": running, "mode": "rehearse",
                        "run_id": token, "run_key": "rehearse-" + token, "rehearsal": config["rehearsal"],
+                       "rehearsal_reason": config["rehearsal_reason"],
                        "deadline": time.time() + fixture_limit(config, "poll_timeout", POLL_BUDGET)}
             state["pending"] = pending
             save_state(config, state)
@@ -828,7 +877,12 @@ def main():
     clear_failed = args.clear_failed is not None
     if bool(args.command) != bool(args.variant):
         parser.error("rehearse requires --variant A|B")
-    if bool(args.clear_disable or clear_failed) != bool(args.reason and args.reason.strip()):
+    if args.command:
+        try:
+            args.reason = rehearsal_reason(args.reason)
+        except Manual as exc:
+            parser.error(str(exc))
+    elif bool(args.clear_disable or clear_failed) != bool(args.reason and args.reason.strip()):
         parser.error("--clear-disable or --clear-failed requires --reason <text>")
     if sum((bool(args.command), args.clear_disable, args.test_alarm, args.once or args.dry_run, clear_failed)) > 1:
         parser.error("operator commands cannot be combined")
@@ -842,7 +896,8 @@ def main():
                            "reason": "operator_alarm_test"}, "TEST (no action): CD ALARM", test=True)
             return
         if args.command:
-            config = {**config, "enabled": True, "mode": "rehearse", "rehearsal": args.variant}
+            config = {**config, "enabled": True, "mode": "rehearse", "rehearsal": args.variant,
+                      "rehearsal_reason": args.reason}
         if args.clear_disable:
             config = {**config, "enabled": True, "clear_disable": True, "clear_reason": args.reason.strip()[:500]}
         if clear_failed:
@@ -850,6 +905,8 @@ def main():
         if args.once:
             config = {**config, "enabled": True, "mode": "dry-run", "manual_dry_run": True}
         tick(config)
+    except AlarmRouteUnavailable as exc:
+        raise SystemExit("hausnetz-cd: " + str(exc)) from None
     except (Manual, OSError, KeyError, TypeError, ValueError):
         raise SystemExit("hausnetz-cd: manual; configuration, source or evidence unavailable") from None
 

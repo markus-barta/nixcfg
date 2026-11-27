@@ -216,6 +216,7 @@ def failed_units(*, diagnostic=False):
 
 def rehearsal_units(text):
     chatter = {"dry activating the configuration...", "would activate the configuration...",
+               "Not checking switch inhibitors (action = dry-activate)",
                "would run sysinit-reactivation", "setting up /etc..."}
     require(all(not line.strip() or line in chatter for line in text.splitlines()),
             "rehearsal_activation_not_empty")

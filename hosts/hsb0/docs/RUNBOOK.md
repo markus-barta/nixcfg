@@ -763,16 +763,27 @@ state summary is pruned; later ticks do not send a sixth attempt.
 Keep `allowLive = false` and the orchestrator timer disabled. Install the reviewed
 packages on both ends through the normal operator release process first. These
 commands are intentionally operator-run only; no timer selects rehearsal mode.
+Orchestrator commands run only from the operator's shell or launchd with a working SSH agent.
 Configure the existing release ticket, hsb0 bot credential, mailbox endpoint and
 independent csb1 sender, then run on the Mac:
 
 ```bash
-hausnetz-cd rehearse --variant A
+hausnetz-cd rehearse --variant A --reason 'operator verifying rollback health and readbacks'
 # Inspect the completed result and confirm the single hsb0 bot message first.
-hausnetz-cd rehearse --variant B
+hausnetz-cd rehearse --variant B --reason 'operator verifying rollback failure alarms and latch'
 ```
 
-The controller creates a random, run-scoped one-shot token and writes it into
+`--reason` is mandatory: quote it as one shell argument, use nonempty text
+(after trimming), at most 500 characters, and no control characters. The reason
+is retained as `rehearsal_reason` in the controller result/report and ticket line.
+Before writing state or creating a token, the controller checks alarm routes
+from the invoking shell without sending a message: it replaces the csb1
+`secondary_telegram_command` remote command with `true`, and runs SSH `true`
+against the remote mailbox endpoint when its local `mbx-remote` file exists.
+An absent endpoint file leaves the existing local mailbox fallback in use;
+an invalid file or failed probe refuses with `alarm route unavailable: <route>`.
+
+After these checks, the controller creates a random, run-scoped one-shot token and writes it into
 hsb0's private state directory before giving it to the detached executor.
 `hausnetz-cd-execute rehearse --variant A|B --token <one-shot> --run-id <run-id>`
 is the executor contract; it accepts no target revision argument. Missing,
@@ -791,6 +802,9 @@ Before switching, the running system must pass its original health proof and
 `dry-activate` must report no units to start, stop, restart or reload. Unknown
 output, an action line, nonzero exit or timeout aborts without a switch. Both
 forward activation and rollback use this empty-activation gate. The executor
+accepts the exact chatter line `Not checking switch inhibitors (action = dry-activate)`
+alongside `would activate the configuration...`; unit lines and unknown lines
+still abort, including when mixed with this chatter. The executor
 records `readback_before`, `readback_after_switch` and `readback_after`:
 
 - `nix-env --profile /nix/var/nix/profiles/system --list-generations`, the profile
