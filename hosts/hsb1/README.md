@@ -224,6 +224,22 @@ Filesystems:
 - zroot/home  → /home  (user data)
 ```
 
+### Media and Archive Storage
+
+The `media/archive` dataset at `/srv/archive` holds private and work backups.
+It is deliberately outside `/srv/media`, which Plex mounts at `/media:ro`, so
+Plex never sees these backups. Samba exposes it as `[archive]` for `markus`,
+with the same writable `mba:users` ownership, masks and Finder refusal rules as
+the `[media]` share.
+
+Like the other `media/*` datasets, it is created imperatively, outside disko:
+
+```bash
+sudo zfs create -o mountpoint=/srv/archive media/archive
+sudo chown mba:users /srv/archive
+sudo chmod 0775 /srv/archive
+```
+
 ### Performance Comparison
 
 | Feature         | hsb1                    | hsb0                   | hsb8                   |
