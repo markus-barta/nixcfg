@@ -64,15 +64,13 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 79: v261127140245.0.0 (sequence 149; hausnetz main c6891522 = merge of release PR #489; the tag is on
-    # the merge). Since 78: a write audit trail (HNET-616): one journal line per write, refused ones included, naming
-    # the client; Activity shows the source; X-Forwarded-For only from --allow-from peers; nothing leaves the house,
-    # no new flag. The Plan no longer writes on open (HNET-612); the acceptance script's proxy bypass is the exact
-    # origin incl. port (HNET-621). CSP header and index.html unchanged; capability manifest unchanged (1a85d9dd…);
-    # no nix/, flake or Go-dependency change; persisted formats pass (check on HNET-622). Rollback: previous
-    # generation (pin 78); a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 80: v261127155239.0.0 (sequence 150; hausnetz main cf24aa3b = merge of release PR #493; the tag is on
+    # the merge). Since 79: the write journal line no longer carries the raw User-Agent prefix (ua=), only the closed
+    # agent words (HNET-623); UI and QA changes. CSP header and index.html unchanged; capability manifest unchanged
+    # (1a85d9dd…); no nix/, flake or Go-dependency change; acceptance script unchanged (check on HNET-625).
+    # Rollback: previous generation (pin 79); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=c6891522f942dc2aea8668d47b46e43b99d2d32c";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=cf24aa3bd1054db9b739ac5ed39848740f99c9b1";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
