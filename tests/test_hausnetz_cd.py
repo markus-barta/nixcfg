@@ -119,7 +119,9 @@ class Fixture:
             "release_ticket": "HNET-570", "nixcfg_url": str(self.repo), "hausnetz_url": str(self.hnet),
             "state_file": str(root / "local/state.json"), "fixture_root": True,
             "cache_dir": str(root / "cache"), "export_dir": str(root / "exports"),
-            "alarm_file": str(root / "local/alarm.json"), "poll_timeout": 12, "poll_interval": 0.02,
+            # OPS-705: an upper bound only (passing runs return as soon as the executor finishes). 12 s no
+            # longer covered two 4 s health timeouts (rollback-readiness cases) on loaded CI runners.
+            "alarm_file": str(root / "local/alarm.json"), "poll_timeout": 60, "poll_interval": 0.02,
             "ssh_retry_timeout": 0.4,
             "alarm_command": [str(self.bin / "alarm")],
             "secondary_telegram_command": [str(self.bin / "secondary-telegram")],
