@@ -34,7 +34,9 @@ let
       pkgs.nodejs
       pkgs.python3
       pkgs.lsof
-    ];
+      pkgs.coreutils # sleep holds the independent lsof canary fd
+    ]
+    ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.procps ]; # macOS supplies ps
     text = ''
       exec python3 ${../../scripts/update-ai-clis.py} \
         --packages ${./ai-clis-npm-packages.json} \

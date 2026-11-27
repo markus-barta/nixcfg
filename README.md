@@ -206,9 +206,11 @@ check before publication. Grok's install-time home is also staged, so its
 postinstall cannot change the live Grok installation early.
 
 Each `~/.npm-global/bin` link is replaced atomically. Running processes keep
-access to the old package files; the legacy `lib/node_modules` tree and prior
-staging directories are retained. Installed versions therefore follow the
-launch links, not `npm list -g` against the legacy prefix. Use
+access to the old package files. Pruning keeps every live generation, at most
+one previous generation per declared CLI for rollback, and generations in use
+by processes. It directly deletes obsolete updater staging directories,
+including failed stages; legacy prefix packages are untouched. Installed versions
+follow the launch links, not `npm list -g` against the legacy prefix. Use
 `python3 scripts/update-ai-clis.py --check` to inspect version drift without
 installing. Both update entry points share a process lock; an interrupted
 update leaves each CLI on a complete old or new version.
@@ -223,8 +225,13 @@ configuration change. Restore CLI receipts before activating a pre-NIX-524
 Home Manager generation, whose updater still writes into the legacy prefix.
 Do not delete old package directories while any
 process may use them, or run a plain `npm install -g` over these managed CLIs.
-Failed staging directories are also retained for inspection. Unrelated global
-commands are preserved. Unsupported packages are skipped on that platform;
+Failed staging directories remain until the next successful update prunes them.
+Both `lsof` and `ps` must pass their canaries before pruning. A process using a
+launch link holds all generations of that CLI only when `lsof` attributes no
+file in the updater state directory to that same PID. Attributed processes keep
+their in-use generations. A skipped or incomplete prune warns with the remaining
+generation count and total size. Unrelated global commands are preserved. Unsupported
+packages are skipped on that platform;
 other failures keep the prior files and are reported (Home Manager continues,
 whereas `just update-ai-clis` fails).
 

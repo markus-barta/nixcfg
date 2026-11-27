@@ -61,7 +61,7 @@ else:
     sys.exit(99)
 '''
 FAKE_LSOF = r'''#!/usr/bin/env python3
-import fcntl, json, os, sys
+import fcntl, json, os, sys, time
 from pathlib import Path
 fixture = json.loads(Path(os.environ["FIXTURE"]).read_text())
 with open(os.environ["LSOF_CALLS"], "a") as log:
@@ -77,9 +77,41 @@ with open(Path(sys.argv[-1]) / "lock", "r+") as lock:
 if fixture.get("lsof_canary", True):
     pid = os.getppid() + (1 if fixture.get("lsof_other_pid") else 0)
     sys.stdout.write(f"p{pid}\0\nf3\0n{(Path(sys.argv[-1]) / 'lock').resolve()}\0\n")
+if fixture.get("lsof_child_canary", True):
+    for attempt in range(100):
+        try:
+            parent, child = json.loads(Path(os.environ["SLEEP_PID"]).read_text())
+            os.kill(child, 0)
+            if parent == os.getppid():
+                break
+        except (OSError, ValueError):
+            pass
+        time.sleep(.01)
+    else:
+        sys.exit(97)
+    sys.stdout.write(f"p{child}\0\nf4\0n{(Path(sys.argv[-1]) / 'lock').resolve()}\0\n")
 sys.stdout.write(fixture.get("lsof_output", ""))
 sys.stderr.write(fixture.get("lsof_stderr", ""))
 sys.exit(fixture.get("lsof_status", 0))
+'''
+FAKE_SLEEP = r'''#!/usr/bin/env python3
+import json, os, time
+from pathlib import Path
+Path(os.environ["SLEEP_PID"]).write_text(json.dumps([os.getppid(), os.getpid()]))
+time.sleep(60)
+'''
+FAKE_PS = r'''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+fixture = json.loads(Path(os.environ["FIXTURE"]).read_text())
+if sys.argv[1:] != ["-axww", "-o", "pid=,args="]:
+    sys.exit(98)
+if fixture.get("ps_canary", True):
+    print(f"{os.getppid()} python updater")
+sys.stdout.flush()
+sys.stdout.buffer.write(fixture.get("ps_output", "").encode("utf-8", errors="surrogateescape"))
+sys.stderr.write(fixture.get("ps_stderr", ""))
+sys.exit(fixture.get("ps_status", 0))
 '''
 
 
@@ -105,6 +137,10 @@ class UpdateTests(unittest.TestCase):
         self.lsof = self.root / "lsof"
         self.lsof.write_text(FAKE_LSOF)
         self.lsof.chmod(0o755)
+        for name, source in (("sleep", FAKE_SLEEP), ("ps", FAKE_PS)):
+            command = self.root / name
+            command.write_text(source)
+            command.chmod(0o755)
         self.lsof_log = self.root / "lsof-calls"
         self.log = self.root / "calls"
         self.ready = self.root / "ready"
@@ -112,6 +148,7 @@ class UpdateTests(unittest.TestCase):
         self.env = dict(os.environ, FIXTURE=str(self.data), CALLS=str(self.log),
                         PATH=f"{self.root}:{os.environ['PATH']}",
                         LSOF_CALLS=str(self.lsof_log),
+                        SLEEP_PID=str(self.root / "sleep-pid"),
                         READY=str(self.ready), GROK_HOME=str(self.root / "live-grok"))
         self.command = [sys.executable, str(SCRIPT), "--prefix", str(self.prefix),
                         "--packages", str(self.packages), "--allow-scripts",
@@ -455,13 +492,15 @@ class UpdateTests(unittest.TestCase):
         lock.touch()
         alias = self.root / "state-alias"
         alias.symlink_to(self.state, target_is_directory=True)
-        output = f"p{os.getpid()}\0\nf3\0n{alias / 'lock'}\0\n"
+        output = (f"p{os.getpid()}\0\nf3\0n{alias / 'lock'}\0\n"
+                  f"p12345\0\nf4\0n{alias / 'lock'}\0\n")
         module = runpy.run_path(str(SCRIPT))
         result = subprocess.CompletedProcess([], 1, output, "")
         with lock.open("r+") as descriptor:
             with mock.patch.object(module["subprocess"], "run", return_value=result):
                 self.assertFalse(descriptor.closed)
-                self.assertEqual(module["generations_in_use"](self.state), [alias / "lock"])
+                self.assertEqual(module["lsof_paths"](self.state, 12345),
+                                 {os.getpid(): [alias / "lock"], 12345: [alias / "lock"]})
 
     def test_lsof_failure_keeps_all_generations_and_receipts(self):
         self.advance("2.0.0")
@@ -524,6 +563,292 @@ class UpdateTests(unittest.TestCase):
         self.assertFalse(stale.exists())
         for path in live.values():
             self.assertTrue(path.is_dir())
+
+    def test_undeclared_live_link_keeps_generation(self):
+        self.advance("2.0.0")
+        live = self.stage()
+        (self.prefix / "bin" / "undeclared").symlink_to(live / "payload")
+        stale = self.stage("package-stale000")
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("warning", result.stderr)
+        self.assertTrue(live.exists())
+        self.assertFalse(stale.exists())
+
+    def test_ps_direct_generation_path_keeps_only_that_generation(self):
+        self.advance("2.0.0")
+        busy = self.stage()
+        stale = self.stage("package-stale000")
+        self.fixture["ps_output"] = f"123 node {busy / 'payload'}\n"
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("warning", result.stderr)
+        self.assertTrue(busy.exists())
+        self.assertFalse(stale.exists())
+        self.fixture["ps_output"] = ""
+        self.assertEqual(self.run_update().returncode, 0)
+        self.assertFalse(busy.exists())
+
+    def test_ps_launch_link_keeps_all_cli_generations_and_unknown_stages(self):
+        # This JS-like process opens no package file: only ps sees its argv.
+        oldest = self.advance("2.0.0")
+        previous = self.advance("3.0.0")
+        unknown = self.stage()
+        self.fixture["ps_output"] = f"123 node {self.prefix / 'bin/claude'}\n"
+        live = self.advance("4.0.0")
+        self.assertTrue(oldest["claude"].exists())
+        self.assertFalse(oldest["codex"].exists())
+        self.assertTrue(unknown.exists())
+        self.assertTrue(all(path.exists() for path in (*previous.values(), *live.values())))
+        result = self.run_update()
+        self.assertIn("holding all generations of claude", result.stdout)
+        self.assertIn("process arguments use its launch link", result.stdout)
+        self.fixture["ps_output"] = ""
+        result = self.run_update()
+        self.assertNotIn("warning", result.stderr)
+        self.assertFalse(oldest["claude"].exists())
+        self.assertFalse(unknown.exists())
+
+    def test_ps_native_launch_link_keeps_attributed_generation_and_prunes_older(self):
+        busy = self.advance("2.0.0")
+        obsolete = self.advance("3.0.0")
+        self.fixture.update(
+            ps_output=f"123 {self.prefix / 'bin/claude'}\n",
+            lsof_output=f"p123\0\nftxt\0n{busy['claude'] / 'claude.exe'}\0\n")
+        previous = self.advance("4.0.0")
+        unknown = self.stage()
+        live = self.advance("5.0.0")
+        self.assertTrue(busy["claude"].is_dir())
+        self.assertFalse(busy["codex"].exists())
+        self.assertTrue(all(not path.exists() for path in obsolete.values()))
+        self.assertTrue(all(path.is_dir() for path in (*previous.values(), *live.values())))
+        self.assertFalse(unknown.exists())
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("warning", result.stderr)
+        self.assertNotIn("holding all generations of claude", result.stdout)
+
+    def test_ps_pi_launch_link_without_lsof_holds_all_pi_generations(self):
+        (self.prefix / "bin/claude").rename(self.prefix / "bin/pi")
+        self.old_targets["pi"] = self.old_targets.pop("claude")
+        self.fixture["bins"]["@test/one"] = "pi"
+        self.packages.write_text(json.dumps([
+            {"name": name, "version": "latest", "bin": binary}
+            for name, binary in self.fixture["bins"].items()
+        ]))
+        oldest = self.advance("2.0.0")
+        previous = self.advance("3.0.0")
+        self.fixture["ps_output"] = f"123 node {self.prefix / 'bin/pi'}\n"
+        live = self.advance("4.0.0")
+        self.assertTrue(oldest["pi"].is_dir())
+        self.assertFalse(oldest["codex"].exists())
+        self.assertTrue(all(path.is_dir() for path in (*previous.values(), *live.values())))
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("warning", result.stderr)
+        self.assertIn("holding all generations of pi", result.stdout)
+
+    def test_ps_mixed_pid_coverage_holds_all_generations_of_same_cli(self):
+        busy = self.advance("2.0.0")
+        obsolete = self.advance("3.0.0")
+        covered = f"123 {self.prefix / 'bin/claude'}\n"
+        uncovered = f"124 {self.prefix / 'bin/claude'}\n"
+        self.fixture.update(
+            ps_output=covered + uncovered,
+            lsof_output=f"p123\0\nftxt\0n{busy['claude'] / 'claude.exe'}\0\n")
+        previous = self.advance("4.0.0")
+        live = self.advance("5.0.0")
+        for output in (covered + uncovered, uncovered + covered):
+            with self.subTest(output=output):
+                self.fixture["ps_output"] = output
+                result = self.run_update()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("warning", result.stderr)
+                self.assertIn("holding all generations of claude", result.stdout)
+                self.assertTrue(busy["claude"].is_dir())
+                self.assertTrue(obsolete["claude"].is_dir())
+                self.assertFalse(obsolete["codex"].exists())
+                self.assertTrue(all(path.is_dir() for path in (*previous.values(), *live.values())))
+        self.fixture["ps_output"] = covered
+        result = self.run_update()
+        self.assertNotIn("warning", result.stderr)
+        self.assertTrue(busy["claude"].is_dir())
+        self.assertFalse(obsolete["claude"].exists())
+
+    def test_ps_literal_direct_path_with_spaces_and_alias_keep_generation(self):
+        self.advance("2.0.0")
+        busy = self.stage()
+        alias = self.root / "generation-alias"
+        alias.symlink_to(busy / "payload")
+        for argument in [str(busy / "payload"), str(alias)]:
+            with self.subTest(argument=argument):
+                self.fixture["ps_output"] = f"123 node {argument}\n"
+                result = self.run_update()
+                self.assertNotIn("warning", result.stderr)
+                self.assertTrue(busy.exists())
+
+    def test_ps_link_alias_resolves_through_launch_link(self):
+        oldest = self.advance("2.0.0")
+        self.advance("3.0.0")
+        alias = self.root / "alias"
+        alias.symlink_to(self.prefix / "bin/claude")
+        self.fixture["ps_output"] = f"123 node {alias}\n"
+        self.advance("4.0.0")
+        self.assertTrue(oldest["claude"].exists())
+        self.assertFalse(oldest["codex"].exists())
+
+    def test_ps_unrelated_argument_content_does_not_block_prune_or_link_hold(self):
+        # Each is literal argv content, never a shell program to parse. The
+        # invalid byte travels through the fake ps pipe, exercising decoding too.
+        for argument in ["'unterminated", "agent's-prompt", "x" * 10000,
+                         "invalid-\udcff-byte", "trailing-backslash\\", "nul-\0-byte"]:
+            with self.subTest(argument_kind=argument[:20]):
+                self.fixture["ps_output"] = ""
+                oldest = self.advance("2.0.0")
+                previous = self.advance("3.0.0")
+                stale = self.stage()
+                self.fixture["ps_output"] = (
+                    f"123 agent {argument}\n"
+                    f"124 node {self.prefix / 'bin/claude'}\n")
+                self.fixture["versions"] = dict.fromkeys(self.fixture["bins"], "4.0.0")
+                result = self.run_update()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("warning", result.stderr)
+                self.assertIn("holding all generations of claude", result.stdout)
+                self.assertIn("pruned generation", result.stdout)
+                self.assertFalse(oldest["codex"].exists())
+                self.assertTrue(oldest["claude"].exists())
+                self.assertTrue(all(path.exists() for path in previous.values()))
+                # Unknown stages are conservatively held for a linked CLI.
+                self.assertTrue(stale.exists())
+                self.fixture["ps_output"] = f"123 agent {argument}\n"
+                result = self.run_update()
+                self.assertNotIn("warning", result.stderr)
+                self.assertFalse(stale.exists())
+
+    def test_ps_unbalanced_quote_does_not_block_prune(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        self.fixture["ps_output"] = "123 agent 'unterminated\n"
+        result = self.run_update()
+        self.assertNotIn("warning", result.stderr)
+        self.assertFalse(stale.exists())
+
+    def test_ps_failure_or_missing_canary_keeps_everything(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        receipt = self.receipt(1, [], 1)
+        for fixture in [dict(ps_status=1), dict(ps_canary=False),
+                        dict(ps_stderr="incomplete"), dict(ps_output="not a process\n"),
+                        dict(ps_output="123 node path"), dict(ps_output="-1 node path\n"),
+                        dict(ps_output="123 node\n123 duplicate\n")]:
+            with self.subTest(fixture=fixture):
+                self.fixture.update(ps_status=0, ps_canary=True, ps_stderr="", ps_output="")
+                self.fixture.update(fixture)
+                result = self.run_update()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("warning", result.stderr)
+                self.assertTrue(stale.exists())
+                self.assertTrue(receipt.exists())
+
+    def test_ps_missing_canary_keeps_everything(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        self.fixture.update(ps_canary=False, ps_output="123 node app.js\n")
+        result = self.run_update()
+        self.assertIn("ps scan missing this process's canary", result.stderr)
+        self.assertTrue(stale.exists())
+
+    def test_ps_failure_keeps_everything(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        self.fixture["ps_status"] = 1
+        result = self.run_update()
+        self.assertIn("ps scan failed or was incomplete", result.stderr)
+        self.assertTrue(stale.exists())
+
+    def test_ps_timeout_and_missing_command_keep_everything(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        module = runpy.run_path(str(SCRIPT))
+        real_run = subprocess.run
+        for error in [FileNotFoundError("ps"), subprocess.TimeoutExpired("ps", 60)]:
+            def scan(command, **kwargs):
+                if command[0] == "ps":
+                    raise error
+                return real_run(command, **kwargs)
+            with self.subTest(error=error), mock.patch.dict(os.environ, self.env):
+                with mock.patch.object(module["subprocess"], "run", side_effect=scan):
+                    # Skip only lsof here: the ps failure must stop actual GC.
+                    with mock.patch.dict(module["prune_generations"].__globals__,
+                                         generations_in_use=lambda state: {}):
+                        with redirect_stderr(io.StringIO()) as stderr, redirect_stdout(io.StringIO()):
+                            module["prune_generations"](self.prefix, self.state, [])
+            self.assertIn("warning", stderr.getvalue())
+            self.assertTrue(stale.exists())
+
+    def test_lsof_child_canary_required_and_child_reaped(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        self.fixture["lsof_child_canary"] = False
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("missing child's open-lock canary", result.stderr)
+        self.assertTrue(stale.exists())
+        module = runpy.run_path(str(SCRIPT))
+        for outcome in [subprocess.CompletedProcess([], 2, "", ""),
+                        subprocess.TimeoutExpired("lsof", 60)]:
+            child = mock.Mock(pid=12345)
+            with mock.patch.object(module["subprocess"], "Popen", return_value=child):
+                kwargs = dict(side_effect=outcome) if isinstance(outcome, Exception) else dict(return_value=outcome)
+                with mock.patch.object(module["subprocess"], "run", **kwargs):
+                    with self.assertRaises((module["UpdateError"], subprocess.TimeoutExpired)):
+                        module["generations_in_use"](self.state)
+            child.terminate.assert_called_once()
+            child.wait.assert_called_once_with(timeout=5)
+
+    def test_lsof_outside_state_path_aborts_prune(self):
+        self.advance("2.0.0")
+        stale = self.stage()
+        receipt = self.receipt(1, [], 1)
+        self.fixture["lsof_output"] = f"p123\0\nf7\0n{self.root / 'outside'}\0\n"
+        result = self.run_update()
+        self.assertIn("lsof path outside state directory", result.stderr)
+        self.assertTrue(stale.exists())
+        self.assertTrue(receipt.exists())
+
+    def test_skipped_and_partial_prune_warn_with_remaining_count_and_size(self):
+        self.advance("2.0.0")
+        self.stage()
+        self.fixture["ps_status"] = 1
+        result = self.run_update()
+        module = runpy.run_path(str(SCRIPT))
+        count, size = module["remaining_generations"](self.state)
+        self.assertEqual(count, 3)
+        self.assertEqual(result.stderr.count("warning:"), 1)
+        self.assertIn(f"{count} generation(s) remain, {size} bytes total", result.stderr)
+        with (self.state / "package-dead0000/payload").open("a") as payload:
+            payload.write("x" * 100)
+        self.assertEqual(module["remaining_generations"](self.state), (count, size + 100))
+        # One deletion succeeds before an I/O failure: report only survivors.
+        self.stage("package-stale000")
+        real_remove = module["shutil"].rmtree
+        removed = []
+        def partial(path):
+            if removed:
+                raise OSError("fixture deletion failed")
+            real_remove(path)
+            removed.append(path)
+        with mock.patch.dict(module["prune_generations"].__globals__,
+                             generations_in_use=lambda state: {},
+                             process_generations=lambda prefix, state, paths_by_pid: set()):
+            with mock.patch.object(module["shutil"], "rmtree", side_effect=partial):
+                with redirect_stderr(io.StringIO()) as stderr, redirect_stdout(io.StringIO()):
+                    module["prune_generations"](self.prefix, self.state, [])
+        count, size = module["remaining_generations"](self.state)
+        self.assertEqual(len(removed), 1)
+        self.assertEqual(stderr.getvalue().count("warning:"), 1)
+        self.assertIn(f"{count} generation(s) remain, {size} bytes total", stderr.getvalue())
 
     def test_symlink_named_like_generation_is_untouched(self):
         self.advance("2.0.0")
@@ -638,23 +963,44 @@ class UpdateTests(unittest.TestCase):
     def test_prune_guard_removal_mutants_must_fail(self):
         original = SCRIPT.read_text()
         cases = [
+            ("tokens = arguments.split()", 'tokens = __import__("shlex").split(arguments)',
+             "test_ps_unbalanced_quote_does_not_block_prune"),
             ("kept.add(generation_for(link, state))", "pass",
              "test_live_generation_is_kept_without_receipts"),
+            ("kept.add(generation_for(link, state))", "pass",
+             "test_undeclared_live_link_keeps_generation"),
             ('if match["previous"] is not None:', 'if False:',
              "test_prune_keeps_live_and_one_previous_per_cli"),
-            ("kept.update(generation_for(path, state) for path in generations_in_use(state))",
-             "generations_in_use(state)",
+            ("kept.update(generation_for(path, state)\n"
+             "                    for paths in paths_by_pid.values() for path in paths)",
+             "pass",
              "test_running_process_generation_is_kept_until_later_current_run"),
-            ("raise UpdateError(\"lsof scan failed or was incomplete\")", "return []",
+            ("raise UpdateError(\"lsof scan failed or was incomplete\")", "return {}",
              "test_lsof_failure_keeps_all_generations_and_receipts"),
             ("if not self_canary:", "if False:",
              "test_lsof_rc_one_without_canary_keeps_everything"),
             ("result.returncode not in (0, 1)", "False",
              "test_lsof_failure_keeps_all_generations_and_receipts"),
+            ("kept.update(direct_kept)", "pass",
+             "test_ps_direct_generation_path_keeps_only_that_generation"),
+            ("if paths_by_pid.get(pid):", "if False:",
+             "test_ps_native_launch_link_keeps_attributed_generation_and_prunes_older"),
+            ("if len(names) != 1 or None in held.values() or names.intersection(held.values()):",
+             "if False:", "test_ps_launch_link_keeps_all_cli_generations_and_unknown_stages"),
+            ("if not ps_canary:", "if False:",
+             "test_ps_missing_canary_keeps_everything"),
+            ("if not child_canary:", "if False:",
+             "test_lsof_child_canary_required_and_child_reaped"),
+            ('raise UpdateError("lsof path outside state directory")', 'pass',
+             "test_lsof_outside_state_path_aborts_prune"),
+            ('remaining = f"{count} generation(s) remain, {size} bytes total"',
+             'remaining = ""', "test_skipped_and_partial_prune_warn_with_remaining_count_and_size"),
+            ('raise UpdateError("ps scan failed or was incomplete")', 'return set()',
+             "test_ps_failure_keeps_everything"),
             ('and not path.is_symlink() and path.is_dir() and path not in kept',
              'and path.is_dir() and path not in kept',
              "test_symlink_named_like_generation_is_untouched"),
-            ('re.fullmatch(r"package-[A-Za-z0-9_]{8}", path.name)', 'True',
+            ('if (re.fullmatch(r"package-[A-Za-z0-9_]{8}", path.name)', 'if (True',
              "test_nonmatching_names_files_and_nested_directories_are_untouched"),
             ("receipt.unlink()", "pass",
              "test_receipts_referencing_no_retained_generation_are_removed"),

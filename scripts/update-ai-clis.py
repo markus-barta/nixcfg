@@ -77,7 +77,9 @@ def package_at_link(link, name, prefix):
             metadata = parent / "package.json"
             if metadata.is_file():
                 data = read_json(metadata)
-                if data.get("name") == name:
+                if (isinstance(data, dict) and isinstance(data.get("name"), str)
+                        and re.fullmatch(r"(?:@[a-z0-9-]+/)?[a-z0-9-]+", data["name"])
+                        and (name is None or data["name"] == name)):
                     return data
     except (OSError, ValueError):
         pass
@@ -147,6 +149,23 @@ def rollback(receipt, prefix):
 
 
 def generations_in_use(state):
+    # An independently running child must also be visible, with an inherited
+    # lock descriptor. Always reap it, including on failed or timed-out scans.
+    with (state / "lock").open("rb") as descriptor:
+        child = subprocess.Popen(["sleep", "60"], pass_fds=(descriptor.fileno(),),
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            return lsof_paths(state, child.pid)
+        finally:
+            child.terminate()
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
+
+
+def lsof_paths(state, child_pid):
     # Fixed command name, one recursive scan. macOS can exit 1 for unrelated
     # mount warnings even with -w. Trust only a scan that sees our open lock.
     lock_path = (state / "lock").resolve()
@@ -154,9 +173,10 @@ def generations_in_use(state):
                             capture_output=True, text=True, timeout=60, check=False)
     if result.returncode not in (0, 1) or result.stderr:
         raise UpdateError("lsof scan failed or was incomplete")
-    paths = []
+    paths_by_pid = {}
     process = None
     self_canary = False
+    child_canary = False
     process_has_file = False
     file_pending = False
     if not result.stdout or not result.stdout.endswith("\0\n"):
@@ -178,9 +198,13 @@ def generations_in_use(state):
             if "\\" in value or "^" in value:
                 raise UpdateError("unparsable lsof path")
             path = Path(value)
-            paths.append(path)
+            if not path.resolve().is_relative_to(state.resolve()):
+                raise UpdateError("lsof path outside state directory")
+            paths_by_pid.setdefault(process, []).append(path)
             if process == os.getpid() and path.resolve() == lock_path:
                 self_canary = True
+            if process == child_pid and path.resolve() == lock_path:
+                child_canary = True
             file_pending = False
             process_has_file = True
         else:
@@ -189,7 +213,9 @@ def generations_in_use(state):
         raise UpdateError("incomplete lsof output")
     if not self_canary:
         raise UpdateError("lsof scan missing this process's open-lock canary")
-    return paths
+    if not child_canary:
+        raise UpdateError("lsof scan missing child's open-lock canary")
+    return paths_by_pid
 
 
 def generation_for(path, state):
@@ -201,6 +227,94 @@ def generation_for(path, state):
     return state / relative.parts[0] if relative.parts else None
 
 
+def process_generations(prefix, state, paths_by_pid):
+    """Hold a link-started CLI only when that PID has no lsof state paths."""
+    result = subprocess.run(["ps", "-axww", "-o", "pid=,args="],
+                            capture_output=True, text=True, errors="surrogateescape",
+                            timeout=60, check=False)
+    if result.returncode or result.stderr:
+        raise UpdateError("ps scan failed or was incomplete")
+    links = [link for link in (prefix / "bin").iterdir()
+             if link.is_symlink() and generation_for(link, state) is not None]
+    kept, held = set(), {}
+    ps_canary = False
+    seen = set()
+    if not result.stdout or not result.stdout.endswith("\n"):
+        raise UpdateError("unparsable ps output")
+    for line in result.stdout.splitlines():
+        match = re.fullmatch(r"\s*([0-9]+)\s+(\S.*)", line, flags=re.ASCII)
+        if not match or int(match[1]) in seen:
+            raise UpdateError("unparsable ps output")
+        pid, arguments = int(match[1]), match[2]
+        seen.add(pid)
+        ps_canary |= pid == os.getpid()
+        # ps joins argv without shell quoting; quote/backslash bytes are literal.
+        tokens = arguments.split()
+        direct_kept = set()
+        token_paths = set()
+        for token in tokens:
+            try:
+                path = Path(token)
+                resolved = path.resolve()
+                direct_kept.add(generation_for(resolved, state))
+                token_paths.update((path.absolute(), resolved))
+            except (OSError, ValueError):
+                # Unrelated argv can contain oversized or otherwise invalid paths.
+                continue
+        # ps flattens argv without quoting paths containing spaces. Also match
+        # known absolute paths literally, bounded by argument separators.
+        for root in {str(state), str(prefix / state.name)}:
+            for direct in re.finditer(r"(?<!\S)" + re.escape(root)
+                                      + r"/([^/\s]+)(?=/|\s|$)", arguments):
+                direct_kept.add(state / direct[1])
+        kept.update(direct_kept)
+        # Native CLIs expose their generations to lsof; JS CLIs may not.
+        # Coverage belongs to this PID, never to every process of the CLI.
+        if paths_by_pid.get(pid):
+            continue
+        for link in links:
+            if (link.absolute() in token_paths or link.resolve() in token_paths
+                    or re.search(r"(?<!\S)" + re.escape(str(link)) + r"(?=\s|$)", arguments)):
+                metadata = package_at_link(link, None, state)
+                held[link.name] = metadata["name"] if metadata else None
+    if not ps_canary:
+        raise UpdateError("ps scan missing this process's canary")
+    for binary in sorted(held):
+        print(f"ai-clis: holding all generations of {binary}: process arguments use its launch link")
+    if held:
+        for generation in state.iterdir():
+            if generation.is_symlink() or not generation.is_dir():
+                continue
+            names = set()
+            bins = generation / "bin"
+            if bins.is_dir():
+                for link in bins.iterdir():
+                    metadata = package_at_link(link, None, generation)
+                    if metadata:
+                        names.add(metadata["name"])
+            # An unknown stage may belong to a held CLI; uncertainty keeps it.
+            if len(names) != 1 or None in held.values() or names.intersection(held.values()):
+                kept.add(generation)
+    return kept
+
+
+def remaining_generations(state):
+    """Account only for direct, real updater generation directories."""
+    generations = [path for path in state.iterdir()
+                   if re.fullmatch(r"package-[A-Za-z0-9_]{8}", path.name)
+                   and not path.is_symlink() and path.is_dir()]
+    size = 0
+    def failed_walk(error):
+        raise error
+    for generation in generations:
+        for root, directories, files in os.walk(generation, onerror=failed_walk):
+            size += Path(root).lstat().st_size
+            size += sum((Path(root) / name).lstat().st_size for name in files)
+            size += sum((Path(root) / name).lstat().st_size for name in directories
+                        if (Path(root) / name).is_symlink())
+    return len(generations), size
+
+
 def prune_generations(prefix, state, packages):
     """Best-effort GC under the publication lock; uncertainty keeps everything."""
     removed = 0
@@ -209,6 +323,9 @@ def prune_generations(prefix, state, packages):
         kept = set()
         selected_receipts = set()
         receipts = []
+        for link in (prefix / "bin").iterdir():
+            if link.is_symlink():
+                kept.add(generation_for(link, state))
         for path in state.iterdir():
             if not re.fullmatch(r"update-[0-9a-f]{32}\.json", path.name):
                 continue
@@ -235,7 +352,6 @@ def prune_generations(prefix, state, packages):
             current = link_value(link)
             if current is None:
                 continue
-            kept.add(generation_for(link, state))
             for _, receipt, records in receipts:
                 match = next((item for item in records
                               if item["bin"] == package["bin"] and item["target"] == current), None)
@@ -245,7 +361,10 @@ def prune_generations(prefix, state, packages):
                         kept.add(generation_for(link.parent / match["previous"], state))
                     break
         # Finish all retention planning before deleting any directory or receipt.
-        kept.update(generation_for(path, state) for path in generations_in_use(state))
+        paths_by_pid = generations_in_use(state)
+        kept.update(generation_for(path, state)
+                    for paths in paths_by_pid.values() for path in paths)
+        kept.update(process_generations(prefix, state, paths_by_pid))
         for path in state.iterdir():
             if (re.fullmatch(r"package-[A-Za-z0-9_]{8}", path.name)
                     and not path.is_symlink() and path.is_dir() and path not in kept):
@@ -264,7 +383,12 @@ def prune_generations(prefix, state, packages):
     except (UpdateError, OSError, ValueError, KeyError, TypeError,
             RuntimeError, subprocess.TimeoutExpired) as exc:
         # Publication already succeeded; GC cannot turn it into a failed update.
-        print(f"ai-clis: warning: generation prune skipped or incomplete ({type(exc).__name__}: {exc})",
+        try:
+            count, size = remaining_generations(state)
+            remaining = f"{count} generation(s) remain, {size} bytes total"
+        except (OSError, ValueError, RuntimeError):
+            remaining = "remaining generation count/size unavailable (filesystem error)"
+        print(f"ai-clis: warning: generation prune skipped or incomplete ({type(exc).__name__}: {exc}); {remaining}",
               file=sys.stderr)
     finally:
         print(f"ai-clis: pruned {removed} generation(s) total")
