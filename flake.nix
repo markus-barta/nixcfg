@@ -64,13 +64,14 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 71: v261127002008.0.0 (sequence 141; hausnetz main 4ea75d4b = merge of release PR #457; the tag is on
-    # the merge). Since 70: weekly What's new in Help, load-robust tests (HNET-587; the shellyheal socket code moved
-    # verbatim, plus a nil test seam), a release tool, UI, tests and CI files; no nix/, flake or Go-dependency change;
-    # no new listener, outbound call, credential or write path (capability review HNET-592). Rollback: previous
-    # generation (pin 70); a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 72: v261127012926.0.0 (sequence 142; hausnetz main b35bfe6b = merge of release PR #459; the tag is on
+    # the merge). Since 71: Home Assistant device links behind the Labs switch ha-device-links (default off): new
+    # GET/POST /api/ha/devices on the existing listener, POST saves the site through the existing store only while the
+    # switch is on; HA data only from the existing snapshot. No nix/, flake or Go-dependency change; no new listener,
+    # outbound call or credential (capability review HNET-594). Rollback: previous generation (pin 71); a re-pin
+    # below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=4ea75d4bac2f0cee7ca8ada0e5a3789b80eb27e9";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=b35bfe6b91f7d82e5c49f17b6e405ce1b6df3c10";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
