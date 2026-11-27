@@ -1,0 +1,179 @@
+:root {
+  color-scheme: light;
+  font:
+    22px/1.55 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: #17252c;
+  background: #f3f5f6;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header,
+main {
+  max-width: 1100px;
+  margin: auto;
+  padding: 1rem;
+}
+h1 {
+  font-size: 1.8rem;
+  line-height: 1.25;
+}
+h2 {
+  font-size: 1.3rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+a {
+  color: #004e7a;
+}
+nav,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+nav a,
+.home,
+.button,
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 0.45rem 0.85rem;
+  border: 2px solid #004e7a;
+  border-radius: 0.4rem;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+nav a,
+.home {
+  background: white;
+}
+nav a[aria-current="page"],
+.button,
+button {
+  background: #004e7a;
+  color: white;
+}
+.secondary {
+  background: white;
+  color: #004e7a;
+}
+.danger {
+  background: #90210d;
+  border-color: #90210d;
+  color: white;
+}
+button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+:focus-visible {
+  outline: 4px solid #7a3b00;
+  outline-offset: 4px;
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: 1rem;
+}
+article,
+form,
+.player {
+  padding: 1rem;
+  background: white;
+  border: 2px solid #bac6cc;
+  border-radius: 0.5rem;
+}
+article {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+article h2 {
+  margin-top: 0;
+}
+article h2 a {
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+}
+article .actions {
+  margin-top: auto;
+}
+.details {
+  color: #384f5b;
+}
+.description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.short {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+label {
+  display: block;
+  font-weight: 600;
+  margin-top: 1rem;
+}
+input,
+textarea {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  margin: 0.4rem 0 1rem;
+  padding: 0.5rem;
+  border: 2px solid #506773;
+  border-radius: 0.3rem;
+  background: white;
+  color: #17252c;
+  font: inherit;
+}
+textarea {
+  min-height: 8rem;
+}
+video {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  background: black;
+}
+progress {
+  display: block;
+  width: 100%;
+  height: 2rem;
+  margin: 1rem 0;
+}
+#status {
+  min-height: 1.5em;
+  overflow-wrap: anywhere;
+}
+#status.error {
+  color: #90210d;
+  font-weight: 600;
+}
+[hidden] {
+  display: none !important;
+}
+@media (max-width: 520px) {
+  header,
+  main {
+    padding: 0.7rem;
+  }
+  nav,
+  .actions {
+    flex-direction: column;
+  }
+}

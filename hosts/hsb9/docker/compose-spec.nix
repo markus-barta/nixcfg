@@ -176,6 +176,47 @@
         "com.centurylinklabs.watchtower.enable=false"
       ];
     };
+    # OPS-729: stdlib-only recording library. No published port; nginx is the
+    # sole entry point. GID 101 is nginx:alpine's worker group, so nginx can read
+    # mode-0640 recordings through its read-only bind without world access.
+    hsb9-media = {
+      image = "python:3.13-alpine3.23";
+      container_name = "hsb9-media";
+      init = true;
+      user = "10429:101";
+      restart = "unless-stopped";
+      read_only = true;
+      cap_drop = [ "ALL" ];
+      security_opt = [ "no-new-privileges:true" ];
+      tmpfs = [ "/tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777" ];
+      pids_limit = 64;
+      mem_limit = "256m";
+      cpus = "1.0";
+      command = [
+        "python3"
+        "-B"
+        "/app/app.py"
+      ];
+      volumes = [
+        "/etc/hsb9-media:/app:ro"
+        "/srv/media/fernsehaufnahmen:/data:rw"
+      ];
+      healthcheck = {
+        test = [
+          "CMD"
+          "python3"
+          "-c"
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/fernsehen/healthz', timeout=5).close()"
+        ];
+        interval = "30s";
+        timeout = "10s";
+        retries = 3;
+      };
+      labels = [
+        "com.centurylinklabs.watchtower.enable=true"
+        "com.centurylinklabs.watchtower.scope=weekly"
+      ];
+    };
     # hsb9-home — HostDash service landing page for this host. Static HTML/CSS/JS
     # served by nginx on :80, built from markus-barta/hostdash via Nix and mounted
     # read-only from /etc.
@@ -191,6 +232,8 @@
       ];
       volumes = [
         "/etc/hostdash/hsb9/share/hostdash-hsb9:/usr/share/nginx/html:ro"
+        "/etc/hsb9-home.conf:/etc/nginx/conf.d/default.conf:ro"
+        "/srv/media/fernsehaufnahmen:/data:ro"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=true"

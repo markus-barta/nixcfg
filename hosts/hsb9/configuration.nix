@@ -77,8 +77,15 @@ in
     projectDirectory = "/home/mba/Code/nixcfg/hosts/hsb9/docker";
     # Carried over from hsb9-home-dashboard: hsb9-home mounts /etc/hostdash/hsb9,
     # whose target changes per generation while its compose definition does not.
-    postRecreate = [ "hsb9-home" ];
-    extraRestartTriggers = [ hostdashHsb9 ];
+    postRecreate = [
+      "hsb9-media"
+      "hsb9-home"
+    ];
+    extraRestartTriggers = [
+      hostdashHsb9
+      ./docker/media
+      ./docker/home.conf
+    ];
     # Safe HERE because every project-docker container on hsb9 is declared in
     # the spec (verified live 2026-08-01) — this is what removes the retired
     # watchtower container at first reconcile. Do NOT copy to hsb1 (health-pixoo
@@ -347,6 +354,18 @@ in
   # against the git WORKING TREE and would have raced compose-hsb9 at switch.
 
   environment.etc."hostdash/hsb9".source = hostdashHsb9;
+
+  # OPS-729: app and proxy configuration are immutable generation inputs.
+  environment.etc."hsb9-media".source = ./docker/media;
+  environment.etc."hsb9-home.conf".source = ./docker/home.conf;
+
+  # GID 101 matches the nginx:alpine worker group. No setuid/setgid bits.
+  # Originals are kept elsewhere: this data must stay out of backup sources.
+  systemd.tmpfiles.rules = [
+    "d /srv/media 0755 root root -"
+    "d /srv/media/fernsehaufnahmen 0750 10429 101 -"
+    "d /srv/media/fernsehaufnahmen/.trash 0750 10429 101 -"
+  ];
 
   # Pharos beacon per-host token. Docker Compose reads it as an env_file.
   age.secrets.pharos-beacon-hsb9-env = {
