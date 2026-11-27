@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import errno
 import json
 import math
 import os
 from pathlib import Path
 import stat
+import sys
 import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,6 +22,8 @@ PREFIX = "/fernsehen/"
 CHUNK_SIZE = 1024 * 1024
 EXTENSIONS = {".mp4", ".m4v", ".mov"}
 STATIC = Path(__file__).parent
+MIN_RESERVE_BYTES = 20 * 1024 ** 3
+SPACE_ERROR = "Auf dem Gerät ist nicht genug Platz für dieses Video. Bitte die Betreuung verständigen."
 
 
 class Problem(Exception):
@@ -36,6 +40,25 @@ def filename(value):
             or Path(value).suffix.lower() not in EXTENSIONS):
         raise Problem(400, "Bitte eine Videodatei mit gültigem Namen wählen (.mp4, .m4v oder .mov).")
     return value
+
+
+def upload_filename(value):
+    """Clean browser filenames; path separators and control characters stay forbidden."""
+    if (not isinstance(value, str) or any(c in value for c in "/\\")
+            or any(unicodedata.category(c).startswith("C") for c in value)):
+        raise Problem(400, "Bitte eine Videodatei mit gültigem Namen wählen (.mp4, .m4v oder .mov).")
+    normalized = unicodedata.normalize("NFC", value).strip()
+    stem, dot, extension = normalized.rpartition(".")
+    suffix = dot + extension
+    if suffix.lower() not in EXTENSIONS:
+        raise Problem(400, "Bitte eine Videodatei wählen (.mp4, .m4v oder .mov).")
+    while ".." in stem:
+        stem = stem.replace("..", ".")
+    stem = stem.strip()
+    while stem and (stem[0] == "." or stem[0].isspace()):
+        stem = stem[1:]
+    stem = stem.encode("utf-8")[:180 - len(suffix.encode("utf-8"))].decode("utf-8", errors="ignore")
+    return filename((stem or uuid.uuid4().hex) + suffix)
 
 
 def regular(path):
@@ -95,6 +118,31 @@ class Library:
         self.trash.mkdir(mode=0o750, parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self.metadata = self.directory / "metadata.json"
+        override = os.environ.get("MEDIA_RESERVE_BYTES")
+        self.reserve_bytes = None if override is None else int(override)
+        if self.reserve_bytes is not None and self.reserve_bytes < 0:
+            raise ValueError("MEDIA_RESERVE_BYTES must be a non-negative integer")
+        # This process is the sole writer. Never follow symlinks or touch admin
+        # staging files; only abandoned regular app temporaries are ours.
+        for path in self.directory.iterdir():
+            if path.name.startswith((".upload-", ".metadata-")) and regular(path):
+                path.unlink()
+
+    def space(self):
+        usage = os.statvfs(self.directory)
+        total = usage.f_blocks * usage.f_frsize
+        reserve = (max(MIN_RESERVE_BYTES, (total + 9) // 10)
+                   if self.reserve_bytes is None else self.reserve_bytes)
+        return {"free_bytes": usage.f_bavail * usage.f_frsize, "reserve_bytes": reserve}
+
+    def disk_full(self):
+        print("hsb9-media: upload refused (insufficient disk space)", file=sys.stderr, flush=True)
+        raise Problem(507, SPACE_ERROR)
+
+    def require_upload_space(self, remaining):
+        space = self.space()
+        if remaining > space["free_bytes"] - space["reserve_bytes"]:
+            self.disk_full()
 
     def load(self):
         if not self.metadata.exists() and not self.metadata.is_symlink():
@@ -194,12 +242,15 @@ class Library:
             return self.entry(name, records, trashed=not restore)
 
     def upload(self, name, stream, length):
-        filename(name)
+        original_name = name
+        name = upload_filename(name)
         if length <= 0:
             raise Problem(400, "Die Datei ist leer.")
-        descriptor, temporary_name = tempfile.mkstemp(prefix=".upload-", dir=self.directory)
-        temporary = Path(temporary_name)
+        temporary = None
         try:
+            self.require_upload_space(length)
+            descriptor, temporary_name = tempfile.mkstemp(prefix=".upload-", dir=self.directory)
+            temporary = Path(temporary_name)
             with os.fdopen(descriptor, "wb") as destination:
                 os.fchmod(destination.fileno(), 0o640)
                 remaining = length
@@ -207,23 +258,30 @@ class Library:
                     chunk = stream.read(min(CHUNK_SIZE, remaining))
                     if not chunk:
                         raise Problem(400, "Die Übertragung wurde unterbrochen. Bitte erneut versuchen.")
+                    # Check every bounded chunk, including changes from concurrent
+                    # uploads and other services using this filesystem.
+                    self.require_upload_space(remaining)
                     destination.write(chunk)
                     remaining -= len(chunk)
                 destination.flush()
                 os.fsync(destination.fileno())
+            self.require_upload_space(0)
             with self.lock:
                 records = self.load()
+                reserved = {unicodedata.normalize("NFC", item) for item in records}
+                for directory in (self.directory, self.trash):
+                    reserved.update(unicodedata.normalize("NFC", path.name) for path in directory.iterdir())
                 candidate = name
-                while (candidate in records or (self.directory / candidate).exists()
-                       or (self.directory / candidate).is_symlink()
-                       or (self.trash / candidate).exists() or (self.trash / candidate).is_symlink()):
+                while (candidate in reserved or os.path.lexists(self.directory / candidate)
+                       or os.path.lexists(self.trash / candidate)):
                     stem = Path(name).stem
                     suffix = f"-{uuid.uuid4().hex[:8]}{Path(name).suffix}"
                     while len((stem + suffix).encode("utf-8")) > 180:
                         stem = stem[:-1]
                     candidate = stem + suffix
                     filename(candidate)
-                records[candidate] = {"title": Path(name).stem.replace("_", " "), "description": "",
+                title = Path(original_name).stem.strip()[:200] or "Aufnahme"
+                records[candidate] = {"title": title, "description": "",
                                       "channel": "", "recorded": "", "duration_min": None,
                                       "added": dt.datetime.now(dt.timezone.utc).isoformat()}
                 # Save first: a crash may leave an unused metadata key, never an
@@ -232,8 +290,13 @@ class Library:
                 os.link(temporary, self.directory / candidate)
                 sync_directory(self.directory)
                 return self.entry(candidate, records)
+        except OSError as error:
+            if error.errno in {errno.ENOSPC, errno.EDQUOT}:
+                self.disk_full()
+            raise
         finally:
-            temporary.unlink(missing_ok=True)
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -283,7 +346,7 @@ class Handler(BaseHTTPRequestHandler):
         path = request.path
         if self.command in {"GET", "HEAD"}:
             if path == PREFIX + "api/videos":
-                self.respond(200, {"videos": library.listing(request.query == "trash=1")})
+                self.respond(200, {"videos": library.listing(request.query == "trash=1"), **library.space()})
             elif path == PREFIX + "healthz":
                 self.respond(200, {"ok": True})
             elif path in {PREFIX, PREFIX + "app.js", PREFIX + "app.css"}:
@@ -296,10 +359,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.mutate_guard()
         if path.startswith(PREFIX + "api/videos/"):
-            name = filename(unquote(path[len(PREFIX + "api/videos/"):], errors="strict"))
+            name = unquote(path[len(PREFIX + "api/videos/"):], errors="strict")
             if self.command == "PUT":
                 self.respond(201, library.upload(name, self.rfile, self.content_length()))
                 return
+            filename(name)
             if self.command == "PATCH":
                 length = self.content_length(20000)
                 body = self.rfile.read(length)

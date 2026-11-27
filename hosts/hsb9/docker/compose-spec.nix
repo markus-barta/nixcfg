@@ -180,8 +180,9 @@
     # sole entry point. GID 101 is nginx:alpine's worker group, so nginx can read
     # mode-0640 recordings through its read-only bind without world access.
     hsb9-media = {
-      image = "python:3.13.18-alpine3.23";
+      image = "python:3.13-alpine3.23";
       container_name = "hsb9-media";
+      init = true;
       user = "10429:101";
       restart = "unless-stopped";
       read_only = true;
@@ -223,7 +224,6 @@
       image = "nginx:alpine";
       container_name = "hsb9-home";
       restart = "unless-stopped";
-      depends_on = [ "hsb9-media" ];
       ports = [
         "80:80"
       ];

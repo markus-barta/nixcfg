@@ -4,7 +4,13 @@ const content = document.getElementById("content");
 const statusLine = document.getElementById("status");
 const params = new URLSearchParams(location.search);
 const inTrash = params.get("trash") === "1";
+const unreadableResponse =
+  "Die Antwort konnte nicht gelesen werden. Bitte erneut versuchen.";
+const spaceError =
+  "Auf dem Gerät ist nicht genug Platz für dieses Video. Bitte die Betreuung verständigen.";
 let videos = [];
+let freeBytes = 0;
+let reserveBytes = 0;
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -16,6 +22,14 @@ function message(text, error = false) {
   statusLine.textContent = text;
   statusLine.className = error ? "error" : "";
   statusLine.setAttribute("role", error ? "alert" : "status");
+  if (error) statusLine.scrollIntoView({ block: "nearest" });
+}
+function updateSpace(result) {
+  freeBytes = result.free_bytes;
+  reserveBytes = result.reserve_bytes;
+  const available = Math.max(0, freeBytes - reserveBytes);
+  document.getElementById("space").textContent =
+    `Noch frei: ${new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 }).format(available / 1e9)} GB`;
 }
 function link(text, href, className = "button") {
   const node = element("a", text, className);
@@ -55,9 +69,7 @@ async function request(path, method = "GET", body) {
   try {
     result = await response.json();
   } catch (_) {
-    throw new Error(
-      "Die Antwort konnte nicht gelesen werden. Bitte erneut versuchen.",
-    );
+    throw new Error(unreadableResponse);
   }
   if (!response.ok)
     throw new Error(
@@ -265,7 +277,7 @@ function uploadForm() {
   const submit = element("button", "Video übertragen");
   submit.type = "submit";
   form.append(label, input, progress, progressText, submit);
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const file = input.files[0];
     if (!file || !/\.(mp4|m4v|mov)$/i.test(file.name)) {
@@ -275,12 +287,22 @@ function uploadForm() {
       );
       return;
     }
+    submit.disabled = true;
+    input.disabled = true;
+    try {
+      updateSpace(await request("videos"));
+      if (file.size > Math.max(0, freeBytes - reserveBytes))
+        throw new Error(spaceError);
+    } catch (error) {
+      submit.disabled = false;
+      input.disabled = false;
+      message(error.message, true);
+      return;
+    }
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", base + "api/videos/" + encodeURIComponent(file.name));
     xhr.setRequestHeader("X-Media-Request", "1");
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
-    submit.disabled = true;
-    input.disabled = true;
     progress.hidden = false;
     message("Das Video wird übertragen …");
     const beforeLeave = (event) => {
@@ -297,10 +319,40 @@ function uploadForm() {
             "Die Übertragung ist vollständig. Das Video wird gespeichert …";
       }
     };
+    let finished = false;
+    let wakeLock;
+    let requestingWakeLock = false;
+    const keepAwake = async () => {
+      if (
+        finished ||
+        requestingWakeLock ||
+        (wakeLock && !wakeLock.released) ||
+        !navigator.wakeLock ||
+        document.visibilityState !== "visible"
+      )
+        return;
+      requestingWakeLock = true;
+      try {
+        const lock = await navigator.wakeLock.request("screen");
+        if (finished) await lock.release();
+        else wakeLock = lock;
+      } catch (_) {
+        // Uploads still work when screen wake locks are unavailable or denied.
+      } finally {
+        requestingWakeLock = false;
+      }
+    };
+    const onVisible = () => {
+      if (!wakeLock || wakeLock.released) void keepAwake();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     const finish = () => {
+      finished = true;
       submit.disabled = false;
       input.disabled = false;
       window.removeEventListener("beforeunload", beforeLeave);
+      document.removeEventListener("visibilitychange", onVisible);
+      if (wakeLock) void wakeLock.release().catch(() => {});
     };
     xhr.onload = () => {
       finish();
@@ -311,13 +363,19 @@ function uploadForm() {
             result.error || "Das Video konnte nicht gespeichert werden.",
           );
         videos.push(result);
+        void request("videos")
+          .then(updateSpace)
+          .catch(() => {});
         history.replaceState(null, "", base);
         editForm(result);
         message(
           "Das Video wurde hinzugefügt. Sie können jetzt Titel und Beschreibung ändern.",
         );
       } catch (error) {
-        message(error.message, true);
+        message(
+          error instanceof SyntaxError ? unreadableResponse : error.message,
+          true,
+        );
       }
     };
     xhr.onerror = xhr.onabort = () => {
@@ -327,7 +385,12 @@ function uploadForm() {
         true,
       );
     };
-    xhr.send(file);
+    await keepAwake();
+    try {
+      xhr.send(file);
+    } catch (_) {
+      xhr.onerror();
+    }
   });
   content.append(form);
 }
@@ -338,7 +401,9 @@ async function start() {
     )
     .setAttribute("aria-current", "page");
   try {
-    videos = (await request("videos" + (inTrash ? "?trash=1" : ""))).videos;
+    const result = await request("videos" + (inTrash ? "?trash=1" : ""));
+    videos = result.videos;
+    updateSpace(result);
     if (params.has("add")) uploadForm();
     else if (params.has("watch") && !inTrash) {
       const video = videos.find(

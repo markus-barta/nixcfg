@@ -80,6 +80,21 @@ Range requests for seeking. Metadata, hidden files, trash and symlinks are not
 served. Uploads stream to disk with request buffering disabled; neither Python
 nor nginx buffers a whole recording. The app accepts raw PUT bodies with
 Content-Length, as sent by the browser, rather than chunked transfer encoding.
+The browser checks space before sending and shows space available for uploads
+as “Noch frei”. During uploads it requests a screen wake lock where supported;
+leave the page open and the device awake if the browser cannot grant it.
+If the app is offline, nginx serves a small German retry page itself.
+
+Uploads leave a reserve of `max(20 GiB, 10% of the data filesystem's total
+capacity)`. The app checks unprivileged free space before creating a temporary
+file and before each 1 MiB chunk; insufficient space or ENOSPC returns HTTP 507
+and removes the temporary file. Each refusal logs one line without a filename.
+`GET /fernsehen/api/videos` returns `videos`, `free_bytes` (filesystem free
+space) and `reserve_bytes`; the UI displays their non-negative difference.
+An administrator can override the reserve with the app environment variable
+`MEDIA_RESERVE_BYTES`, a non-negative integer byte count. Compose uses the
+default. Invalid overrides refuse startup. Check actual free space before
+deployment; trash remains on the same filesystem and does not free space.
 
 **Access boundary:** this deliberately has no login. The existing compose
 binding is `80:80` on all host interfaces, and the existing NixOS firewall
@@ -132,21 +147,27 @@ Do not add private recording information to this public repository.
 
 ### Add, restore and purge over SSH
 
-Browser uploads accept `.mp4`, `.m4v` and `.mov`. Names must be flat, visible,
-at most 180 UTF-8 bytes, have no control characters, slash, backslash or `..`,
-and no leading/trailing whitespace. Unicode is supported. Duplicate uploads
-receive a unique filename and never replace an active or trashed recording.
-Interrupted transfers remove their own temporary file. After a process crash,
-an administrator may remove leftover `.upload-*` or `.metadata-*` files while
-the app is stopped, after confirming they belong to an abandoned operation.
+Browser uploads accept `.mp4`, `.m4v` and `.mov`. Storage names are normalised
+to Unicode NFC, repeated dots collapse, leading dots and surrounding spaces
+are stripped, and stems are cut to fit 180 UTF-8 bytes. An empty stem becomes
+a UUID. Slashes, backslashes and control characters are still rejected. The
+original stem becomes the initial title (up to 200 characters). Other API
+paths keep strict filename validation. Duplicate names, including NFC/NFD
+equivalents, receive a unique filename and never replace an active or trashed
+recording or a retained metadata name.
+Interrupted transfers remove their own temporary file. On startup the app
+removes stale regular `.upload-*` and `.metadata-*` files in the data root,
+without following symlinks. These prefixes belong exclusively to the app;
+administrative staging must use `.staging-*`. Compose uses an init process
+for shutdown and child reaping. Only one app process may write this directory.
 
 To add a prepared video over SSH, first upload it to the operator's staging
 directory, then install it into the library (commands run on the host):
 
 ```sh
 sudo install -o 10429 -g 101 -m 0640 -T -- /tmp/Beispielaufnahme-1.mp4 \
-  /srv/media/fernsehaufnahmen/.upload-admin-1
-sudo mv -n -- /srv/media/fernsehaufnahmen/.upload-admin-1 \
+  /srv/media/fernsehaufnahmen/.staging-admin-1
+sudo mv -n -- /srv/media/fernsehaufnahmen/.staging-admin-1 \
   /srv/media/fernsehaufnahmen/Beispielaufnahme-1.mp4
 ```
 
@@ -168,6 +189,10 @@ is optional and must preserve the rest of `metadata.json`; restart afterwards.
 
 ### Local validation and container smoke test
 
+Use Python 3.13 or newer and Node.js for the app/UI tests. T127 uses a local
+nginx binary or obtains it with `nix-shell -p nginx`, then runs a real
+`nginx -t` against `docker/home.conf` with an isolated temporary wrapper.
+
 ```sh
 (cd hosts/hsb9/docker/media && python3 -B -m unittest -v)
 ./tests/T127-hsb9-media.sh
@@ -181,9 +206,9 @@ no-new-privileges, tmpfs and resource limits as compose:
 
 ```sh
 docker volume create ops729-media-smoke
-docker run --rm -v ops729-media-smoke:/data python:3.13.18-alpine3.23 \
+docker run --rm -v ops729-media-smoke:/data python:3.13-alpine3.23 \
   sh -c 'mkdir -p /data/.trash && chown 10429:101 /data /data/.trash && chmod 0750 /data /data/.trash'
-docker run -d --name ops729-media-smoke --restart unless-stopped \
+docker run -d --init --name ops729-media-smoke --restart unless-stopped \
   --user 10429:101 --read-only --cap-drop ALL \
   --security-opt no-new-privileges:true \
   --tmpfs /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777 \
@@ -193,7 +218,7 @@ docker run -d --name ops729-media-smoke --restart unless-stopped \
   -p 127.0.0.1:18080:8080 \
   -v "$PWD/hosts/hsb9/docker/media:/app:ro" \
   -v ops729-media-smoke:/data:rw \
-  python:3.13.18-alpine3.23 python3 -B /app/app.py
+  python:3.13-alpine3.23 python3 -B /app/app.py
 curl -f http://127.0.0.1:18080/fernsehen/healthz
 ```
 
