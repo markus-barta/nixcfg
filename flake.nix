@@ -64,14 +64,14 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 72: v261127012926.0.0 (sequence 142; hausnetz main b35bfe6b = merge of release PR #459; the tag is on
-    # the merge). Since 71: Home Assistant device links behind the Labs switch ha-device-links (default off): new
-    # GET/POST /api/ha/devices on the existing listener, POST saves the site through the existing store only while the
-    # switch is on; HA data only from the existing snapshot. No nix/, flake or Go-dependency change; no new listener,
-    # outbound call or credential (capability review HNET-594). Rollback: previous generation (pin 71); a re-pin
-    # below 65 must drop the homeAssistant block.
+    # HNET pin 73: v261127021523.0.0 (sequence 143; hausnetz main 4f565d04 = merge of release PR #461; the tag is on
+    # the merge). Since 72: saved-change records (HNET-318): the service also writes revisions.json, atomically inside
+    # its existing StateDirectory, so the capability manifest's data-dir note changes (capabilities_sha256 782631fc… →
+    # 1a85d9dd…); read-only GET /api/site/revisions and /api/site/revisions/{rev}/revert (returns a draft, no save).
+    # No nix/, flake or Go-dependency change; no new listener, outbound call or credential (capability review
+    # HNET-598). Rollback: previous generation (pin 72); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=b35bfe6b91f7d82e5c49f17b6e405ce1b6df3c10";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=4f565d04505ea18df3aa90d3f10b1929b1173ffa";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
