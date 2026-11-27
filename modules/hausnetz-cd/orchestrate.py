@@ -344,7 +344,9 @@ def copy_export(config, result):
              and re.fullmatch(r"export-[0-9a-f]{40}\.(json|zip)", p.name)]
     for path in sorted(owned, key=lambda p: p.stat().st_mtime_ns, reverse=True)[20:]:
         path.unlink()
-    # A stop may have arrived during the export read/copy.
+    # A stop may have arrived during the export read/copy. A stop during the
+    # up-to-45-second ack SSH write can still let one switch through; the next
+    # poll sends FAIL and the executor rolls back.
     if read_disable(config) is None:
         remote(config, "ack", result["nixcfg_rev"], digest=digest, run_id=result["run_id"])
 
@@ -400,6 +402,11 @@ def deliver_alarms(config, state):
     # Stable alarm IDs allow operator-side deduplication if a process dies after
     # delivery but before its receipt is saved. Completed ticks never resend.
     for key, entry in list(state.get("pending_alarms", {}).items()):
+        if entry["label"] == "awaiting attended ack" and (
+                "operator_stop" in state or read_disable(config) is not None):
+            state["pending_alarms"].pop(key)
+            save_state(config, state)
+            continue
         receipt = ledger(config, "alarms", key)
         if not receipt.exists():
             if not alarm(config, entry["result"], entry["label"], pre_pair=entry.get("pre_pair", False)):
@@ -410,8 +417,20 @@ def deliver_alarms(config, state):
 
 
 def report(config, state, key):
+    reported = config.get("_reported_this_tick")
+    if reported is not None:
+        if key in reported:
+            return
+        reported.add(key)
     entry = state["reports"][key]
     result = entry["result"]
+    stopped_rehearsal = (result.get("rehearsal") and result.get("operator_disabled")
+                         and result.get("reason") == "operator_disabled"
+                         and result.get("rollback", "not_required") == "not_required")
+    if stopped_rehearsal and not entry["alarm"]:
+        print("hausnetz-cd: rehearsal stopped by operator run_id=" + result["run_id"], flush=True)
+        entry["alarm"] = True
+        save_state(config, state)
     if (result["status"] in {"rollback_failed", "unknown", "rehearsal_aborted"}
             and (result["mode"] == "live" or result.get("rehearsal")) and not entry["alarm"]):
         prefix = "TEST (no action): " if result.get("rehearsal") else ""
@@ -475,11 +494,30 @@ def finish(config, state, result):
         return  # One report per fetch outage/pair; the source remains retryable.
     state["sequence"] += 1
     order = state["sequence"]
-    if result.get("operator_disabled") or result["status"] == "operator_disabled":
-        # A stopped pair remains retryable after the stop is explicitly cleared.
+    # Seeing a stop does not excuse a real failure. Keep the checker's verdict
+    # separate from a forced FAIL, including when the stop arrives next poll.
+    stop_caused = ((result.get("operator_disabled") or result["status"] == "operator_disabled")
+        and result.get("rollback") != "failed" and not result.get("disable_reason") and (
+        (result["status"] == "operator_disabled" and not result.get("switched")
+         and result.get("rollback", "not_required") == "not_required")
+        or (result["status"] in {"manual", "failed", "rolled_back"} and (
+            (result.get("reason") == "backup_copy_not_acknowledged" and not result.get("switched")
+             and result.get("rollback", "not_required") == "not_required")
+            or (result.get("reason") == "acceptance_failed_or_timeout"
+                and result.get("checker_verdict") != "fail")))))
+    stopped_revisions = state.setdefault("operator_stopped_revisions", [])
+    stopped_revision_refusal = (result["status"] == "manual"
+                                and result.get("reason") == "revision_already_attempted"
+                                and result["nixcfg_rev"] in stopped_revisions)
+    retryable_stop = stop_caused or stopped_revision_refusal
+    if stop_caused:
+        state["operator_stopped_revisions"] = (list(dict.fromkeys(
+            [*stopped_revisions, result["nixcfg_rev"]]))[-200:])
+    if retryable_stop:
+        # The executor still refuses this main revision; a new main may retry.
         state["attempted"].pop(key, None)
         ledger(config, "attempted", key).unlink(missing_ok=True)
-    if not result.get("operator_disabled") and result["status"] not in {"operator_disabled", "fetch_failed", "vm_test_wait", "preflight_refused"} and not result.get("trial") and not result.get("rehearsal"):
+    if not retryable_stop and result["status"] not in {"operator_disabled", "fetch_failed", "vm_test_wait", "preflight_refused"} and not result.get("trial") and not result.get("rehearsal"):
         state["attempted"][key] = {"status": result["status"], "order": order}
         atomic_json(ledger(config, "attempted", key), {"status": result["status"], "at": now()})
     if (result["status"] == "rollback_failed" or (result["status"] == "unknown" and result["mode"] != "dry-run")
@@ -492,12 +530,15 @@ def finish(config, state, result):
         if result["mode"] == "live" and state.get("attended_remaining", 3) > 0:
             state["attended_remaining"] -= 1
         state["last_deployed"] = result["nixcfg_rev"]
-    elif not result.get("operator_disabled") and result["status"] in {"failed", "rolled_back", "rollback_failed", "manual", "unknown"} and not result.get("trial") and not result.get("rehearsal"):
+    elif not retryable_stop and result["status"] in {"failed", "rolled_back", "rollback_failed", "manual", "unknown"} and not result.get("trial") and not result.get("rehearsal"):
         target = result["hausnetz_rev"]
         if re.fullmatch(r"[0-9a-f]{40}", target):
             state["failed"] = [rev for rev in state["failed"] if rev != target] + [target]
             atomic_json(ledger(config, "failed", target), {"status": result["status"], "at": now()})
     state["pending"] = None
+    if (key in state["reports"] and state["reports"][key]["result"]["run_id"] != result["run_id"]
+            or ledger(config, "outbox", key).exists()):
+        key += "-" + result["run_id"]
     state["reports"][key] = {"result": result, "ticket": False, "alarm": False, "order": order}
     save_state(config, state)
     report(config, state, key)
@@ -548,6 +589,8 @@ def reconcile(config, state):
                 result["trial"] = pending.get("trial", False)
                 if pending.get("operator_disabled"):
                     result["operator_disabled"] = True
+                if "checker_verdict" in pending:
+                    result["checker_verdict"] = pending["checker_verdict"]
                 if pending.get("rehearsal"):
                     require(result.get("rehearsal") == pending["rehearsal"], "rehearsal_result_variant")
                     result["rehearsal_reason"] = pending.get("rehearsal_reason")
@@ -580,7 +623,8 @@ def reconcile(config, state):
                     save_state(config, state)
             if matching and result.get("phase") == "acceptance_ready":
                 if "acceptance" not in pending:
-                    pending["acceptance"] = acceptance(config, pending)
+                    pending["checker_verdict"] = acceptance(config, pending)
+                    pending["acceptance"] = pending["checker_verdict"]
                     if pending["acceptance"] != "pass":
                         queue_alarm(config, state, pending["run_id"] + "-acceptance",
                                     {**pending, "reason": "acceptance_failed_or_timeout"}, "ACCEPTANCE FAILED")
@@ -727,6 +771,7 @@ def clear_child(config, reason, *, force=False, pgid=None):
         return
     require(not path.is_symlink(), "clear-child: record is a symlink; cannot verify recorded pid/pgid")
     try:
+        before_identity = path.lstat()
         before = path.read_bytes()
     except OSError:
         raise Manual("clear-child: record unreadable; cannot verify recorded pid/pgid") from None
@@ -766,17 +811,18 @@ def clear_child(config, reason, *, force=False, pgid=None):
             except OSError:
                 raise Manual("clear-child: cannot verify pgid=" + str(group)) from None
             raise Manual("clear-child: group alive pgid=" + str(group) + "; force refused")
-    require(not path.is_symlink() and path.read_bytes() == before,
+    require(not path.is_symlink() and path.read_bytes() == before
+            and (path.lstat().st_dev, path.lstat().st_ino) == (before_identity.st_dev, before_identity.st_ino),
             "clear-child: record changed; retry after inspecting it")
+    path.unlink()
     # Keep recovery attribution separate from controller state: no tick lock.
     atomic_json(path.with_name("child-cleared.json"), {"at": now(), "reason": reason,
                                                       "forced": force, "pgid": pgid})
-    path.unlink()
     print("hausnetz-cd: cleared dead child record", flush=True)
 
 
 def tick(config):
-    config = {**config, "_malformed_disable_logged": False}
+    config = {**config, "_malformed_disable_logged": False, "_reported_this_tick": set()}
     record = Path(config["state_file"]).parent / "controller-children.json"
     with controller_children(record):
         tick_owned(config, record)
@@ -868,7 +914,9 @@ def tick_owned(config, child_record):
         if config.get("clear_disable"):
             require(not state["pending"], "pending_refuses_clear_disable")
             if config.get("clear_latch"):
-                state.pop("disabled", None)
+                had_latch = state.pop("disabled", None) is not None
+                if not had_latch:
+                    print("hausnetz-cd: no safety latch set", flush=True)
                 cleared = "safety latch"
             elif "operator_stop" in state or disable_marker(config).exists():
                 disable_marker(config).unlink(missing_ok=True)
@@ -877,7 +925,8 @@ def tick_owned(config, child_record):
             else:
                 require("disabled" not in state, "safety latch present; use --clear-disable --latch --reason <text>")
                 cleared = "operator stop (already clear)"
-            print("hausnetz-cd: cleared " + cleared, flush=True)
+            if not config.get("clear_latch") or had_latch:
+                print("hausnetz-cd: cleared " + cleared, flush=True)
             state["disable_cleared"] = {"at": now(), "reason": config["clear_reason"], "cleared": cleared}
             save_state(config, state)
             return
@@ -886,7 +935,8 @@ def tick_owned(config, child_record):
             if state["pending"]:
                 reconcile(config, state)
             # Acceptance/recovery owns the foreground until reconciliation ends.
-            if not state["pending"] or state["pending"].get("phase") == "awaiting_ack":
+            if ("disabled" not in state and
+                    (not state["pending"] or state["pending"].get("phase") == "awaiting_ack")):
                 deliver_alarms(config, state)
                 for key in list(state["reports"]):
                     report(config, state, key)

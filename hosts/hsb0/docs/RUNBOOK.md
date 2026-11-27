@@ -516,12 +516,19 @@ mbp2607's two-minute launchd agent stays disabled by default
 a tick and persists across restarts. A stop observed before backup acknowledgment
 withholds the acknowledgment: the live executor exits before switching with
 `backup_copy_not_acknowledged` and needs no rollback. A stop observed before an
-acceptance decision write forces FAIL. If the stop lands during the SSH write of
+acceptance decision write forces FAIL. If a stop lands during the backup ack SSH
+write (up to 45 seconds), one switch may proceed; the next poll sends FAIL and
+the executor rolls back. If the stop lands during the SSH write of
 an already-decided PASS (up to 45 seconds), that one PASS may still be consumed;
 the next poll cannot undo a completed pass. After switching, a pending live
 executor receives FAIL and rolls back (or rolls back at its deadline if unreachable).
 A rehearsal honors FAIL before switching, or finishes its own rollback if already
-switched. Stopped reports record `operator_disabled`; stopped pairs remain retryable.
+switched. Stopped reports record `operator_disabled`. Outcomes caused by the stop
+remain retryable after clearing it; if the executor already started, its revision
+tombstone refuses the same nixcfg main (`revision_already_attempted`). Retry at a
+new nixcfg main instead. That refusal does not tombstone the hausnetz target.
+Real failures, including checker FAIL and rollback failures, keep their target
+tombstones even when a stop is also seen.
 A malformed stop marker fails closed and logs once per tick. Alarm/report retries
 continue while stopped after reconciliation, outside an acceptance window.
 Resume is OPS only, after recovery inspection, with
@@ -539,8 +546,9 @@ with `hausnetz-cd --clear-child --reason 'verified previous child group dead'`.
 This recovery is lock-free. It refuses live or unverifiable records; a malformed
 record requires
 `hausnetz-cd --clear-child --force --pgid <verified-group> --reason 'operator verified recorded group dead'`.
-Even force verifies that the supplied
-and any readable recorded groups are absent; it never clears a live group.
+Force verifies pgid liveness only, for the supplied pgid and every readable
+recorded pgid; it does not verify pid identity. An unparseable record can be
+cleared only with an explicit `--pgid` whose group is verified dead.
 TERM cancellation gives adapters up to three seconds before KILL. Descendants
 which create their own session with setsid are outside the tracked group.
 A reused group leader PID remains a fail-closed block requiring inspection.

@@ -3793,6 +3793,9 @@ class TestCD(unittest.TestCase):
         self.assertEqual(result["acceptance"], "fail")
         self.assertEqual(result["rollback"], "succeeded")
         self.assertEqual(len(self.f.events("switch")), 2)
+        self.assertEqual(result["checker_verdict"], "pass")
+        self.assertFalse(self.f.state()["failed"])
+        self.assertFalse(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
         self.assertEqual(Path(self.f.executor["current_system"]).resolve(), self.f.old_system)
         self.assertTrue(self.f.state().get("operator_stop", {}).get("operator"))
         self.assertFalse(any("CD DISABLED" in e["text"] for e in self.f.events("mailbox")))
@@ -3861,8 +3864,175 @@ class TestCD(unittest.TestCase):
         self.assertEqual(state["disabled"]["reason"], "rollback_health_failed")
         self.assertFalse(state["disabled"]["alarmed"])
         self.assertIn("operator_stop", state)
-        self.assertFalse(state["attempted"])
-        self.assertFalse(state["failed"])
+        self.assertIn(self.f.key, state["attempted"])
+        self.assertIn(self.f.new_hnet, state["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+
+    def test_checker_fail_then_stop_keeps_failed_target(self):
+        import orchestrate
+        self.f.orchestrator["mode"] = "live"
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(self.f.live_state))
+        self.f.save()
+        original = orchestrate.remote
+        def remote(config, action, *args, **kwargs):
+            value = original(config, action, *args, **kwargs)
+            if action == "acceptance" and kwargs["digest"] == "fail":
+                self.operator_stop()  # checker FAIL is already decided and sent
+            return value
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.remote", side_effect=remote), \
+                mock.patch("orchestrate.acceptance", return_value="fail"):
+            tick(self.f.orchestrator)
+        result = self.f.terminal()
+        self.assertTrue(result.get("operator_disabled"))
+        self.assertEqual(result["checker_verdict"], "fail")
+        self.assertEqual(result["rollback"], "succeeded")
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+
+    def test_health_failure_stop_during_rollback_keeps_failed_target(self):
+        import orchestrate
+        self.f.orchestrator["mode"] = "live"
+        self.f.executor["health_timeout"] = 2
+        self.f.scenario.update(health_fail=True, rollback_delay=1)
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(self.f.live_state))
+        self.f.save()
+        original = orchestrate.remote
+        def remote(config, action, *args, **kwargs):
+            value = original(config, action, *args, **kwargs)
+            if action == "status" and (json.loads(value).get("result") or {}).get("phase") == "rollback":
+                self.operator_stop()
+            return value
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.remote", side_effect=remote):
+            tick(self.f.orchestrator)
+        result = self.f.terminal()
+        self.assertTrue(result.get("operator_disabled"))
+        self.assertEqual(result["reason"], "expected_health_failed")
+        self.assertEqual(result["rollback"], "succeeded")
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+
+    def test_stop_after_start_same_main_refused_new_main_retries(self):
+        self.test_stop_before_backup_never_acks_or_switches()
+        first = self.f.terminal()
+        self.f.tick(args=("--clear-disable", "--reason", "inspect stopped backup"))
+        self.f.tick()
+        refusal = self.f.terminal()
+        self.assertEqual(refusal["reason"], "revision_already_attempted")
+        self.assertFalse(self.f.state()["failed"])
+        self.assertFalse(self.f.state()["attempted"])
+        self.assertFalse(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertEqual(self.f.state()["reports"][self.f.key]["result"]["run_id"], first["run_id"])
+        self.assertNotEqual(first["run_id"], refusal["run_id"])
+        self.f.pin(self.f.new_hnet, 3)
+        self.f.new = self.f.commit(self.f.repo)
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "succeeded")
+        self.assertEqual(len(self.f.events("switch")), 1)
+        self.assertEqual(len(self.f.state()["reports"]), 3)
+
+    def test_stop_during_copy_export_withholds_ack(self):
+        import orchestrate
+        self.f.orchestrator["mode"] = "live"
+        self.f.executor["backup_ack_timeout"] = 1
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(self.f.live_state))
+        self.f.save()
+        original = orchestrate.remote
+        actions = []
+        def remote(config, action, *args, **kwargs):
+            actions.append(action)
+            value = original(config, action, *args, **kwargs)
+            if action == "export":
+                self.operator_stop()  # backup_ready guard passed; ack has not begun
+            return value
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.remote", side_effect=remote):
+            tick(self.f.orchestrator)
+        self.assertIn("export", actions)
+        self.assertNotIn("ack", actions)
+        self.assertEqual(self.f.terminal()["reason"], "backup_copy_not_acknowledged")
+        self.assertFalse(self.f.events("switch"))
+
+    def test_clear_child_replacement_before_unlink_is_preserved(self):
+        from orchestrate import clear_child
+        record = Path(self.f.orchestrator["state_file"]).parent / "controller-children.json"
+        original_read = Path.read_bytes
+        for identical in (False, True):
+            with self.subTest(identical=identical):
+                self.f.write(record, "[]")
+                replacement = record.with_name("replacement.json")
+                replacement.write_text("[]" if identical else '[{"pid":1,"pgid":1}]')
+                replacement_inode = replacement.stat().st_ino
+                reads = []
+                def read(path):
+                    value = original_read(path)
+                    if path == record:
+                        reads.append(path)
+                        if len(reads) == 2:
+                            replacement.replace(record)  # after content comparison read
+                    return value
+                with mock.patch.object(Path, "read_bytes", read):
+                    with self.assertRaisesRegex(Manual, "record changed"):
+                        clear_child(self.f.orchestrator, "verified dead")
+                self.assertTrue(record.exists())
+                self.assertEqual(record.stat().st_ino, replacement_inode)
+                self.assertFalse(record.with_name("child-cleared.json").exists())
+
+    def test_clear_child_unlinks_before_attribution(self):
+        import orchestrate
+        record = Path(self.f.orchestrator["state_file"]).parent / "controller-children.json"
+        self.f.write(record, "[]")
+        original = orchestrate.atomic_json
+        def write(path, value):
+            self.assertFalse(record.exists())
+            original(path, value)
+        with mock.patch("orchestrate.atomic_json", side_effect=write):
+            orchestrate.clear_child(self.f.orchestrator, "verified dead")
+
+    def test_stopped_latched_tick_reports_once_and_drops_ack_alarm(self):
+        from orchestrate import queue_alarm
+        pending = self.pending_record()
+        state = {**copy.deepcopy(self.f.live_state), "disabled": {"alarmed": True}}
+        state["reports"][self.f.key] = {"result": {**pending, "status": "failed"},
+                                       "ticket": False, "alarm": False, "order": 1}
+        queue_alarm(self.f.orchestrator, state, pending["run_id"] + "-awaiting-ack", pending,
+                    "awaiting attended ack")
+        self.operator_stop()
+        with mock.patch("orchestrate.alarm", return_value=True) as alarm, \
+                mock.patch("orchestrate.comment", side_effect=Manual("offline")) as comment:
+            tick(self.f.orchestrator)
+        self.assertEqual(comment.call_count, 1)
+        self.assertEqual(self.f.state()["reports"][self.f.key]["ticket_attempts"], 1)
+        self.assertFalse(self.f.state()["pending_alarms"])
+        self.assertEqual(alarm.call_count, 0)
+
+    def test_retried_pair_preserves_report_and_outbox(self):
+        from orchestrate import finish
+        state = copy.deepcopy(self.f.live_state)
+        result = {**self.pending_record(), "status": "operator_disabled", "operator_disabled": True}
+        with mock.patch("orchestrate.comment", side_effect=Manual("offline")):
+            finish(self.f.orchestrator, state, result)
+            original_report = copy.deepcopy(state["reports"][self.f.key])
+            original_outbox = ledger(self.f.orchestrator, "outbox", self.f.key).read_bytes()
+            finish(self.f.orchestrator, state, {**result, "run_id": "b" * 32})
+        self.assertEqual(state["reports"][self.f.key], original_report)
+        self.assertEqual(ledger(self.f.orchestrator, "outbox", self.f.key).read_bytes(), original_outbox)
+        self.assertEqual(len(state["reports"]), 2)
+        self.assertTrue(ledger(self.f.orchestrator, "outbox", self.f.key + "-" + "b" * 32).exists())
+
+    def test_operator_stopped_rehearsal_logs_without_aborted_alarm(self):
+        from orchestrate import finish
+        state = copy.deepcopy(self.f.live_state)
+        result = {**self.pending_record("rehearse"), "status": "rehearsal_aborted", "rehearsal": "A",
+                  "operator_disabled": True, "reason": "operator_disabled", "rollback": "not_required"}
+        output = io.StringIO()
+        with mock.patch("orchestrate.comment"), mock.patch("orchestrate.alarm") as alarm, redirect_stdout(output):
+            finish(self.f.orchestrator, state, result)
+        self.assertEqual(alarm.call_count, 0)
+        self.assertIn("rehearsal stopped by operator", output.getvalue())
+
+    def test_clear_absent_safety_latch_is_explicit(self):
+        result = self.f.tick(args=("--clear-disable", "--latch", "--reason", "inspect latch"))
+        self.assertIn("no safety latch set", result.stdout)
+        self.assertNotIn("cleared safety latch", result.stdout)
 
     def test_alarm_failed_delivery_retries_while_stopped(self):
         from orchestrate import queue_alarm, deliver_alarms
@@ -3918,11 +4088,13 @@ class TestCD(unittest.TestCase):
             result = original(*args)
             self.operator_stop()  # lands during preparation, before requesting ack
             return result
-        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.gate_g2", side_effect=prepared):
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.gate_g2", side_effect=prepared), \
+                mock.patch("orchestrate.queue_alarm", wraps=orchestrate.queue_alarm) as queue:
             tick(self.f.orchestrator)
         self.assertEqual(self.f.terminal()["status"], "operator_disabled")
         self.assertFalse(self.f.events("start"))
         self.assertFalse(any("awaiting attended ack" in e["text"] for e in self.f.events("mailbox")))
+        self.assertFalse(any(call.args[4] == "awaiting attended ack" for call in queue.call_args_list))
 
     def test_rehearsal_stop_after_preflight_never_starts(self):
         config = {**self.f.orchestrator, "mode": "rehearse", "rehearsal": "A", "rehearsal_reason": "fixture stop"}
@@ -4340,7 +4512,7 @@ def mutants(only=None, start_after=None):
         ("checker URL encoding", "common.py", [('quote(path, safe="/")', 'path')], "test_checker_url_encodes_path_and_refuses_controls"),
         ("checker path validation", "common.py", [('Path(repo).is_absolute() and all(c.isprintable() for c in path)', 'True')], "test_checker_url_encodes_path_and_refuses_controls"),
         ("fetch phase is distinct", "orchestrate.py", [('result["phase"] = "fetch"', 'pass')], "test_hausnetz_fetch_failure_is_distinct_and_retryable"),
-        ("fetch failures have no reservation", "orchestrate.py", [('if not result.get("operator_disabled") and result["status"] not in {"operator_disabled", "fetch_failed", "vm_test_wait", "preflight_refused"} and not result.get("trial") and not result.get("rehearsal"):', 'if True:')], "test_hausnetz_fetch_failure_is_distinct_and_retryable"),
+        ("fetch failures have no reservation", "orchestrate.py", [('if not retryable_stop and result["status"] not in {"operator_disabled", "fetch_failed", "vm_test_wait", "preflight_refused"} and not result.get("trial") and not result.get("rehearsal"):', 'if True:')], "test_hausnetz_fetch_failure_is_distinct_and_retryable"),
         ("pre-pair six hour alarm", "orchestrate.py", [('>= 6 * 60 * 60', '>= 7 * 60 * 60')], "test_pre_pair_failure_alarms_once_after_six_hours_even_dry_run"),
         ("pre-pair alarms once", "orchestrate.py", [('failure["alarmed"] = True', 'failure["alarmed"] = False')], "test_pre_pair_failure_alarms_once_after_six_hours_even_dry_run"),
         ("cached unchanged main", "orchestrate.py", [('evaluated.get("main") == new', 'False')], "test_unchanged_tick_caches_evidence_until_thirty_minutes_or_main_moves"),
@@ -4523,8 +4695,8 @@ def mutants(only=None, start_after=None):
          [('state["operator_stop"] = {**marker, "operator": True}', 'state["disabled"] = {**marker, "operator": True}')],
          "test_stop_preserves_latch_and_clears_only_operator"),
         ("R2 stopped alarm retry removed", "orchestrate.py",
-         [('            if not state["pending"] or state["pending"].get("phase") == "awaiting_ack":\n                deliver_alarms(config, state)',
-           '            if not state["pending"] or state["pending"].get("phase") == "awaiting_ack":\n                pass')],
+         [('            if ("disabled" not in state and\n                    (not state["pending"] or state["pending"].get("phase") == "awaiting_ack")):\n                deliver_alarms(config, state)',
+           '            if ("disabled" not in state and\n                    (not state["pending"] or state["pending"].get("phase") == "awaiting_ack")):\n                pass')],
          "test_alarm_failed_delivery_retries_while_stopped"),
         ("R2 activation exception kills group", "common.py",
          [('if timeout is not None and not cancelled and CHILD_RECORD is None and process.poll() is None:',
@@ -4568,7 +4740,7 @@ def mutants(only=None, start_after=None):
            '                result["failed_units_before_rollback"] = failed_units(diagnostic=True)')],
          "test_failed_units_captured_before_and_after_rollback"),
         ("R2 stopped pair reserved forever", "orchestrate.py",
-         [('if not result.get("operator_disabled") and result["status"] not in {"operator_disabled", "fetch_failed", "vm_test_wait", "preflight_refused"} and',
+         [('if not retryable_stop and result["status"] not in {"operator_disabled", "fetch_failed", "vm_test_wait", "preflight_refused"} and',
            'if result["status"] not in {"fetch_failed", "vm_test_wait", "preflight_refused"} and')],
          "test_stopped_pair_retries_after_clear"),
         ("R2 attended ack requested while stopped", "orchestrate.py",
@@ -4585,6 +4757,22 @@ def mutants(only=None, start_after=None):
         ("R2 cancellation grace shortened", "common.py",
          [('deadline = time.monotonic() + 3', 'deadline = time.monotonic() + 0.1')],
          "test_cancel_child_allows_three_second_term_grace"),
+    ]
+    cases += [
+        ("R3 any operator stop skips real failure tombstones", "orchestrate.py",
+         [('retryable_stop = stop_caused or stopped_revision_refusal',
+           'retryable_stop = bool(result.get("operator_disabled")) or stopped_revision_refusal')],
+         "test_rollback_failure_while_stopped_sets_safety_latch"),
+        ("R3 never skip stopped target tombstones", "orchestrate.py",
+         [('retryable_stop = stop_caused or stopped_revision_refusal', 'retryable_stop = False')],
+         "test_stop_before_backup_never_acks_or_switches"),
+        ("R3 checker verdict ignored", "orchestrate.py",
+         [('result.get("checker_verdict") != "fail"', 'True')],
+         "test_checker_fail_then_stop_keeps_failed_target"),
+        ("R3 copy_export marker recheck removed", "orchestrate.py",
+         [('if read_disable(config) is None:\n        remote(config, "ack",',
+           'if True:\n        remote(config, "ack",')],
+         "test_stop_during_copy_export_withholds_ack"),
     ]
     if only is not None:
         cases = [case for case in cases if case[0].startswith(only)]
