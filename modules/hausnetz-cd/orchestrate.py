@@ -11,7 +11,7 @@ import sys
 import time
 import uuid
 
-from common import (Manual, POLL_BUDGET, POLL_INTERVAL, RESULT_SCHEMA, SSH_RETRY_TIMEOUT,
+from common import (ACCEPTANCE_TIMEOUT, EXECUTOR_TERMINAL, Manual, POLL_BUDGET, POLL_INTERVAL, RESULT_SCHEMA, SSH_RETRY_TIMEOUT,
                     TERMINAL, UNIT_RUNTIME_MAX, atomic_bytes, atomic_json, blob, cache_repo,
                     diagnostics, evidence, gate_g1, gate_g2, gate_g4, git, lock_pin, now,
                     parse_export, private_dir, require, revision, run, strict_json)
@@ -29,6 +29,8 @@ run_id=${6:-}
 version=${7:-}
 manifest_sha=${8:-}
 running=${9:-}
+variant=${10:-}
+one_shot=${11:-}
 state=/var/lib/hausnetz-cd
 if [ "$action" != evidence ]; then
   [[ "$rev" =~ ^[0-9a-f]{40}$ ]] || exit 2
@@ -36,7 +38,36 @@ if [ "$action" != evidence ]; then
 fi
 case "$action" in
   evidence) sudo -n cat /etc/pharos-deployment/evidence.json ;;
+  ack-live)
+    sudo -n install -d -m 0700 "$state"
+    [[ "$digest" == "$run_id" ]] || exit 2
+    printf '%s\n' "$run_id" | sudo -n tee "$state/ack-live-$run_id" >/dev/null
+    sudo -n chmod 0600 "$state/ack-live-$run_id"
+    ;;
+  acceptance)
+    [[ "$digest" == pass || "$digest" == fail ]] || exit 2
+    printf '%s\n' "$digest" | sudo -n tee "$state/acceptance-$run_id" >/dev/null
+    sudo -n chmod 0600 "$state/acceptance-$run_id"
+    ;;
+  rehearse)
+    [[ "$variant" == A || "$variant" == B ]] || exit 2
+    [[ "$one_shot" =~ ^[0-9a-f]{32}$ ]] || exit 2
+    sudo -n install -d -m 0700 "$state"
+    printf '%s\n' "$one_shot" | sudo -n tee "$state/rehearsal-token-$run_id" >/dev/null
+    sudo -n chmod 0600 "$state/rehearsal-token-$run_id"
+    sudo -n systemd-run --quiet --collect --unit="hausnetz-cd-$run_id" \
+      --property=Type=exec --property=Nice=19 --property=CPUQuota=200% \
+      --property=IOSchedulingClass=idle --property=UMask=0077 --property=TimeoutStopSec=300 \
+      --property=MemoryAccounting=yes --property=MemoryHigh=1G --property=MemoryMax=1500M \
+      --property=RuntimeMaxSec=@RUNTIME@ --property=KillMode=process --property=SendSIGKILL=no \
+      /run/current-system/sw/bin/hausnetz-cd-execute rehearse --variant "$variant" --token "$one_shot" --run-id "$run_id"
+    ;;
   start)
+    extra=()
+    if [[ "$variant" == trial ]]; then
+      [[ "$mode" == dry-run ]] || exit 2
+      extra=(--trial)
+    fi
     [[ "$expected" =~ ^[0-9a-f]{40}$ ]] || exit 2
     [[ "$mode" == dry-run || "$mode" == live ]] || exit 2
     [[ "$version" =~ ^[0-9]{12}\.0\.0$ ]] || exit 2
@@ -48,7 +79,7 @@ case "$action" in
       --property=MemoryAccounting=yes \
       --property=MemoryHigh=1G --property=MemoryMax=1500M --property=RuntimeMaxSec=@RUNTIME@ \
       --property=KillMode=process --property=SendSIGKILL=no \
-      /run/current-system/sw/bin/hausnetz-cd-execute "$rev" "$expected" "$mode" \
+      /run/current-system/sw/bin/hausnetz-cd-execute ${extra[@]+"${extra[@]}"} "$rev" "$expected" "$mode" \
       "$version" "$manifest_sha" "$running" "$run_id"
     ;;
   status)
@@ -74,8 +105,8 @@ esac
 
 
 def remote(config, action, rev="", expected="", mode="", digest="", run_id="",
-           version="", manifest_sha="", running="", binary=False):
-    args = [action, rev, expected, mode, digest, run_id, version, manifest_sha, running]
+           version="", manifest_sha="", running="", variant="", one_shot="", binary=False):
+    args = [action, rev, expected, mode, digest, run_id, version, manifest_sha, running, variant, one_shot]
     command = "bash -s -- " + " ".join(shlex.quote(value) for value in args)
     return run("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
                 "-o", "StrictHostKeyChecking=yes", config["target"], command],
@@ -91,6 +122,7 @@ def log_line(result):
             + " rollback=" + result.get("rollback", "not_required")
             + " changed_paths=" + json.dumps(diagnostics(result.get("changed_paths", [])), separators=(",", ":"))
             + " problems=" + json.dumps(diagnostics(result.get("problems", [])), separators=(",", ":"))
+            + " acceptance=" + result.get("acceptance", "not_run")
             + " memory_peak_bytes=" + str(result.get("memory_peak_bytes") or "unknown")
             + " mode=" + result["mode"] + " status=" + result["status"])
 
@@ -136,7 +168,7 @@ def alarm_route_failed(route):
 
 
 def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False):
-    if result["mode"] != "live" and not pre_pair and not test:
+    if result["mode"] != "live" and not pre_pair and not test and not result.get("rehearsal"):
         return
     result = {**result, "changed_paths": diagnostics(result.get("changed_paths")),
               "problems": diagnostics(result.get("problems"))}
@@ -202,7 +234,7 @@ def validate_result(result, pending):
             and result.get("hausnetz_rev") == pending["hausnetz_rev"]
             and result.get("run_id") == pending["run_id"]
             and result.get("mode") == pending["mode"], "remote_result_identity")
-    require(result.get("status") in TERMINAL | {"running"}, "remote_result_status")
+    require(result.get("status") in EXECUTOR_TERMINAL | {"running"}, "remote_result_status")
     if result["status"] in {"succeeded", "dry-run"}:
         require(result.get("gates") == {"G1": "pass", "G2": "controller_evidence",
                                         "G3": "pass", "G4": "controller_evidence"},
@@ -217,7 +249,7 @@ def validate_result(result, pending):
                     "manifest_sha256": pending["manifest_sha256"]}, "remote_controller_evidence")
     if result["status"] == "succeeded":
         require(result.get("health") == "pass" and result.get("backup") == "copied"
-                and result["mode"] == "live", "remote_success_evidence")
+                and result["mode"] == "live" and result.get("acceptance") == "pass", "remote_success_evidence")
     return result
 
 
@@ -239,10 +271,14 @@ def save_state(config, state):
 def report(config, state, key):
     entry = state["reports"][key]
     result = entry["result"]
-    if result["status"] in {"rollback_failed", "unknown"} and not entry["alarm"]:
-        alarm(config, result, "ROLLBACK STATUS UNKNOWN" if result["status"] == "unknown" else "ROLLBACK FAILED")
+    if result["status"] in {"rollback_failed", "unknown", "rehearsal_aborted"} and not entry["alarm"]:
         entry["alarm"] = True
+        if state.get("disabled", {}).get("run_id") == result.get("run_id"):
+            state["disabled"]["alarmed"] = True
         save_state(config, state)
+        prefix = "TEST (no action): " if result.get("rehearsal") else ""
+        label = "ROLLBACK STATUS UNKNOWN" if result["status"] == "unknown" else ("ROLLBACK FAILED" if result["status"] == "rollback_failed" else "REHEARSAL ABORTED")
+        alarm(config, result, prefix + label)
     if not entry["ticket"] and entry.get("ticket_attempts", 0) < 5:
         # Reserve before sending, so a crash cannot reset the retry budget.
         entry["ticket_attempts"] = entry.get("ticket_attempts", 0) + 1
@@ -277,16 +313,24 @@ def finish(config, state, result):
         state["pending"] = None
         save_state(config, state)
         return
-    if result["status"] == "fetch_failed" and key in state["reports"]:
+    if result["status"] in {"fetch_failed", "vm_test_wait"} and key in state["reports"]:
+        save_state(config, state)
         return  # One report per fetch outage/pair; the source remains retryable.
     state["sequence"] += 1
     order = state["sequence"]
-    if result["status"] != "fetch_failed":
+    if result["status"] not in {"fetch_failed", "vm_test_wait"} and not result.get("trial") and not result.get("rehearsal"):
         state["attempted"][key] = {"status": result["status"], "order": order}
         atomic_json(ledger(config, "attempted", key), {"status": result["status"], "at": now()})
+    if result["status"] == "rollback_failed" or result.get("rollback") == "failed":
+        print("hausnetz-cd: disabled latch set after rollback_failed", flush=True)
+        state.setdefault("disabled", {"at": now(), "run_id": result["run_id"],
+                                      "reason": "rollback_failed", "alarmed": False,
+                                      "test": bool(result.get("rehearsal"))})
     if result["status"] == "succeeded":
+        if result["mode"] == "live" and state.get("attended_remaining", 3) > 0:
+            state["attended_remaining"] -= 1
         state["last_deployed"] = result["nixcfg_rev"]
-    elif result["status"] in {"failed", "rollback_failed", "manual", "unknown"}:
+    elif result["status"] in {"failed", "rollback_failed", "manual", "unknown"} and not result.get("trial") and not result.get("rehearsal"):
         target = result["hausnetz_rev"]
         if re.fullmatch(r"[0-9a-f]{40}", target):
             state["failed"] = [rev for rev in state["failed"] if rev != target] + [target]
@@ -326,6 +370,9 @@ def reconcile(config, state):
                 result.setdefault("gates", {})["G5"] = pending.get("vm_test", "not_run")
                 result["vm_test_reason"] = pending.get("vm_test_reason", "not_run")
                 result["run_key"] = pending["run_key"]
+                result["trial"] = pending.get("trial", False)
+                if pending.get("rehearsal"):
+                    require(result.get("rehearsal") == pending["rehearsal"], "rehearsal_result_variant")
                 if result["status"] in TERMINAL and (
                     result["status"] == "skipped"
                     or (result.get("phase") == "complete" and result.get("completed_at"))
@@ -347,6 +394,14 @@ def reconcile(config, state):
             save_state(config, state)
             if matching and result.get("phase") == "backup_ready":
                 copy_export(config, result)
+            if matching and result.get("phase") == "acceptance_ready":
+                if "acceptance" not in pending:
+                    pending["acceptance"] = acceptance(config, pending)
+                    save_state(config, state)
+                    if pending["acceptance"] != "pass":
+                        alarm(config, pending, "ACCEPTANCE FAILED")
+                remote(config, "acceptance", pending["nixcfg_rev"], run_id=pending["run_id"],
+                       digest=pending["acceptance"])
         except (Manual, OSError, KeyError, TypeError, ValueError):
             since = pending.setdefault("unavailable_since", time.time())
             save_state(config, state)
@@ -355,6 +410,71 @@ def reconcile(config, state):
                 return
         time.sleep(min(interval, max(0, pending["deadline"] - time.time())))
     unknown("executor_pending_timeout")
+
+
+def acceptance_settings(config):
+    command = config.get("acceptance_command", [])
+    require(isinstance(command, list) and command and all(isinstance(a, str) for a in command), "acceptance_unset")
+    require(isinstance(config.get("acceptance_url"), str) and config["acceptance_url"], "acceptance_url_unset")
+    require(0 < config.get("acceptance_timeout", ACCEPTANCE_TIMEOUT) <= ACCEPTANCE_TIMEOUT, "acceptance_timeout_invalid")
+    require(all("{" + name + "}" in " ".join(command)
+                for name in ("trusted_rev", "url", "version", "caps_sha256")), "acceptance_contract_unset")
+    return command
+
+
+def acceptance(config, pending):
+    """Only an operator-configured CI-VM invocation may run the trusted checker."""
+    try:
+        command = acceptance_settings(config)
+        # The VM adapter MUST materialize this exact pre-switch revision and run
+        # just acceptance there. Its argv is configured, never candidate input.
+        values = {"trusted_rev": revision(pending["trusted_hausnetz_rev"]),
+                  "url": config["acceptance_url"], "version": pending["expected_version"],
+                  "caps_sha256": pending["manifest_sha256"]}
+        require(all("{" + name + "}" in " ".join(command) for name in values), "acceptance_contract_unset")
+        argv = [arg.format_map(values) for arg in command]
+        value = strict_json(run(argv[0], argv[1:], timeout=config.get("acceptance_timeout", ACCEPTANCE_TIMEOUT)))
+        require(isinstance(value, dict) and value.get("ok") is True, "acceptance_red_or_schema")
+        return "pass"
+    except (Manual, OSError, KeyError, TypeError, ValueError):
+        return "fail"
+
+
+def start_pending(config, state):
+    pending = state["pending"]
+    if pending["mode"] == "live":
+        ack = Path(config["state_file"]).parent / ("ack-live-" + pending["run_id"])
+        if pending.get("attended_required"):
+            valid_ack = (ack.is_file() and not ack.is_symlink()
+                         and ack.read_text().strip() == pending["run_id"]
+                         and pending["ack_requested_at"] <= ack.stat().st_mtime <= pending["ack_deadline"])
+            if not valid_ack and time.time() >= pending["ack_deadline"]:
+                if not pending.get("ack_timeout_alarmed"):
+                    pending["ack_timeout_alarmed"] = True
+                    save_state(config, state)
+                    alarm(config, pending, "ack timeout, release left manual")
+                finish(config, state, {**pending, "status": "ack_timeout", "phase": "complete", "completed_at": now(),
+                                       "reason": "attended_ack_timeout"})
+                return False
+            if not valid_ack:
+                print("hausnetz-cd: awaiting attended ack run_token=" + pending["run_id"], flush=True)
+                return False
+        remote(config, "ack-live", pending["nixcfg_rev"], run_id=pending["run_id"], digest=pending["run_id"])
+    pending["phase"] = "executor"
+    pending["deadline"] = time.time() + fixture_limit(config, "poll_timeout", POLL_BUDGET)
+    if not pending.get("trial"):
+        state["sequence"] += 1
+        state["attempted"][pending["run_key"]] = {"status": "reserved", "order": state["sequence"]}
+        atomic_json(ledger(config, "attempted", pending["run_key"]), {"status": "reserved", "at": now()})
+    save_state(config, state)
+    try:
+        remote(config, "start", pending["nixcfg_rev"], pending["hausnetz_rev"], pending["mode"],
+               run_id=pending["run_id"], version=pending["expected_version"],
+               manifest_sha=pending["manifest_sha256"], running=pending["running_nixcfg_rev"],
+               variant="trial" if pending.get("trial") else "")
+    except Manual:
+        pass  # uncertain submission is reconciled by run ID, never resubmitted
+    return True
 
 
 def vm_test(rev):
@@ -389,7 +509,7 @@ def pre_pair_failure(config, state):
 def tick(config):
     if config.get("enabled") is not True:
         return
-    require(config["mode"] in {"dry-run", "live"}, "invalid_mode")
+    require(config["mode"] in {"dry-run", "live", "rehearse"}, "invalid_mode")
     require(re.fullmatch(r"HNET-[0-9]+", config.get("release_ticket") or ""), "release_ticket_unset")
     if config["mode"] == "live":
         require(config.get("secondary_telegram_command"), "independent_alert_path_unset")
@@ -410,12 +530,59 @@ def tick(config):
         else:
             state = {"schema": "inspr.hausnetz-cd-state.v1", "last_deployed": None,
                      "failed": [], "attempted": {}, "pending": None, "reports": {}, "sequence": 0}
+        if config.get("clear_disable"):
+            require(not state["pending"], "pending_refuses_clear_disable")
+            state.pop("disabled", None)
+            state["disable_cleared"] = {"at": now(), "reason": config["clear_reason"]}
+            save_state(config, state)
+            return
+        if "disabled" in state:
+            require(isinstance(state["disabled"], dict), "invalid_disable_latch")
+            print("hausnetz-cd: disabled latch set; operator clear required", flush=True)
+            if not state["disabled"].get("alarmed"):
+                for key, entry in state["reports"].items():
+                    if (entry["result"].get("run_id") == state["disabled"].get("run_id")
+                            and not entry["alarm"]):
+                        report(config, state, key)
+                        return
+                state["disabled"]["alarmed"] = True
+                save_state(config, state)
+                prefix = "TEST (no action): " if state["disabled"].get("test") else ""
+                alarm(config, {"mode": config["mode"], "nixcfg_rev": "unknown", "hausnetz_rev": "unknown"},
+                      prefix + "CD DISABLED", pre_pair=True)
+            for key in list(state["reports"]):
+                report(config, state, key)
+            return
+        if config["mode"] == "live":
+            state.setdefault("attended_remaining", 3)
+            require(type(state["attended_remaining"]) is int and 0 <= state["attended_remaining"] <= 3,
+                    "invalid_attended_counter")
+            save_state(config, state)
+        if config.get("rehearsal"):
+            require(not state["pending"] or state["pending"].get("rehearsal") == config["rehearsal"],
+                    "other_pending_refuses_rehearsal")
         if config.get("manual_dry_run"):
             require(not state["pending"] or state["pending"]["mode"] == "dry-run", "live_pending_refuses_dry_run")
         for key in list(state["reports"]):
             if not config.get("manual_dry_run") or state["reports"][key]["result"]["mode"] == "dry-run":
                 report(config, state, key)
         if state["pending"]:
+            if state["pending"].get("phase") == "awaiting_ack" and not start_pending(config, state):
+                return
+            reconcile(config, state)
+            return
+        if config.get("rehearsal"):
+            running = evidence(remote(config, "evidence"))
+            token = uuid.uuid4().hex
+            pending = {"nixcfg_rev": running, "hausnetz_rev": running, "mode": "rehearse",
+                       "run_id": token, "run_key": "rehearse-" + token, "rehearsal": config["rehearsal"],
+                       "deadline": time.time() + fixture_limit(config, "poll_timeout", POLL_BUDGET)}
+            state["pending"] = pending
+            save_state(config, state)
+            try:
+                remote(config, "rehearse", running, run_id=token, variant=config["rehearsal"], one_shot=uuid.uuid4().hex)
+            except Manual:
+                pass
             reconcile(config, state)
             return
         # Nothing is a delivery attempt until both hausnetz revisions are known
@@ -482,27 +649,38 @@ def tick(config):
                 result["gates"][result["phase"]] = "manual"
             if result["phase"] == "fetch":
                 result.update(status="fetch_failed", reason="hausnetz_fetch_failed", run_key=key + "-fetch")
+            elif result["phase"] == "G5" and config["mode"] == "live":
+                result.update(status="vm_test_wait", run_key=key + "-vm-test")
+                outage = state.setdefault("vm_test_wait", {"rev": expected, "since": time.time(), "alarmed": False})
+                if outage["rev"] != expected:
+                    outage = state["vm_test_wait"] = {"rev": expected, "since": time.time(), "alarmed": False}
+                if time.time() - outage["since"] >= config.get("vm_test_wait_timeout", 1800) and not outage["alarmed"]:
+                    outage["alarmed"] = True
+                    alarm(config, result, "VM-TEST WAIT EXCEEDED")
             else:
                 evaluated_tick()
+            result["trial"] = bool(config.get("manual_dry_run"))
             finish(config, state, result)
             return
+        state.pop("vm_test_wait", None)
+        if config["mode"] == "live":
+            acceptance_settings(config)
         pending = {"nixcfg_rev": new, "hausnetz_rev": expected, "mode": config["mode"],
-                   "running_nixcfg_rev": old,
+                   "running_nixcfg_rev": old, "trusted_hausnetz_rev": a,
+                   "trial": bool(config.get("manual_dry_run")),
                    "run_id": result["run_id"], "run_key": key, "reserved_at": now(),
                    "expected_version": prepared["version"], "manifest_sha256": prepared["manifest_sha256"],
                    "changed_paths": prepared["changed_paths"], "problems": prepared["problems"],
                    "vm_test": result["gates"]["G5"], "vm_test_reason": result["vm_test_reason"],
                    "deadline": time.time() + fixture_limit(config, "poll_timeout", POLL_BUDGET)}
-        state["sequence"] += 1
-        state["attempted"][key] = {"status": "reserved", "order": state["sequence"]}
         state["pending"] = pending
-        atomic_json(ledger(config, "attempted", key), {"status": "reserved", "at": now()})
-        save_state(config, state)
-        try:
-            remote(config, "start", new, expected, config["mode"], run_id=pending["run_id"],
-                   version=prepared["version"], manifest_sha=prepared["manifest_sha256"], running=old)
-        except Manual:
-            pass
+        if config["mode"] == "live" and state["attended_remaining"] > 0:
+            pending.update(phase="awaiting_ack", attended_required=True, ack_requested_at=time.time(),
+                           ack_deadline=time.time() + 60 * config.get("attended_ack_minutes", 30))
+            save_state(config, state)
+            alarm(config, pending, "awaiting attended ack")
+        if not start_pending(config, state):
+            return
         reconcile(config, state)
         if key in state["attempted"]:
             evaluated_tick()
@@ -514,14 +692,22 @@ CONFIG_FILE = "@CONFIG@"
 
 def main():
     parser = argparse.ArgumentParser(allow_abbrev=False)
+    parser.add_argument("command", nargs="?", choices=["rehearse"])
+    parser.add_argument("--variant", choices=["A", "B"])
+    parser.add_argument("--clear-disable", action="store_true")
+    parser.add_argument("--reason")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--test-alarm", action="store_true")
     args = parser.parse_args()
+    if bool(args.command) != bool(args.variant):
+        parser.error("rehearse requires --variant A|B")
+    if args.clear_disable != bool(args.reason and args.reason.strip()):
+        parser.error("--clear-disable requires --reason <text>")
+    if sum((bool(args.command), args.clear_disable, args.test_alarm, args.once or args.dry_run)) > 1:
+        parser.error("operator commands cannot be combined")
     if args.once != args.dry_run:
         parser.error("manual execution requires both --once and --dry-run")
-    if args.test_alarm and (args.once or args.dry_run):
-        parser.error("--test-alarm cannot be combined with deployment flags")
     try:
         require(not CONFIG_FILE.startswith("@"), "unsubstituted_configuration")
         config = strict_json(Path(CONFIG_FILE).read_bytes())
@@ -531,6 +717,10 @@ def main():
             alarm(config, {"mode": "dry-run", "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
                            "reason": "operator_alarm_test"}, "TEST (no action): CD ALARM", test=True)
             return
+        if args.command:
+            config = {**config, "enabled": True, "mode": "rehearse", "rehearsal": args.variant}
+        if args.clear_disable:
+            config = {**config, "enabled": True, "clear_disable": True, "clear_reason": args.reason.strip()[:500]}
         if args.once:
             config = {**config, "enabled": True, "mode": "dry-run", "manual_dry_run": True}
         tick(config)

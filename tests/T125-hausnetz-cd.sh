@@ -19,6 +19,9 @@ assert not {"manifestPath", "versionUrl", "versionField", "healthUrl"}.intersect
 assert o["enable"] is False and o["mode"] == "dry-run"
 assert "manifestPath" not in o and o["releaseTicket"] is None
 assert o["alarmCommand"] == [] and o["secondaryTelegramCommand"]
+assert o["acceptanceCommand"] == [] and o["acceptanceUrl"] == ""
+assert o["acceptanceTimeout"] == 600 and o["attendedAckMinutes"] == 30
+assert o["vmTestWaitTimeout"] == 1800
 assert not {"agentsHost", "agentsPort"}.intersection(o)
 assert o["mailboxRemoteFile"] == "/fixture/home/.config/inspr/mbx-remote"
 assert o["localMailboxCommand"] == "/fixture/home/.local/bin/mbx"
@@ -40,6 +43,9 @@ assert "CONFIG_FILE = " + json.dumps("/fixture/hausnetz-cd-executor.json") in c[
 orchestrator = json.loads(c["orchestratorRunner"]["settings"])
 assert orchestrator["enabled"] is False and orchestrator["mode"] == "dry-run"
 assert orchestrator["target"] == "mba@hsb0.lan"
+assert orchestrator["acceptance_command"] == [] and orchestrator["acceptance_url"] == ""
+assert orchestrator["acceptance_timeout"] == 600 and orchestrator["attended_ack_minutes"] == 30
+assert orchestrator["vm_test_wait_timeout"] == 1800
 assert "selected-nix" in c["orchestratorRunner"]["runtimeInputs"]
 assert "gh" in c["orchestratorRunner"]["runtimeInputs"]
 assert not {"agents_host", "agents_port"}.intersection(orchestrator)

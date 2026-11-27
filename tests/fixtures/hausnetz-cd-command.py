@@ -66,7 +66,7 @@ if command == "sudo":
     commands = {name: str(root / "bin" / name) for name in
                 ("systemd-run", "systemctl", "cat", "test", "tee", "chmod")}
     # Only fixed local fixture programs or system utilities are executable.
-    commands.update({name: shutil.which(name) for name in ("cat", "test", "tee", "chmod")})
+    commands.update({name: shutil.which(name) for name in ("cat", "test", "tee", "chmod", "install")})
     os.execv(commands[args[0]], args)
 elif command == "ssh":
     script = sys.stdin.read()
@@ -133,8 +133,11 @@ elif command == "systemctl":
         event("memory-peak", unit=args[1])
         print(scenario.get("memory_peak", "536870912"))
     elif args[1] == "hausnetz.service":
-        assert "--property=MainPID" in args
-        print("0" if scenario.get("pid_missing") and active_new() else "123")
+        if "--property=InvocationID" in args:
+            print("b" * 32 if scenario.get("rehearsal_restart") and (root / "rolled-back").exists() else "a" * 32)
+        else:
+            assert "--property=MainPID" in args
+            print("0" if scenario.get("pid_missing") and active_new() else "123")
     else:
         assert "--property=ActiveState" in args
         print(scenario.get("unit_state", "active" if (root / "executor.pid").exists() else "inactive"))
@@ -212,6 +215,9 @@ elif command == "nix-store":
     event("gc-root", path=args[1], target=args[4])
     print(args[4])
 elif command == "nix-env":
+    if args == ["--profile", config["system_profile"], "--list-generations"]:
+        print("1 fixture generation" + ("\n2 changed" if scenario.get("rehearsal_generation") and (root / "rolled-back").exists() else ""))
+        raise SystemExit(0)
     assert args[:2] == ["--profile", config["system_profile"]] and args[2] == "--set"
     target = args[3]
     generation = "system-2-link" if target == config["new_system"] else "system-3-link"
@@ -231,6 +237,8 @@ elif command == "switch-to-configuration":
             print("would activate the configuration...")
             print("would reload the following units: dbus-broker.service")
             print("would start the following units: hausnetz.service, polkit.service")
+        if scenario.get("rehearsal_rollback_units") and (root / "rolled-back").exists():
+            print("would restart the following units: hausnetz.service")
         if scenario.get("extra_unit"):
             print("would restart the following units: sshd.service", file=sys.stderr)
         if scenario.get("change_during_g3"):
@@ -244,6 +252,8 @@ elif command == "switch-to-configuration":
         link(config["current_system"], target)
         if target == config["old_system"]:
             (root / "rolled-back").touch()
+            if scenario.get("rehearsal_boot_change"):
+                (root / "boot/grub/grubenv").write_text("changed default")
         rev = config["old_rev"] if target == config["old_system"] else config["new_rev"]
         if not scenario.get("stale_evidence"):
             Path(config["evidence_file"]).write_text(json.dumps({
@@ -343,6 +353,19 @@ elif command in {"alarm", "secondary-telegram"}:
     event(command, text=sys.stdin.read())
     if scenario.get("secondary_telegram_fail") and command == "secondary-telegram":
         raise SystemExit(1)
+elif command == "bootctl":
+    print("Current Boot Loader: fixture default")
+elif command == "acceptance":
+    event("acceptance", args=args)
+    assert len(args) == 6 and args[1:3] == ["just", "acceptance"]
+    assert args[0] == config["old_hnet"] and args[0] != config["new_hnet"]
+    assert args[3:] == ["http://fixture.invalid", config["new_version"], config["manifest_sha"]]
+    if scenario.get("acceptance_hang"):
+        time.sleep(10)
+    if scenario.get("acceptance_missing"):
+        raise SystemExit(127)
+    print(scenario.get("acceptance_output", '{"ok":true}'))
+    raise SystemExit(scenario.get("acceptance_exit", 0))
 elif command == "gh":
     event("vm-test", args=args)
     assert args == ["api", "--method", "GET",

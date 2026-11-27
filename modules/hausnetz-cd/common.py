@@ -33,16 +33,18 @@ G3_TIMEOUT = 2 * G3_COMMAND_TIMEOUT  # diff-closures + dry-activate
 ACK_TIMEOUT = 120
 HEALTH_TIMEOUT = 120
 SWITCH_BUDGET = 600  # observation budget only: activation is never killed
+ACCEPTANCE_TIMEOUT = 600
 SOURCE_BUDGET = 600
 EXECUTOR_BUDGET = (SOURCE_BUDGET + BUILD_TIMEOUT + G3_TIMEOUT + ACK_TIMEOUT
-                   + 3 * HEALTH_TIMEOUT + 2 * SWITCH_BUDGET + 120)
+                   + 3 * HEALTH_TIMEOUT + 2 * SWITCH_BUDGET + ACCEPTANCE_TIMEOUT + 240)
 SSH_RETRY_TIMEOUT = 300
 POLL_INTERVAL = 15
 POLL_BUDGET = EXECUTOR_BUDGET + SSH_RETRY_TIMEOUT + 120
 UNIT_RUNTIME_MAX = POLL_BUDGET + 300
 EVIDENCE_SCHEMA = "inspr.pharos.nix-deployment-evidence.v1"
 RESULT_SCHEMA = "inspr.pharos.guarded-deploy-result.v1"
-TERMINAL = {"manual", "dry-run", "succeeded", "failed", "rollback_failed", "skipped", "unknown", "fetch_failed"}
+EXECUTOR_TERMINAL = {"manual", "dry-run", "succeeded", "failed", "rollback_failed", "skipped", "rolled_back", "rehearsal_aborted"}
+TERMINAL = EXECUTOR_TERMINAL | {"unknown", "fetch_failed", "vm_test_wait", "ack_timeout"}
 
 
 def diagnostics(items):
@@ -124,8 +126,11 @@ def strict_json(data):
             result[key] = value
         return result
 
+    def invalid_constant(_value):
+        raise Manual("unreadable_json")
+
     try:
-        return json.loads(data, object_pairs_hook=unique)
+        return json.loads(data, object_pairs_hook=unique, parse_constant=invalid_constant)
     except (ValueError, UnicodeError, RecursionError) as exc:
         raise Manual("unreadable_json") from exc
 

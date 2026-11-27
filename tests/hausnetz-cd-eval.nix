@@ -9,6 +9,10 @@ let
       bool = null;
       str = null;
       port = null;
+      ints = {
+        positive = null;
+        between = _: _: null;
+      };
       nullOr = _: null;
       listOf = _: null;
       enum = _: null;
