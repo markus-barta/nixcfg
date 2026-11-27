@@ -64,13 +64,13 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 70: v261126222510.0.0 (sequence 140; hausnetz main 4061dad3 = merge of release PR #453; the tag is on
-    # the merge). Since 69: the Labs switches scaffold (internal/labs, an optional site-model field "labs" that older
-    # releases ignore, /api/meta labs), UI, tests and CI files; no nix/, flake or Go-dependency change; no new listener,
-    # outbound call, credential or write path (capability review HNET-589). Rollback: previous generation (pin 69);
-    # a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 71: v261127002008.0.0 (sequence 141; hausnetz main 4ea75d4b = merge of release PR #457; the tag is on
+    # the merge). Since 70: weekly What's new in Help, load-robust tests (HNET-587; the shellyheal socket code moved
+    # verbatim, plus a nil test seam), a release tool, UI, tests and CI files; no nix/, flake or Go-dependency change;
+    # no new listener, outbound call, credential or write path (capability review HNET-592). Rollback: previous
+    # generation (pin 70); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=4061dad3bc69b3d3da04836c45503c39a6f82452";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=4ea75d4bac2f0cee7ca8ada0e5a3789b80eb27e9";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
