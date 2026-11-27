@@ -366,6 +366,7 @@ async function page({
     removeItem: (key) => values.delete(key),
   };
   const timers = [];
+  let now = 0;
   const window = {
     localStorage,
     listeners: new Map(),
@@ -384,10 +385,12 @@ async function page({
         callback({ type, preventDefault() {}, ...extra });
     },
     setTimeout(callback, delay) {
-      timers.push({ callback, delay });
+      timers.push({ callback, delay, due: now + delay, active: true });
       return timers.length;
     },
-    clearTimeout() {},
+    clearTimeout(id) {
+      if (timers[id - 1]) timers[id - 1].active = false;
+    },
   };
   const location = { pathname: "/fernsehen/", search, hash };
   const entries = [{ state: null, search, hash }];
@@ -504,6 +507,17 @@ async function page({
     history,
     location,
     timers,
+    async elapse(milliseconds) {
+      now += milliseconds;
+      // Only timers already due at this point; timers created by their async
+      // work start at the new clock time and need a separate advance.
+      for (const timer of [...timers]) {
+        if (!timer.active || timer.due > now) continue;
+        timer.active = false;
+        timer.callback();
+      }
+      await settle();
+    },
     uploads,
     locks,
     requests,
@@ -1419,16 +1433,25 @@ test("a finishing upload never replaces an edit in progress", async () => {
 // client allows. `log` is what reached the server, in order.
 function recordingServer(initial) {
   const name = encodeURIComponent(initial.filename);
-  const server = { record: { ...initial }, trashed: false, pending: [], log: [] };
+  const server = { record: { ...initial }, trashed: false, pending: [], log: [], signals: [] };
   const reply = (status, body) => ({ ok: status < 300, status, json: async () => body });
   const missing = () => reply(404, { error: "Diese Aufnahme wurde nicht gefunden.", code: "not_found" });
   const entry = () => ({ ...server.record, trash: server.trashed });
   const route = (label, process) => (options) => {
     server.log.push(label(options));
+    server.signals.push(options.signal);
     const response = process(options);
     return new Promise((resolve) => server.pending.push(() => resolve(response)));
   };
   server.routes = {
+    "GET /fernsehen/api/videos": () => {
+      server.log.push("GET videos");
+      return reply(200, { videos: server.trashed ? [] : [entry()] });
+    },
+    "GET /fernsehen/api/videos?trash=1": () => {
+      server.log.push("GET trash");
+      return reply(200, { videos: server.trashed ? [entry()] : [] });
+    },
     [`PATCH /fernsehen/api/videos/${name}`]: route(
       (options) => "PATCH " + JSON.parse(options.body).title,
       (options) => {
@@ -1481,6 +1504,7 @@ function recordingServer(initial) {
 async function mutationPage(video = sample(1)) {
   const server = recordingServer(video);
   const ui = await page({ videos: [video], routes: server.routes });
+  server.log.length = 0; // The initial listing is separate from mutation order.
   const edit = ui.dialog("sheet");
   const form = findAll(edit, (node) => node.localName === "form")[0];
   const title = ui.document.getElementById("edit-title");
@@ -1496,10 +1520,194 @@ async function mutationPage(video = sample(1)) {
     await settle();
   };
   const saved = () => ui.toasts().filter((text) => text === "Die Angaben wurden gespeichert.").length;
-  return { ui, video, server, edit, title, save, error, card, cardTitle, cardImage, saveAs, saved };
+  return { ui, video, server, edit, form, title, save, error, card, cardTitle, cardImage, saveAs, saved };
 }
 const thumbBlob = { size: 1234, type: "image/jpeg" };
 const thumbUrl = "/fernsehen/thumb/Beispielaufnahme%201.mp4.jpg?v=1";
+
+test("a stalled thumbnail PUT times out, reloads server truth, then sends the queued save", async () => {
+  const run = await mutationPage();
+  const { ui, server, video, save } = run;
+  const stored = ui.app.storeThumbnail({ name: "local.mp4" }, video, async () => thumbBlob);
+  await settle();
+  await run.saveAs("Beispiel danach");
+  assert.equal(save.disabled, true);
+  assert.deepEqual(server.log, ["PUT thumb"]);
+
+  // Virtual time makes the 20-second production deadline immediate in tests.
+  await ui.elapse(ui.app.REQUEST_TIMEOUT_MS);
+  assert.deepEqual(server.log, ["PUT thumb", "GET videos", "GET trash", "PATCH Beispiel danach"],
+    "the PATCH must wait for an authoritative listing after the stalled PUT");
+  assert.equal(server.signals[0].aborted, true);
+  assert.equal(await stored, false);
+  assert.equal(run.cardImage().src, thumbUrl, "the listing recovers the committed thumbnail");
+  await server.answerNewest();
+  assert.equal(run.cardTitle(), "Beispiel danach");
+  assert.equal(run.cardImage().src, thumbUrl);
+  assert.equal(save.disabled, false);
+  assert.equal(run.edit.open, false);
+  assert.equal(run.saved(), 1);
+
+  await server.answerOldest(); // A fetch mock deliberately ignores the abort.
+  assert.equal(run.cardTitle(), "Beispiel danach", "the late PUT cannot regress the saved title");
+  assert.equal(run.cardImage().src, thumbUrl);
+});
+
+for (const stalled of ["fetch", "body"]) {
+  test(`a stalled PATCH ${stalled} times out, reloads, allows another save and ignores its late answer`, async () => {
+    const run = await mutationPage();
+    const { ui, server, edit, form, title, save, error, video } = run;
+    const routeKey = `PATCH /fernsehen/api/videos/${encodeURIComponent(video.filename)}`;
+    const patch = server.routes[routeKey];
+    let releaseBody;
+    if (stalled === "body") {
+      server.routes[routeKey] = async (options) => {
+        const response = await patch(options);
+        return {
+          ...response,
+          json: () => new Promise((resolve) => {
+            releaseBody = () => resolve(response.json());
+          }),
+        };
+      };
+    }
+    await run.saveAs("Beispiel unklar");
+    if (stalled === "body") {
+      await ui.elapse(ui.app.REQUEST_TIMEOUT_MS - 1);
+      assert.equal(save.disabled, true);
+      await server.answerOldest(); // Headers arrived; JSON stalls.
+    }
+    server.routes[routeKey] = patch;
+    const lang = stalled === "body" ? "en" : "de";
+    ui.app.setLanguage(lang, false);
+    await ui.elapse(stalled === "body" ? 1 : ui.app.REQUEST_TIMEOUT_MS);
+
+    assert.equal(server.signals[0].aborted, true);
+    assert.deepEqual(server.log, ["PATCH Beispiel unklar", "GET videos", "GET trash"]);
+    assert.equal(run.cardTitle(), "Beispiel unklar", "the listing recovers the uncertain save's outcome");
+    assert.equal(edit.open, true);
+    assert.equal(save.disabled, false);
+    assert.equal(title.value, "Beispiel unklar", "the draft stays available");
+    const message = ui.app.STRINGS[lang]["error.request_timeout"];
+    assert.equal(error.textContent, message);
+    assert.equal(error.hidden, false);
+    assert.deepEqual(ui.toasts(), [message], "the timeout has a localized toast even with the dialog open");
+
+    title.value = "Beispiel danach";
+    form.dispatch("submit");
+    await settle();
+    assert.equal(save.disabled, true);
+    await server.answerNewest();
+    assert.equal(run.cardTitle(), "Beispiel danach");
+    assert.equal(save.disabled, false);
+    assert.equal(edit.open, false);
+    assert.equal(ui.lastToast(), ui.app.STRINGS[lang]["toast.saved"]);
+    const toasts = ui.toasts();
+
+    if (stalled === "fetch") await server.answerOldest();
+    else {
+      releaseBody();
+      await settle();
+    }
+    assert.equal(run.cardTitle(), "Beispiel danach", "late results must not apply");
+    assert.equal(ui.app.state.videos[0].title, "Beispiel danach");
+    assert.equal(save.disabled, false);
+    assert.equal(edit.open, false);
+    assert.deepEqual(ui.toasts(), toasts, "the late response has no UI effects");
+    await ui.elapse(ui.app.REQUEST_TIMEOUT_MS);
+    assert.deepEqual(server.log, ["PATCH Beispiel unklar", "GET videos", "GET trash", "PATCH Beispiel danach"],
+      "successful requests clear their deadline timers");
+  });
+}
+
+test("a timeout uses the listing instead of replaying a superseded save's older answer", async () => {
+  const run = await mutationPage();
+  const { ui, server, edit, save } = run;
+  await run.saveAs("Beispiel A");
+  buttonByText(edit, "Abbrechen")[0].click();
+  await settle();
+  await run.saveAs(" ");
+  await server.answerOldest(); // A succeeds; the newer invalid save is pending.
+  assert.equal(run.cardTitle(), run.video.title, "A's superseded answer stays aside");
+  server.record.title = "Beispiel vom Server";
+  await ui.elapse(ui.app.REQUEST_TIMEOUT_MS);
+  assert.equal(run.cardTitle(), "Beispiel vom Server", "only the authoritative listing is applied");
+  assert.equal(save.disabled, false);
+  assert.equal(ui.lastToast(), ui.app.STRINGS.de["error.request_timeout"]);
+  await server.answerOldest();
+  assert.equal(run.cardTitle(), "Beispiel vom Server", "the late error cannot replay A");
+});
+
+test("a stalled recovery listing settles the save but fences later mutations until server truth is available", async () => {
+  const run = await mutationPage();
+  const { ui, server, form, title, save } = run;
+  await run.saveAs("Beispiel unklar");
+  const listing = server.routes["GET /fernsehen/api/videos"];
+  let releaseListing;
+  server.routes["GET /fernsehen/api/videos"] = (options) => {
+    const response = listing(options);
+    return new Promise((resolve) => { releaseListing = () => resolve(response); });
+  };
+  await ui.elapse(ui.app.REQUEST_TIMEOUT_MS);
+  assert.equal(save.disabled, true, "reconciliation precedes settling the timed-out mutation");
+  assert.deepEqual(server.log, ["PATCH Beispiel unklar", "GET videos", "GET trash"]);
+  await ui.elapse(ui.app.REQUEST_TIMEOUT_MS);
+  assert.equal(save.disabled, false, "even an unresponsive listing cannot wedge the chain");
+  assert.equal(run.cardTitle(), run.video.title, "an unknown result is not guessed");
+
+  // An action while reconciliation is still unavailable must settle without
+  // sending a mutation. The uncertainty survives the now-idle queue.
+  server.routes["GET /fernsehen/api/videos"] = () => { throw new Error("synthetic offline"); };
+  title.value = "Beispiel gesperrt";
+  form.dispatch("submit");
+  await settle();
+  assert.equal(save.disabled, false);
+  assert.deepEqual(server.log.filter((entry) => entry.startsWith("PATCH")), ["PATCH Beispiel unklar"]);
+
+  server.routes["GET /fernsehen/api/videos"] = listing;
+  title.value = "Beispiel danach";
+  form.dispatch("submit");
+  await settle();
+  assert.deepEqual(server.log.slice(-3), ["GET videos", "GET trash", "PATCH Beispiel danach"]);
+  assert.equal(run.cardTitle(), "Beispiel unklar", "authoritative state is applied before the next PATCH");
+  await server.answerNewest();
+  assert.equal(run.cardTitle(), "Beispiel danach");
+  assert.equal(save.disabled, false);
+  releaseListing();
+  await server.answerOldest();
+  assert.equal(run.cardTitle(), "Beispiel danach", "late recovery and mutation responses stay ignored");
+});
+
+test("stalled trash and restore requests reconcile both lists and ignore late responses", async () => {
+  const run = await mutationPage();
+  const { ui, server } = run;
+  buttonByText(run.card(), "Löschen")[0].click();
+  await settle();
+  buttonByText(ui.dialog("sheet-small"), "In den Papierkorb")[0].click();
+  await settle();
+  await ui.elapse(ui.app.REQUEST_TIMEOUT_MS);
+  assert.equal(server.signals[0].aborted, true);
+  assert.equal(ui.cards().length, 0);
+  assert.equal(ui.app.state.videos.length, 0);
+  assert.equal(ui.app.state.trash.length, 1);
+  assert.equal(ui.lastToast(), ui.app.STRINGS.de["error.request_timeout"]);
+
+  const segment = (label) =>
+    findAll(ui.root, (node) => hasClass(node, "segment") && node.textContent.startsWith(label))[0];
+  segment("Papierkorb").click();
+  buttonByText(run.card(), "Wiederherstellen")[0].click();
+  await settle();
+  await ui.elapse(ui.app.REQUEST_TIMEOUT_MS);
+  assert.equal(server.signals[1].aborted, true);
+  assert.equal(ui.app.state.videos.length, 1);
+  assert.equal(ui.app.state.trash.length, 0);
+  segment("Alle").click();
+  assert.equal(run.cardTitle(), run.video.title);
+  assert.deepEqual(server.log, ["DELETE", "GET videos", "GET trash", "POST restore", "GET videos", "GET trash"]);
+  await server.drain("newest");
+  assert.equal(ui.app.state.videos.length, 1);
+  assert.equal(ui.app.state.trash.length, 0, "the late DELETE cannot move the restored recording back");
+});
 
 // Gate 3: save A, close, reopen the same recording, save B. However the answers
 // come back, B's fields win and A's never reach the library or B's dialog.
