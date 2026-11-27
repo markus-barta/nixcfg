@@ -21,6 +21,8 @@ const THUMB_WIDTH = 960;
 const THUMB_HEIGHT = 540;
 const THUMB_QUALITY = 0.82;
 const THUMB_TIMEOUT_MS = 20000;
+// Small mutations (including thumbnails) must not hold a recording's queue.
+const REQUEST_TIMEOUT_MS = 20000;
 const VIDEO_PATTERN = /\.(mp4|m4v|mov)$/i;
 const SORTS = ["added", "title", "recorded"];
 const TONES = 6;
@@ -129,6 +131,8 @@ const STRINGS = {
     "load.retry": "Erneut versuchen",
     "error.generic": "Das hat leider nicht geklappt. Bitte erneut versuchen.",
     "error.network": "Die Verbindung ist unterbrochen. Bitte erneut versuchen.",
+    "error.request_timeout":
+      "Das dauert gerade zu lange. Die Änderung wurde vielleicht schon gespeichert. Bitte prüfen Sie die Aufnahme und versuchen Sie es bei Bedarf erneut.",
     "error.unreadable":
       "Die Antwort konnte nicht gelesen werden. Bitte erneut versuchen.",
     "error.server":
@@ -261,6 +265,8 @@ const STRINGS = {
     "load.retry": "Try again",
     "error.generic": "Sorry, that didn't work. Please try again.",
     "error.network": "The connection was lost. Please try again.",
+    "error.request_timeout":
+      "This is taking longer than expected. Your change may already have been saved. Please check the recording and try again if needed.",
     "error.unreadable": "The response could not be read. Please try again.",
     "error.server":
       "The recordings are not available right now. Please try again in a moment. If it stays like this, please contact your helper.",
@@ -625,25 +631,49 @@ async function request(path, options = {}) {
     body = JSON.stringify(options.json);
     headers["Content-Type"] = "application/json";
   }
-  let response;
+  const controller =
+    method !== "GET" || options.timeout ? new AbortController() : null;
+  const read = async () => {
+    let response;
+    try {
+      response = await fetch(BASE + "api/" + path, {
+        method,
+        headers,
+        body,
+        signal: controller ? controller.signal : undefined,
+      });
+    } catch (_) {
+      throw new ApiError(t("error.network"), 0);
+    }
+    let result;
+    try {
+      result = await response.json();
+    } catch (_) {
+      throw new ApiError(unreadableResponse(response.status), response.status);
+    }
+    if (!response.ok)
+      throw new ApiError(
+        problemText(result),
+        response.status,
+        result && result.code,
+      );
+    return result;
+  };
+  if (!controller) return read();
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = window.setTimeout(() => {
+      reject(new ApiError(t("error.request_timeout"), 0, "request_timeout"));
+      controller.abort();
+    }, REQUEST_TIMEOUT_MS);
+  });
   try {
-    response = await fetch(BASE + "api/" + path, { method, headers, body });
-  } catch (_) {
-    throw new ApiError(t("error.network"), 0);
+    // The same deadline covers headers AND body. Racing also settles the
+    // caller if a transport ignores abort; its late result has no side effects.
+    return await Promise.race([read(), deadline]);
+  } finally {
+    window.clearTimeout(timer);
   }
-  let result;
-  try {
-    result = await response.json();
-  } catch (_) {
-    throw new ApiError(unreadableResponse(response.status), response.status);
-  }
-  if (!response.ok)
-    throw new ApiError(
-      problemText(result),
-      response.status,
-      result && result.code,
-    );
-  return result;
 }
 
 // --------------------------------------------------------------------- DOM
@@ -1315,22 +1345,69 @@ function toast(message, { action, error = false } = {}) {
 //    state.trash or the player. An older success is kept aside and applied
 //    only if the newest fails, because it is then what the server holds.
 // 3. A thumbnail PUT changes only thumb_url: merged at once, supersedes none.
+// 4. A timeout leaves the server outcome uncertain. Discard kept answers and
+//    reconcile from bounded listings before sending another mutation. If that
+//    fails, reject this link and keep the fence for the next attempt.
 // The editSession token is a separate layer: which dialog, not which data.
-const mutations = new Map(); // filename -> { tail, latest, kept }
+const mutations = new Map(); // filename -> { tail, latest, kept, uncertain }
 let mutationSeq = 0;
+async function reconcileMutation(filename, queue) {
+  const [active, trashed] = await Promise.all([
+    request("videos", { timeout: true }),
+    request("videos?trash=1", { timeout: true }),
+  ]);
+  if (!Array.isArray(active.videos) || !Array.isArray(trashed.videos))
+    throw new ApiError(t("error.unreadable"), 0);
+  // Other filenames have independent chains: only reconcile this recording
+  // so an older listing cannot overwrite their newer mutation results.
+  const reconcile = (current, listing) => {
+    const entry = listing.find((item) => item.filename === filename);
+    if (!entry) return current.filter((item) => item.filename !== filename);
+    return current.some((item) => item.filename === filename)
+      ? replaceIn(current, entry)
+      : [entry, ...current];
+  };
+  state.videos = reconcile(state.videos, active.videos);
+  state.trash = reconcile(state.trash, trashed.videos);
+  updateSpace(active);
+  if (state.playing === filename) {
+    const video = currentPlaying();
+    if (video) fillPlayer(video);
+    else closePlayer();
+  }
+  render();
+  queue.uncertain = false;
+}
 // send() runs when it is this mutation's turn; apply(result) runs only when
 // the answer is authoritative (see above). Resolves to { result, latest }.
 function mutate(filename, send, apply, { supersedes = true } = {}) {
   let queue = mutations.get(filename);
   if (!queue) {
-    queue = { tail: Promise.resolve(), latest: 0, kept: [] };
+    queue = { tail: Promise.resolve(), latest: 0, kept: [], uncertain: false };
     mutations.set(filename, queue);
   }
   const seq = ++mutationSeq;
   if (supersedes) queue.latest = seq;
   // Decided and applied in one step, before the next mutation is sent.
   const run = queue.tail
-    .then(() => send())
+    .then(async () => {
+      if (queue.uncertain) await reconcileMutation(filename, queue);
+      try {
+        return await send();
+      } catch (error) {
+        if (error.code === "request_timeout") {
+          queue.uncertain = true;
+          queue.kept = [];
+          try {
+            await reconcileMutation(filename, queue);
+          } catch (_) {
+            // Keep the uncertainty fence, but let this link settle so its
+            // controls recover. The next action retries reconciliation first.
+          }
+        }
+        throw error;
+      }
+    })
     .then(
       (result) => {
         const step = () => apply(result);
@@ -1349,7 +1426,7 @@ function mutate(filename, send, apply, { supersedes = true } = {}) {
         return { result, latest: true };
       },
       (error) => {
-        if (supersedes && queue.latest === seq) {
+        if (!queue.uncertain && supersedes && queue.latest === seq) {
           const kept = queue.kept;
           queue.kept = [];
           for (const step of kept) step();
@@ -1362,9 +1439,14 @@ function mutate(filename, send, apply, { supersedes = true } = {}) {
     () => {},
   );
   queue.tail = tail;
-  // Nothing newer was queued meanwhile: this filename is idle again.
+  // An idle, reconciled filename can be forgotten. Keep uncertain ones so
+  // even an action queued later must first fetch the authoritative state.
   void tail.then(() => {
-    if (mutations.get(filename) === queue && queue.tail === tail)
+    if (
+      mutations.get(filename) === queue &&
+      queue.tail === tail &&
+      !queue.uncertain
+    )
       mutations.delete(filename);
   });
   return run;
@@ -1507,7 +1589,9 @@ async function saveEdit(event) {
     if (showing()) {
       ui.editError.textContent = error.message;
       ui.editError.hidden = false;
-    } else toast(error.message || t("error.generic"), { error: true });
+    }
+    if (!showing() || error.code === "request_timeout")
+      toast(error.message || t("error.generic"), { error: true });
   } finally {
     if (sameSession()) {
       ui.editSave.disabled = false;
@@ -1832,7 +1916,8 @@ async function storeThumbnail(file, entry, capture = captureThumbnail) {
       { supersedes: false },
     );
     return Boolean(result.thumb_url);
-  } catch (_) {
+  } catch (error) {
+    if (error.code === "request_timeout") toast(error.message, { error: true });
     return false; // Non-fatal: the fallback poster stays.
   }
 }
@@ -2644,6 +2729,7 @@ if (typeof module === "object" && module.exports) {
     STRINGS,
     LANG_KEY,
     PROGRESS_KEY,
+    REQUEST_TIMEOUT_MS,
     translate,
     browserLanguage,
     storedLanguage,
