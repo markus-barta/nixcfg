@@ -14,6 +14,7 @@ let
       enabled = cfg.enable;
       mode = cfg.mode;
       release_ticket = cfg.releaseTicket;
+      alarm_ticket = cfg.alarmTicket;
       alarm_command = cfg.alarmCommand;
       attended_ack_minutes = cfg.attendedAckMinutes;
       acceptance_command = cfg.acceptanceCommand;
@@ -70,6 +71,11 @@ in
       type = lib.types.nullOr lib.types.str;
       default = null;
       description = "HNET release ticket for one result line per revision.";
+    };
+    alarmTicket = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Mailbox alarm ticket key ([A-Z][A-Z0-9]+-[0-9]+); null sends alarms without a ticket tag.";
     };
     attendedAckMinutes = lib.mkOption {
       type = lib.types.ints.positive;

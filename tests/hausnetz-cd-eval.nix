@@ -105,6 +105,8 @@ assert builtins.elem "f /run/hsb0-deploy.lock 0644 root root -"
   hostSettings = host.inspr.hausnetzCd;
   hostImports = map toString host.imports;
   homeImports = map toString home.imports;
+  homeAlarmTicket = home.inspr.hausnetzCdOrchestrator.alarmTicket;
+  homeReleaseTicket = home.inspr.hausnetzCdOrchestrator.releaseTicket;
   orchestratorDefaults = defaults orchestrator.options.inspr.hausnetzCdOrchestrator;
   agent = orchestrator.config.launchd.agents.hausnetz-cd;
   orchestratorRunner =

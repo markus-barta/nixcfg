@@ -167,11 +167,25 @@ def alarm_route_failed(route):
     print("hausnetz-cd: alarm route failed: " + route, file=sys.stderr, flush=True)
 
 
+def alarm_ticket_args(config):
+    ticket = config.get("alarm_ticket")
+    if ticket is None:
+        return []
+    require(isinstance(ticket, str) and re.fullmatch(r"[A-Z][A-Z0-9]+-[0-9]+", ticket),
+            "invalid_alarm_ticket")
+    return ["-t", ticket]
+
+
 def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False):
     if result["mode"] != "live" and not pre_pair and not test and not result.get("rehearsal"):
         return
+    ticket_args = alarm_ticket_args(config)
     result = {**result, "changed_paths": diagnostics(result.get("changed_paths")),
               "problems": diagnostics(result.get("problems"))}
+    if result.get("rehearsal") and result.get("old_hausnetz_rev"):
+        # Rehearsal transport identity uses the running nixcfg rev in both
+        # slots; operator messages identify the actual running hausnetz pin.
+        result["hausnetz_rev"] = revision(result["old_hausnetz_rev"])
     message = (label + " nixcfg=" + result["nixcfg_rev"] + " hausnetz=" + result["hausnetz_rev"]
                + " generation=" + str(result.get("generation") or "unknown")[:200]
                + " reason=" + str(result.get("reason") or "unknown")[:200])
@@ -187,7 +201,7 @@ def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False
         for recipient in ("mac-lead", "lead"):
             try:
                 command = ("PATH=$HOME/.local/bin:$PATH mbx send " + recipient
-                           + " -f mac-ops -t " + shlex.quote(config["release_ticket"]) + " -m -")
+                           + " -f mac-ops " + shlex.join(ticket_args + ["-m", "-"]))
                 run("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
                             "-o", "StrictHostKeyChecking=yes", "-p", str(port), user + "@" + host,
                             command], data=message, timeout=45)
@@ -198,7 +212,7 @@ def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False
         for recipient in ("mac-lead", "lead"):
             try:
                 run(config["local_mailbox_command"], ["send", recipient, "-f", "mac-ops",
-                    "-t", config["release_ticket"], "-m", "-"], data=message, timeout=45)
+                    *ticket_args, "-m", "-"], data=message, timeout=45)
             except (Manual, KeyError):
                 alarm_route_failed("local mailbox " + recipient)
     # Exactly one csb1 attempt, including when remote delivery needed fallback.
@@ -511,6 +525,7 @@ def tick(config):
         return
     require(config["mode"] in {"dry-run", "live", "rehearse"}, "invalid_mode")
     require(re.fullmatch(r"HNET-[0-9]+", config.get("release_ticket") or ""), "release_ticket_unset")
+    alarm_ticket_args(config)
     if config["mode"] == "live":
         require(config.get("secondary_telegram_command"), "independent_alert_path_unset")
     private_dir(Path(config["state_file"]).parent)
@@ -712,8 +727,6 @@ def main():
         require(not CONFIG_FILE.startswith("@"), "unsubstituted_configuration")
         config = strict_json(Path(CONFIG_FILE).read_bytes())
         if args.test_alarm:
-            require(re.fullmatch(r"HNET-[0-9]+", config.get("release_ticket") or ""),
-                    "release_ticket_unset")
             alarm(config, {"mode": "dry-run", "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
                            "reason": "operator_alarm_test"}, "TEST (no action): CD ALARM", test=True)
             return

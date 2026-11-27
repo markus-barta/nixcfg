@@ -121,7 +121,8 @@ class Fixture:
         }
         self.orchestrator = {
             "enabled": True, "mode": "dry-run", "target": "mba@hsb0.lan",
-            "release_ticket": "HNET-570", "nixcfg_url": str(self.repo), "hausnetz_url": str(self.hnet),
+            "release_ticket": "HNET-570", "alarm_ticket": "OPS-705",
+            "nixcfg_url": str(self.repo), "hausnetz_url": str(self.hnet),
             "state_file": str(root / "local/state.json"), "fixture_root": True,
             "cache_dir": str(root / "cache"), "export_dir": str(root / "exports"),
             # OPS-705: passing runs return as soon as the executor finishes; 12 s no longer covered two 4 s health
@@ -1636,6 +1637,82 @@ class TestCD(unittest.TestCase):
         self.f.orchestrator.update(enabled=False, mode="dry-run")
         return self.f.tick(args=("--test-alarm",))
 
+    def assert_alarm_tickets(self, ticket="OPS-705"):
+        deliveries = [e for e in self.f.events() if e["kind"] in {"mailbox", "local-mailbox"}]
+        self.assertTrue(deliveries)
+        self.assertTrue(all(e["ticket"] == ticket for e in deliveries), deliveries)
+
+    def assert_alarm_identity(self, nixcfg_rev, hausnetz_rev):
+        generation = os.readlink(self.f.executor["system_profile"])
+        self.assertNotIn(generation, ("", "unknown"))
+        messages = [e["text"] for e in self.f.events()
+                    if e["kind"] in {"mailbox", "local-mailbox", "secondary-telegram", "alarm"}]
+        self.assertTrue(messages)
+        for message in messages:
+            with self.subTest(message=message):
+                self.assertIn("nixcfg=" + nixcfg_rev + " ", message)
+                self.assertIn("hausnetz=" + hausnetz_rev + " ", message)
+                self.assertIn("generation=" + generation + " ", message)
+                self.assertNotIn("unknown", message)
+
+    def test_alarm_ticket_is_separate_from_release_ticket_on_all_routes(self):
+        self.f.scenario.update(health_fail=True, rollback_fail=True, mailbox_fail="mac-lead")
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "rollback_failed", result)
+        self.assertEqual(result["mode"], "live")
+        self.assertEqual([e["recipient"] for e in self.f.events("mailbox")], ["mac-lead", "lead"])
+        self.assertEqual([e["recipient"] for e in self.f.events("local-mailbox")], ["mac-lead", "lead"])
+        self.assertEqual(len(self.f.events("secondary-telegram")), 1)
+        self.assert_alarm_tickets()
+        self.assertTrue(all(e["ticket"] == "HNET-570" for e in self.f.events("ticket")))
+        self.assertTrue(self.f.events("ticket"))
+        self.assert_alarm_identity(self.f.new, self.f.new_hnet)
+        self.assertTrue(all(e["text"].startswith("ROLLBACK FAILED ") for e in self.f.events("mailbox")))
+
+    def test_alarm_ticket_strict_validation(self):
+        from orchestrate import alarm_ticket_args
+        for ticket in ("OPS-705", "HN3-0", "AB-123"):
+            self.assertEqual(alarm_ticket_args({"alarm_ticket": ticket}), ["-t", ticket])
+        for ticket in ("", "A-1", "ops-705", "-OPS-705", "OPS-", "OPS-1\n", " OPS-1",
+                       "OPS-1 ", "OPS_1", "OPS-+1", "OPS-1;id", "OPS-１", 705, [], False):
+            with self.subTest(ticket=ticket):
+                with self.assertRaises(Manual):
+                    alarm_ticket_args({"alarm_ticket": ticket})
+        self.f.orchestrator["alarm_ticket"] = "OPS-1\n"
+        self.assertNotEqual(self.f.tick(expect_ok=False).returncode, 0)
+        self.assertNotEqual(self.f.tick(args=("--test-alarm",), expect_ok=False).returncode, 0)
+        self.assertFalse(self.f.events())
+
+    def test_unset_alarm_ticket_still_sends_on_all_routes(self):
+        for missing in (False, True):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory(prefix="t125-no-ticket-") as tmp:
+                fixture = Fixture(Path(tmp))
+                if missing:
+                    fixture.orchestrator.pop("alarm_ticket")
+                else:
+                    fixture.orchestrator["alarm_ticket"] = None
+                # Test alarms do not require a release ticket either.
+                fixture.orchestrator["release_ticket"] = None
+                fixture.scenario["mailbox_fail"] = "mac-lead"
+                fixture.tick(args=("--test-alarm",))
+                for kind in ("mailbox", "local-mailbox"):
+                    deliveries = fixture.events(kind)
+                    self.assertEqual([e["recipient"] for e in deliveries], ["mac-lead", "lead"])
+                    self.assertTrue(all(e["ticket"] is None for e in deliveries))
+                self.assertEqual(len(fixture.events("secondary-telegram")), 1)
+
+    def test_real_rollback_alarm_without_ticket_still_sends(self):
+        self.f.orchestrator["alarm_ticket"] = None
+        self.f.scenario.update(health_fail=True, rollback_fail=True, mailbox_fail="lead")
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["status"], "rollback_failed")
+        self.assertEqual(len(self.f.events("mailbox")), 2)
+        self.assertEqual(len(self.f.events("local-mailbox")), 2)
+        self.assertEqual(len(self.f.events("secondary-telegram")), 1)
+        self.assert_alarm_tickets(None)
+        self.assert_alarm_identity(self.f.new, self.f.new_hnet)
+
     def assert_alarm_chain(self, *, remote=True, fallback=False):
         expected = ["mac-lead", "lead"]
         self.assertEqual([e["recipient"] for e in self.f.events("mailbox")], expected if remote else [])
@@ -1646,6 +1723,7 @@ class TestCD(unittest.TestCase):
         self.assertTrue(messages)
         self.assertEqual(len(set(messages)), 1)
         self.assertTrue(messages[0].startswith("TEST (no action): "))  # LEAD 2026-11-27: Markus must not be alarmed
+        self.assert_alarm_tickets()
 
     def test_test_alarm_remote_success_without_fallback(self):
         self.alarm_cli()
@@ -1779,6 +1857,8 @@ class TestCD(unittest.TestCase):
         self.assertFalse(self.f.events("mailbox"))
         self.assertEqual([e["recipient"] for e in self.f.events("local-mailbox")], ["mac-lead", "lead"])
         self.assertEqual(len(self.f.events("secondary-telegram")), 1)
+        self.assert_alarm_tickets()
+        self.assert_alarm_identity(self.f.new, self.f.new_hnet)
         self.assertIn("remote mailbox file missing/invalid", output.stderr)
         self.f.tick("live")
         self.assertEqual(len(self.f.events("secondary-telegram")), 1)
@@ -1876,6 +1956,8 @@ class TestCD(unittest.TestCase):
             self.assertTrue(all(e["text"].startswith("TEST (no action): ") for e in self.f.events(kind)))
         self.assertTrue(self.f.state()["disabled"])
         self.assertTrue(Path(self.f.orchestrator["alarm_file"]).exists())
+        self.assert_alarm_tickets()
+        self.assert_alarm_identity(self.f.old, self.f.old_hnet)
         events = self.f.events()
         self.f.tick(args=("--once", "--dry-run"))
         self.assertEqual(self.f.events(), events)
@@ -1888,6 +1970,8 @@ class TestCD(unittest.TestCase):
         self.assertEqual(len(self.f.events("secondary-telegram")), 1)
         self.assertEqual(len(self.f.events("local-mailbox")), 2)
         self.assertTrue(all(e["text"].startswith("TEST (no action): ") for e in self.f.events("local-mailbox")))
+        self.assert_alarm_tickets()
+        self.assert_alarm_identity(self.f.old, self.f.old_hnet)
 
     def test_rehearsal_refuses_missing_token_and_real_target(self):
         self.f.save()
@@ -2401,7 +2485,21 @@ def mutants():
         ("health revision identity ignored", "execute.py", [('revision(proof.get("expected_revision")) == revision(proof["revision"])', 'True')], "test_rehearsal_a_real_switch_and_rollback_without_changes"),
         ("rehearsal allows activation changes", "execute.py", [('rehearsal_units(activation.stdout)', 'pass')], "test_rehearsal_refuses_nonempty_activation"),
         ("csb1 sender bounds message", "hausnetz-cd-alert.py", [('len(message) > 2048', 'False')], "TestAlertSender.test_sender_rejects_bad_inputs_without_logging_credentials"),
+        ("alarm uses release ticket", "orchestrate.py", [('return ["-t", ticket]', 'return ["-t", config["release_ticket"]]')], "test_alarm_ticket_is_separate_from_release_ticket_on_all_routes"),
+        ("invalid alarm ticket accepted", "orchestrate.py", [('re.fullmatch(r"[A-Z][A-Z0-9]+-[0-9]+", ticket)', 'True')], "test_alarm_ticket_strict_validation"),
+        ("unset alarm ticket drops test alarm", "orchestrate.py", [('    ticket_args = alarm_ticket_args(config)', '    if config.get("alarm_ticket") is None:\n        return\n    ticket_args = alarm_ticket_args(config)')], "test_unset_alarm_ticket_still_sends_on_all_routes"),
+        ("unset alarm ticket drops real alarm", "orchestrate.py", [('    ticket_args = alarm_ticket_args(config)', '    if config.get("alarm_ticket") is None:\n        return\n    ticket_args = alarm_ticket_args(config)')], "test_real_rollback_alarm_without_ticket_still_sends"),
+        ("rehearsal alarm uses transport revision", "orchestrate.py", [('result["hausnetz_rev"] = revision(result["old_hausnetz_rev"])', 'pass')], "test_rehearsal_b_exact_alarm_counts_and_latch"),
     ]
+    for field in ("nixcfg_rev", "hausnetz_rev", "generation"):
+        for label, test in (
+            ("real rollback alarm", "test_alarm_ticket_is_separate_from_release_ticket_on_all_routes"),
+            ("rehearsal B alarm", "test_rehearsal_b_exact_alarm_counts_and_latch"),
+        ):
+            cases.append((label + " loses " + field, "orchestrate.py",
+                          [('    message = (label + " nixcfg="',
+                            '    result["' + field + '"] = "unknown"\n    message = (label + " nixcfg="')], test))
+
     def check_mutant(case):
         label, file, edits, test = case
         with tempfile.TemporaryDirectory(prefix="t125-mutant-", dir="/tmp") as temporary:

@@ -76,8 +76,10 @@ elif command == "ssh":
         assert args[-2] == "agents@fixture-agents" and args[-4:-2] == ["-p", "2222"]
         assert args[:6] == ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o"]
         assert call[2] in {"mac-lead", "lead"}
-        assert call[3:] == ["-f", "mac-ops", "-t", "HNET-570", "-m", "-"]
-        event("mailbox", recipient=call[2], text=script)
+        assert call[3:5] == ["-f", "mac-ops"] and call[-2:] == ["-m", "-"]
+        ticket_args = call[5:-2]
+        assert ticket_args == [] or (len(ticket_args) == 2 and ticket_args[0] == "-t")
+        event("mailbox", recipient=call[2], ticket=ticket_args[1] if ticket_args else None, text=script)
         if scenario.get("mailbox_fail") == call[2]:
             raise SystemExit(1)
         raise SystemExit(0)
@@ -344,8 +346,10 @@ elif command == "paimos":
         raise SystemExit(1)
 elif command == "mbx":
     assert args[:1] == ["send"] and args[1] in {"mac-lead", "lead"}
-    assert args[2:] == ["-f", "mac-ops", "-t", "HNET-570", "-m", "-"]
-    event("local-mailbox", recipient=args[1], text=sys.stdin.read())
+    assert args[2:4] == ["-f", "mac-ops"] and args[-2:] == ["-m", "-"]
+    ticket_args = args[4:-2]
+    assert ticket_args == [] or (len(ticket_args) == 2 and ticket_args[0] == "-t")
+    event("local-mailbox", recipient=args[1], ticket=ticket_args[1] if ticket_args else None, text=sys.stdin.read())
     if scenario.get("local_mailbox_fail") == args[1]:
         raise SystemExit(1)
 elif command in {"alarm", "secondary-telegram"}:

@@ -18,6 +18,8 @@ assert e["requireReadyz"] is True
 assert not {"manifestPath", "versionUrl", "versionField", "healthUrl"}.intersection(e)
 assert o["enable"] is False and o["mode"] == "dry-run"
 assert "manifestPath" not in o and o["releaseTicket"] is None
+assert o["alarmTicket"] is None
+assert c["homeAlarmTicket"] == "OPS-705" and c["homeReleaseTicket"] == "HNET-570"
 assert o["alarmCommand"] == [] and o["secondaryTelegramCommand"]
 assert o["acceptanceCommand"] == [] and o["acceptanceUrl"] == ""
 assert o["acceptanceTimeout"] == 600 and o["attendedAckMinutes"] == 30
@@ -42,6 +44,7 @@ assert "exec python3 -B /fixture/hausnetz-cd-execute.py" in c["executorRunner"][
 assert "CONFIG_FILE = " + json.dumps("/fixture/hausnetz-cd-executor.json") in c["executorRunner"]["entrypoint"]
 orchestrator = json.loads(c["orchestratorRunner"]["settings"])
 assert orchestrator["enabled"] is False and orchestrator["mode"] == "dry-run"
+assert orchestrator["alarm_ticket"] is None and orchestrator["release_ticket"] is None
 assert orchestrator["target"] == "mba@hsb0.lan"
 assert orchestrator["acceptance_command"] == [] and orchestrator["acceptance_url"] == ""
 assert orchestrator["acceptance_timeout"] == 600 and orchestrator["attended_ack_minutes"] == 30

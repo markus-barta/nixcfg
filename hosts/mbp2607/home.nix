@@ -89,9 +89,10 @@ in
   };
   # Public fleet endpoints only; renders ~/.config/inspr/fleet.conf.
   inspr.cli.enable = true;
-  # OPS-705: HNET-570 is the hausnetz side of hausnetz-cd; result lines and alarms reference it. The
+  # OPS-705: result lines reference HNET-570; mailbox alarms reference OPS-705. The
   # orchestrator itself stays disabled (enable = false) until LEAD's separate go-live decision.
   inspr.hausnetzCdOrchestrator.releaseTicket = "HNET-570";
+  inspr.hausnetzCdOrchestrator.alarmTicket = "OPS-705";
   # mbp2607-personal-userkey minted 2026-07-03, registered on markus-barta
   # GitHub account; privkey in secrets/agents/host/mbp2607/.
   inspr.git.atelier.personal.enable = true;
