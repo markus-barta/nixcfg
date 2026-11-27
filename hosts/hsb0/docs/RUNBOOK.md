@@ -524,10 +524,16 @@ The gates compare with the **running** `source_revision` from
   unchanged modes. An unchanged running hausnetz pin is silently ignored.
   If source fetches or running evidence are unavailable before the pair is
   known, the tick writes only a local diagnostic and retries next time: no
-  ticket comment, attempted reservation or failed-target tombstone.
+  ticket comment, attempted reservation or failed-target tombstone. After six
+  continuous hours it raises one preflight alarm through both mailboxes and
+  csb1, including in dry-run mode. A successful preflight resets that episode.
+  After a fully evaluated tick, the controller caches the nixcfg main revision
+  and running revision. With unchanged main it re-reads running evidence at most
+  every 30 minutes; main movement invalidates the cache immediately. Failed
+  preflight/fetches remain retryable and do not populate this cache.
 - The Mac maintains and fetches a **full-history working clone** under
   `~/.local/share/hausnetz-cd/hausnetz`. Nix must be on PATH. G2 runs
-  `nix run --offline "git+file://<clone>?rev=<running>#cd-prepare" -- --repo <clone> --rev <new> --running <running>` (600 s budget).
+  `nix run --offline --no-write-lock-file "git+file://<percent-encoded-clone>?rev=<running>#cd-prepare" -- --repo <clone> --rev <new> --running <running>` (600 s budget).
   The clone is checked out at the running hausnetz revision, so the running
   release's explicitly pinned checker grades the candidate. Its app PATH supplies
   git and esbuild; nix comes from the orchestrator. It runs no repository code. An independent
@@ -544,9 +550,16 @@ The gates compare with the **running** `source_revision` from
   Missing app, missing/unknown keys, schema drift,
   extra output or any error is manual. Exit 1 (manual), 2 (bad usage), or any
   other nonzero exit is manual. The JSON `changed_paths` and `problems` are
-  retained in the result and log line, including manual outcomes.
+  retained in the result and log line, including manual outcomes, bounded to
+  20 entries of at most 200 characters per list. Truncated lists end with an
+  explicit `+N more` entry. The same bounds apply to alarm evidence and ticket
+  arguments, even if the checker schema is invalid.
   The app does not fetch and refuses shallow/non-descendant revisions.
-  The capability manifest endpoint is `GET /api/host-capabilities`.
+  Health reads `/api/meta`'s `capabilities_sha256` and compares it with both
+  cd-prepare's trusted digest and `sha256(GET /api/host-capabilities response bytes)`.
+  A hausnetz fetch failure after G1 is reported as `fetch_failed` with G1 still
+  passing. It is reported once per pair and retried on a later tick without a
+  failed-target tombstone. Actual gate failures keep the no-automatic-retry rule.
 - G4 requires byte-identical hausnetz `nix/`, `flake.nix` and `flake.lock`
   between those revisions. A module change always needs a human. G4 runs before
   cd-prepare. The controller passes the validated version/manifest digest to
@@ -562,11 +575,33 @@ The gates compare with the **running** `source_revision` from
   Only SGR colour escapes are stripped; other escapes/control characters fail.
   `diff-closures` hides same-version changes under 8 KiB. G4 guards module changes
   that this closure summary cannot reveal.
+- G5 vm-test reads the hosted `vm-test.yml` workflow via the existing `gh` auth
+  on mbp2607 (`gh api`, GET only, no new token). The newest returned workflow run
+  must be for the exact candidate hausnetz revision, completed with conclusion
+  `success`. Missing, pending, failed, mismatched or unavailable API evidence
+  refuses live execution before starting the executor. Dry-run records G5 and
+  its reason but continues the build/report even when G5 is manual.
 
 Dry-run builds and checks gates, then reports proposed actions. Export, switch
 and Telegram steps run only in live mode. The executor rechecks G1, the running
 system after G3, and the running evidence/system/profile immediately before
 switching, after the backup-copy acknowledgement.
+
+For one attended full-chain trial with the timer still disabled, configure the
+release ticket (`inspr.hausnetzCdOrchestrator.releaseTicket`) and apply the
+reviewed Home Manager package, then run:
+
+```bash
+hausnetz-cd --once --dry-run
+```
+
+Both flags are mandatory. This overrides timer enable and forces dry-run even
+if the saved mode is live. It runs G1/G2/G4/G5, starts the dry-run executor on
+hsb0 for build + G3, polls to completion and writes the ticket line. It refuses
+an existing live pending transaction; it cannot resume a live switch, export
+or send Telegram for a dry run. Existing failed-revision tombstones still apply.
+Unsubstituted source entrypoints refuse execution, even if a file literally
+named `@CONFIG@` exists in the working directory.
 
 **Every manual hsb0 switch must hold `/run/hsb0-deploy.lock`**, including the
 manual examples elsewhere in this RUNBOOK. Run `just switch` as mba; the
@@ -576,6 +611,9 @@ on hsb0 only, including the entire cleanup/GC body. They wait up to 900 seconds
 and fail closed if busy or if the hostname cannot be determined. Before the module has
 created the lock file, they print `no hsb0 deploy lock yet` and proceed.
 The root-owned lock is 0644 so mba can open it; the executor preserves its mode.
+The weekly `nh clean` GC runs without the deploy lock. This is safe because the
+executor's old-system indirect GC root and new-system build output root protect
+both systems throughout the transaction and remain after completion.
 An inherited lock from the manual wrapper is reused to avoid nested locking:
 
 ```bash
@@ -604,6 +642,11 @@ Each executor first writes `starting` with its run ID; inspect
 `sudo cat /var/lib/hausnetz-cd/results/<run-id>.json`. Status includes phases,
 timestamps, old/new systems, package proofs, expected version/manifest digest,
 gates, health, backup and rollback. The controller accepts only its own run ID.
+Dry-run status records `memory_peak_bytes` from the running transient unit's
+systemd `MemoryPeak` after build/G3; the same value appears in the ticket line.
+Unavailable accounting is explicit (`null`, with `memory_peak_reason`), never
+treated as zero. `MemoryAccounting=yes` enables the observation; the existing
+MemoryHigh/MemoryMax settings are unchanged in this readiness round.
 Pre-lock refusals are terminal `manual` records. A duplicate run ID preserves
 the original status and writes its terminal refusal under `refusals/<run-id>.json`.
 Nix builds use `--out-link /var/lib/hausnetz-cd/new-system`; the recorded old
@@ -638,9 +681,54 @@ proof. `/healthz` is only liveness. `requireReadyz` defaults to true; setting it
 false refuses live mode. No configurable version endpoint or rev field remains.
 The existing local bot reports `auto-rollback` or `ROLLBACK FAILED`. Rollback
 failure also persists a Mac alarm and invokes the configured independent csb1
-sender without moving credentials. A running result with an inactive/unknown
+sender without moving credentials. Rollback and six-hour preflight alarms send
+the same short revision/generation/reason message on stdin to **both** `mac-lead`
+and `lead`. The remote endpoint comes only from the local, non-repo file
+`~/.config/inspr/mbx-remote` (`mailboxRemoteFile` option); nixcfg supplies no
+default mailbox host. This file is not a secret, must stay outside nixcfg, and
+contains exactly three `key=value` lines: `host`, `port`, and `user`, in any
+order. Set them to the coordinator-confirmed hostname/IP, port (1–65535), and
+SSH user (`[a-z_][a-z0-9_-]*`). Duplicate/extra/missing keys, comments, blank
+lines, whitespace, shell syntax, and invalid values reject the whole file.
+The remote command is:
+
+```bash
+ssh -T -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes \
+  -p <port> <user>@<host> \
+  'PATH=$HOME/.local/bin:$PATH mbx send <recipient> -f mac-ops -t <ticket> -m -'
+```
+
+If the file is missing/invalid or **either** remote send fails, both messages
+also go to the local mailbox via `~/.local/bin/mbx send <recipient> -f mac-ops
+-t <ticket> -m -` (`localMailboxCommand` option). Each recipient is attempted
+independently; failure of one cannot suppress the other. Route failures are
+logged by route/recipient without endpoint values or command diagnostics.
+`secondaryTelegramCommand` defaults to SSH to csb1 running
+`sudo -n /run/current-system/sw/bin/hausnetz-cd-alert` with the message on stdin.
+That one-shot sender reads csb1's existing `csb1-watchtower-env` notification
+target in-process; no credential leaves csb1 or enters process arguments/logs.
+csb1 is attempted exactly once per event, including fallback events; its failure
+is logged. The optional `alarmCommand` local hook is retained. Before go-live,
+set the approved release ticket and local endpoint file, then run once on the
+Mac:
+
+```bash
+hausnetz-cd --test-alarm
+```
+
+This explicit mode sends one `TEST` message through both remote recipients,
+the same fallback rules, and csb1 Telegram, even while the timer is disabled.
+Confirm receipt at both leads and in Telegram and inspect route-failure logs.
+It does not read/write deployment state, overwrite the persisted alarm, create
+deploy/cache/export paths, or contact the deployment target. It refuses
+`--once`/`--dry-run` combinations. Keep the timer disabled and `allowLive=false`
+until the separate live gate is approved.
+
+One failed alarm route does not suppress the other routes. The existing hsb0
+hausnetz-bot path is unchanged. A running result with an inactive/unknown
 unit becomes failed/UNKNOWN once, stops polling, and cannot auto-retry. Dry-run
-writes an alarm file plus its result log; live sends `ROLLBACK STATUS UNKNOWN`.
+records the result without alarming; live sends `ROLLBACK STATUS UNKNOWN`.
+Only the six-hour preflight outage is allowed to alarm in dry-run mode.
 A durable outbox retries ticket delivery without repeating deployment, with a
 maximum of five attempts per report. Exhaustion logs once locally and keeps
 the unsent report under `hausnetz-cd-ledger/outbox/`, even after its bounded

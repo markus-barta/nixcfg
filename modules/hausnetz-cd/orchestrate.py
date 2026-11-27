@@ -2,16 +2,18 @@
 
 import argparse
 import fcntl
+import ipaddress
 import json
 from pathlib import Path
 import re
 import shlex
+import sys
 import time
 import uuid
 
 from common import (Manual, POLL_BUDGET, POLL_INTERVAL, RESULT_SCHEMA, SSH_RETRY_TIMEOUT,
                     TERMINAL, UNIT_RUNTIME_MAX, atomic_bytes, atomic_json, blob, cache_repo,
-                    evidence, gate_g1, gate_g2, gate_g4, git, lock_pin, now,
+                    diagnostics, evidence, gate_g1, gate_g2, gate_g4, git, lock_pin, now,
                     parse_export, private_dir, require, revision, run, strict_json)
 
 
@@ -43,6 +45,7 @@ case "$action" in
     sudo -n systemd-run --quiet --collect --unit="hausnetz-cd-$run_id" \
       --property=Type=exec --property=Nice=19 --property=CPUQuota=200% \
       --property=IOSchedulingClass=idle --property=UMask=0077 --property=TimeoutStopSec=300 \
+      --property=MemoryAccounting=yes \
       --property=MemoryHigh=1G --property=MemoryMax=1500M --property=RuntimeMaxSec=@RUNTIME@ \
       --property=KillMode=process --property=SendSIGKILL=no \
       /run/current-system/sw/bin/hausnetz-cd-execute "$rev" "$expected" "$mode" \
@@ -83,11 +86,12 @@ def log_line(result):
     gates = result.get("gates", {})
     return ("hausnetz-cd nixcfg=" + result["nixcfg_rev"] + " hausnetz=" + result["hausnetz_rev"]
             + " generation=" + str(result.get("generation") or "unknown")
-            + " gates=" + ",".join(key + ":" + gates.get(key, "not_run") for key in ("G1", "G2", "G3", "G4"))
+            + " gates=" + ",".join(key + ":" + gates.get(key, "not_run") for key in ("G1", "G2", "G3", "G4", "G5"))
             + " health=" + result.get("health", "not_run")
             + " rollback=" + result.get("rollback", "not_required")
-            + " changed_paths=" + json.dumps(result.get("changed_paths", []), separators=(",", ":"))
-            + " problems=" + json.dumps(result.get("problems", []), separators=(",", ":"))
+            + " changed_paths=" + json.dumps(diagnostics(result.get("changed_paths", [])), separators=(",", ":"))
+            + " problems=" + json.dumps(diagnostics(result.get("problems", [])), separators=(",", ":"))
+            + " memory_peak_bytes=" + str(result.get("memory_peak_bytes") or "unknown")
             + " mode=" + result["mode"] + " status=" + result["status"])
 
 
@@ -96,17 +100,86 @@ def comment(config, message):
          config["release_ticket"], "--body", message], timeout=30)
 
 
-def alarm(config, result, label="ROLLBACK FAILED"):
-    message = label + " " + log_line(result)
-    atomic_json(Path(config["alarm_file"]), {"at": now(), "message": message, "result": result})
-    if result["mode"] != "live":
+def mailbox_target(path):
+    """Read only the local, non-repo endpoint; never source it as shell code."""
+    with open(path, "rb") as source:
+        raw = source.read(4097)
+    require(len(raw) <= 4096, "invalid_mailbox_file")
+    text = raw.decode("ascii")
+    lines = text.removesuffix("\n").split("\n")
+    require(len(lines) == 3, "invalid_mailbox_file")
+    values = {}
+    for line in lines:
+        key, separator, value = line.partition("=")
+        require(separator and key in {"host", "port", "user"} and key not in values,
+                "invalid_mailbox_file")
+        values[key] = value
+    host = values["host"]
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        require(len(host) <= 253 and re.fullmatch(
+            r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+            r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?", host),
+            "invalid_mailbox_host")
+    # Exclude scoped IPv6 addresses and all shell/SSH option characters.
+    require(re.fullmatch(r"[A-Za-z0-9.:-]+", host), "invalid_mailbox_host")
+    require(re.fullmatch(r"[0-9]{1,5}", values["port"])
+            and 1 <= int(values["port"]) <= 65535, "invalid_mailbox_port")
+    require(re.fullmatch(r"[a-z_][a-z0-9_-]*", values["user"]), "invalid_mailbox_user")
+    return host, int(values["port"]), values["user"]
+
+
+def alarm_route_failed(route):
+    # Values and command diagnostics are deliberately excluded from logs.
+    print("hausnetz-cd: alarm route failed: " + route, file=sys.stderr, flush=True)
+
+
+def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False):
+    if result["mode"] != "live" and not pre_pair and not test:
         return
-    for command in (config.get("alarm_command"), config.get("secondary_telegram_command")):
-        if command:
+    result = {**result, "changed_paths": diagnostics(result.get("changed_paths")),
+              "problems": diagnostics(result.get("problems"))}
+    message = (label + " nixcfg=" + result["nixcfg_rev"] + " hausnetz=" + result["hausnetz_rev"]
+               + " generation=" + str(result.get("generation") or "unknown")[:200]
+               + " reason=" + str(result.get("reason") or "unknown")[:200])
+    if not test:
+        atomic_json(Path(config["alarm_file"]), {"at": now(), "message": message, "result": result})
+    fallback = False
+    try:
+        host, port, user = mailbox_target(config["mailbox_remote_file"])
+    except (Manual, OSError, UnicodeError, KeyError, TypeError, ValueError):
+        fallback = True
+        alarm_route_failed("remote mailbox file missing/invalid")
+    else:
+        for recipient in ("mac-lead", "lead"):
             try:
-                run(command[0], [*command[1:], message], timeout=45)
+                command = ("PATH=$HOME/.local/bin:$PATH mbx send " + recipient
+                           + " -f mac-ops -t " + shlex.quote(config["release_ticket"]) + " -m -")
+                run("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                            "-o", "StrictHostKeyChecking=yes", "-p", str(port), user + "@" + host,
+                            command], data=message, timeout=45)
             except Manual:
-                pass
+                fallback = True
+                alarm_route_failed("remote mailbox " + recipient)
+    if fallback:
+        for recipient in ("mac-lead", "lead"):
+            try:
+                run(config["local_mailbox_command"], ["send", recipient, "-f", "mac-ops",
+                    "-t", config["release_ticket"], "-m", "-"], data=message, timeout=45)
+            except (Manual, KeyError):
+                alarm_route_failed("local mailbox " + recipient)
+    # Exactly one csb1 attempt, including when remote delivery needed fallback.
+    for route, command in (("local hook", config.get("alarm_command")),
+                           ("csb1 Telegram", config.get("secondary_telegram_command"))):
+        if not command:
+            if route == "csb1 Telegram":
+                alarm_route_failed(route + " unconfigured")
+            continue
+        try:
+            run(command[0], command[1:], data=message, timeout=45)
+        except Manual:
+            alarm_route_failed(route)
 
 
 def copy_export(config, result):
@@ -195,6 +268,8 @@ def report(config, state, key):
 
 
 def finish(config, state, result):
+    for name in ("changed_paths", "problems"):
+        result[name] = diagnostics(result.get(name))
     key = result["run_key"]
     if result["status"] == "skipped":
         state["attempted"].pop(key, None)
@@ -202,10 +277,13 @@ def finish(config, state, result):
         state["pending"] = None
         save_state(config, state)
         return
+    if result["status"] == "fetch_failed" and key in state["reports"]:
+        return  # One report per fetch outage/pair; the source remains retryable.
     state["sequence"] += 1
     order = state["sequence"]
-    state["attempted"][key] = {"status": result["status"], "order": order}
-    atomic_json(ledger(config, "attempted", key), {"status": result["status"], "at": now()})
+    if result["status"] != "fetch_failed":
+        state["attempted"][key] = {"status": result["status"], "order": order}
+        atomic_json(ledger(config, "attempted", key), {"status": result["status"], "at": now()})
     if result["status"] == "succeeded":
         state["last_deployed"] = result["nixcfg_rev"]
     elif result["status"] in {"failed", "rollback_failed", "manual", "unknown"}:
@@ -245,6 +323,8 @@ def reconcile(config, state):
                 validate_result(result, pending)
                 result["changed_paths"] = pending.get("changed_paths", [])
                 result["problems"] = pending.get("problems", [])
+                result.setdefault("gates", {})["G5"] = pending.get("vm_test", "not_run")
+                result["vm_test_reason"] = pending.get("vm_test_reason", "not_run")
                 result["run_key"] = pending["run_key"]
                 if result["status"] in TERMINAL and (
                     result["status"] == "skipped"
@@ -277,6 +357,35 @@ def reconcile(config, state):
     unknown("executor_pending_timeout")
 
 
+def vm_test(rev):
+    """Only the newest hosted workflow run for this exact commit can pass."""
+    revision(rev)
+    try:
+        value = strict_json(run("gh", ["api", "--method", "GET",
+            "repos/inspr-at/hausnetz/actions/workflows/vm-test.yml/runs?head_sha=" + rev + "&per_page=100"], timeout=30))
+        runs = value["workflow_runs"]
+        require(isinstance(runs, list), "vm_test_schema")
+        require(runs, "vm_test_missing")
+        require(all(isinstance(r, dict) and r.get("head_sha") == rev
+                    and type(r.get("id")) is int for r in runs), "vm_test_revision_or_schema")
+        latest = max(runs, key=lambda r: r["id"])
+        require(latest.get("status") == "completed", "vm_test_pending")
+        require(latest.get("conclusion") == "success", "vm_test_failed")
+        return "pass", "vm_test_success"
+    except (Manual, KeyError, TypeError, ValueError):
+        return "manual", "vm_test_not_successful_or_unavailable"
+
+
+def pre_pair_failure(config, state):
+    failure = state.setdefault("pre_pair_failure", {"since": time.time(), "alarmed": False})
+    if time.time() - failure["since"] >= 6 * 60 * 60 and not failure["alarmed"]:
+        alarm(config, {"mode": config["mode"], "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
+                       "reason": "source_or_running_evidence_unavailable_6h"},
+              "CD PREFLIGHT UNAVAILABLE", pre_pair=True)
+        failure["alarmed"] = True
+    save_state(config, state)
+
+
 def tick(config):
     if config.get("enabled") is not True:
         return
@@ -301,8 +410,11 @@ def tick(config):
         else:
             state = {"schema": "inspr.hausnetz-cd-state.v1", "last_deployed": None,
                      "failed": [], "attempted": {}, "pending": None, "reports": {}, "sequence": 0}
+        if config.get("manual_dry_run"):
+            require(not state["pending"] or state["pending"]["mode"] == "dry-run", "live_pending_refuses_dry_run")
         for key in list(state["reports"]):
-            report(config, state, key)
+            if not config.get("manual_dry_run") or state["reports"][key]["result"]["mode"] == "dry-run":
+                report(config, state, key)
         if state["pending"]:
             reconcile(config, state)
             return
@@ -312,23 +424,35 @@ def tick(config):
             repo = cache_repo(directory / "nixcfg.git", config["nixcfg_url"])
             new = revision(git(repo, "rev-parse", "refs/heads/main").strip())
             expected, new_lock = lock_pin(blob(repo, new, "flake.lock"))
+            evaluated = state.get("evaluated", {})
+            if (evaluated.get("main") == new and time.time() - evaluated.get("at", 0) < 30 * 60
+                    and not state.get("pre_pair_failure") and not config.get("manual_dry_run")):
+                revision(evaluated["running"])
+                return
             old = evidence(remote(config, "evidence"))
             cache_repo(repo, config["nixcfg_url"], old, new)
             running = lock_pin(blob(repo, old, "flake.lock"))[0]
         except (Manual, OSError, KeyError, TypeError, ValueError):
+            pre_pair_failure(config, state)
             print("hausnetz-cd: tick skipped; source or running evidence unavailable", flush=True)
             return
+        state.pop("pre_pair_failure", None)
+        def evaluated_tick():
+            state["evaluated"] = {"main": new, "running": old, "at": time.time()}
+            save_state(config, state)
         if expected == running:
+            evaluated_tick()
             return  # no delivery: no reservation, failure entry or comment
         key = running + "-" + expected
         if (key in state["attempted"] or expected in state["failed"]
                 or ledger(config, "attempted", key).exists()
                 or ledger(config, "failed", expected).exists()):
+            evaluated_tick()
             return
         result = {"schema": RESULT_SCHEMA, "nixcfg_rev": new, "hausnetz_rev": "unknown",
                   "run_key": key, "run_id": uuid.uuid4().hex,
                   "mode": config["mode"], "status": "manual", "phase": "preflight",
-                  "gates": {"G1": "not_run", "G2": "not_run", "G3": "not_run", "G4": "not_run"},
+                  "gates": {"G1": "not_run", "G2": "not_run", "G3": "not_run", "G4": "not_run", "G5": "not_run"},
                   "health": "not_run", "rollback": "not_required", "generation": None,
                   "changed_paths": [], "problems": []}
         try:
@@ -337,6 +461,7 @@ def tick(config):
             a, b = gate_g1(repo, old, new)
             require(b == expected, "expected_revision_disagrees_with_lock")
             result["gates"]["G1"] = "pass"
+            result["phase"] = "fetch"
             hausnetz = cache_repo(directory / "hausnetz", config["hausnetz_url"], a, b, worktree=True)
             result["phase"] = "G4"
             gate_g4(hausnetz, a, b)
@@ -344,6 +469,9 @@ def tick(config):
             result["phase"] = "G2"
             prepared = gate_g2(hausnetz, a, b, new_lock["nodes"]["hausnetz"]["locked"]["narHash"])
             result["gates"]["G2"] = "pass"
+            result["phase"] = "G5"
+            result["gates"]["G5"], result["vm_test_reason"] = vm_test(b)
+            require(config["mode"] == "dry-run" or result["gates"]["G5"] == "pass", "G5_vm_test_required")
         except (Manual, OSError, KeyError, TypeError, ValueError) as exc:
             result["reason"] = str(exc) if isinstance(exc, Manual) else "input_error"
             if isinstance(exc, Manual) and exc.problems is not None:
@@ -352,6 +480,10 @@ def tick(config):
                 result["changed_paths"] = exc.changed_paths
             if result["phase"] in result["gates"]:
                 result["gates"][result["phase"]] = "manual"
+            if result["phase"] == "fetch":
+                result.update(status="fetch_failed", reason="hausnetz_fetch_failed", run_key=key + "-fetch")
+            else:
+                evaluated_tick()
             finish(config, state, result)
             return
         pending = {"nixcfg_rev": new, "hausnetz_rev": expected, "mode": config["mode"],
@@ -359,6 +491,7 @@ def tick(config):
                    "run_id": result["run_id"], "run_key": key, "reserved_at": now(),
                    "expected_version": prepared["version"], "manifest_sha256": prepared["manifest_sha256"],
                    "changed_paths": prepared["changed_paths"], "problems": prepared["problems"],
+                   "vm_test": result["gates"]["G5"], "vm_test_reason": result["vm_test_reason"],
                    "deadline": time.time() + fixture_limit(config, "poll_timeout", POLL_BUDGET)}
         state["sequence"] += 1
         state["attempted"][key] = {"status": "reserved", "order": state["sequence"]}
@@ -371,6 +504,8 @@ def tick(config):
         except Manual:
             pass
         reconcile(config, state)
+        if key in state["attempted"]:
+            evaluated_tick()
 
 
 # Nix substitutes this store path before installing the production entrypoint.
@@ -378,10 +513,26 @@ CONFIG_FILE = "@CONFIG@"
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.parse_args()
+    parser = argparse.ArgumentParser(allow_abbrev=False)
+    parser.add_argument("--once", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--test-alarm", action="store_true")
+    args = parser.parse_args()
+    if args.once != args.dry_run:
+        parser.error("manual execution requires both --once and --dry-run")
+    if args.test_alarm and (args.once or args.dry_run):
+        parser.error("--test-alarm cannot be combined with deployment flags")
     try:
+        require(not CONFIG_FILE.startswith("@"), "unsubstituted_configuration")
         config = strict_json(Path(CONFIG_FILE).read_bytes())
+        if args.test_alarm:
+            require(re.fullmatch(r"HNET-[0-9]+", config.get("release_ticket") or ""),
+                    "release_ticket_unset")
+            alarm(config, {"mode": "dry-run", "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
+                           "reason": "operator_alarm_test"}, "TEST (no action): CD ALARM", test=True)
+            return
+        if args.once:
+            config = {**config, "enabled": True, "mode": "dry-run", "manual_dry_run": True}
         tick(config)
     except (Manual, OSError, KeyError, TypeError, ValueError):
         raise SystemExit("hausnetz-cd: manual; configuration, source or evidence unavailable") from None

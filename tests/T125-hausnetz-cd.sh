@@ -4,9 +4,9 @@ set -euo pipefail
 started=$SECONDS
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 python3 -B "$repo/tests/test_hsb0_deploy_lock.py"
-python3 -B "$repo/tests/test_hausnetz_cd.py" --parallel
+python3 -B "$repo/tests/test_hausnetz_cd.py"
 python3 -B "$repo/tests/test_hausnetz_cd.py" --mutants
-for source in "$repo/modules/hausnetz-cd/default.nix" "$repo/hosts/mbp2607/hausnetz-cd.nix"; do
+for source in "$repo/modules/hausnetz-cd/default.nix" "$repo/hosts/mbp2607/hausnetz-cd.nix" "$repo/hosts/csb1/hausnetz-cd-alert.nix"; do
   nix-instantiate --parse "$source" >/dev/null
 done
 nix-instantiate --eval --strict --json "$repo/tests/hausnetz-cd-eval.nix" | python3 -c '
@@ -18,7 +18,10 @@ assert e["requireReadyz"] is True
 assert not {"manifestPath", "versionUrl", "versionField", "healthUrl"}.intersection(e)
 assert o["enable"] is False and o["mode"] == "dry-run"
 assert "manifestPath" not in o and o["releaseTicket"] is None
-assert o["alarmCommand"] == [] and o["secondaryTelegramCommand"] == []
+assert o["alarmCommand"] == [] and o["secondaryTelegramCommand"]
+assert not {"agentsHost", "agentsPort"}.intersection(o)
+assert o["mailboxRemoteFile"] == "/fixture/home/.config/inspr/mbx-remote"
+assert o["localMailboxCommand"] == "/fixture/home/.local/bin/mbx"
 assert c["hostSettings"] == {"enable": True, "allowLive": False}
 assert c["hostAssertion"] is True and c["otherHostAssertion"] is False
 assert any(p.endswith("/modules/hausnetz-cd") for p in c["hostImports"])
@@ -38,6 +41,11 @@ orchestrator = json.loads(c["orchestratorRunner"]["settings"])
 assert orchestrator["enabled"] is False and orchestrator["mode"] == "dry-run"
 assert orchestrator["target"] == "mba@hsb0.lan"
 assert "selected-nix" in c["orchestratorRunner"]["runtimeInputs"]
+assert "gh" in c["orchestratorRunner"]["runtimeInputs"]
+assert not {"agents_host", "agents_port"}.intersection(orchestrator)
+assert orchestrator["mailbox_remote_file"] == o["mailboxRemoteFile"]
+assert orchestrator["local_mailbox_command"] == o["localMailboxCommand"]
+assert orchestrator["secondary_telegram_command"][-2:] == ["mba@csb1", "sudo -n /run/current-system/sw/bin/hausnetz-cd-alert"]
 assert "exec python3 -B /fixture/hausnetz-cd-orchestrate.py" in c["orchestratorRunner"]["text"]
 assert "CONFIG_FILE = " + json.dumps("/fixture/hausnetz-cd-orchestrator.json") in c["orchestratorRunner"]["entrypoint"]
 for name in ("executorRunner", "orchestratorRunner"):
