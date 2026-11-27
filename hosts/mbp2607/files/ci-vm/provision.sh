@@ -70,6 +70,12 @@ NIX_CONFIG
 install -d -m 0755 /etc/systemd/system/nix-daemon.service.d
 cat >/etc/systemd/system/nix-daemon.service.d/ci-vm.conf <<'DAEMON_UNIT'
 [Service]
+# OPS-719: Nix's stock unit sets Delegate=yes, which also delegates cpuset and
+# makes systemd enable cpuset in /system.slice; hausnetz's nightly host sampler
+# (HNET-433) refuses that layout. This daemon does not use cgroups (no
+# use-cgroups), so reset the list and keep only the accounting controllers.
+Delegate=
+Delegate=cpu io memory pids
 MemoryHigh=8G
 MemoryMax=9G
 TasksMax=4096
