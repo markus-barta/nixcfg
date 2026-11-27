@@ -8,7 +8,7 @@
 # Every switch checks latest versions; unchanged working CLIs are not reinstalled.
 # Prune to live + at most one previous generation per CLI, plus lsof/argv holds.
 # A PID without lsof state files holds its CLI if argv contains its literal
-# launch link or argv[0] equals the link name or ends in /<link-name>.
+# launch link or argv[0] equals the bare link name.
 # Legacy packages in the prefix's lib/node_modules are never touched.
 #
 # Cursor is a native vendor tarball, not an npm package: pkgs/cursor-agent pins

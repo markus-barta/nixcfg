@@ -235,8 +235,9 @@ of a CLI if an argument contains its literal launch-link path, or its first
 argument equals the bare link name (for example, `pi`).
 Unknown stages are also kept while a CLI is held. Attributed PIDs keep their
 in-use generations. Argument aliases are not resolved on disk.
-A JS process whose title is not a link name and that holds no file in state is
-not detected. This accepted fail-unsafe case is known for pi's `rpc-entry` export,
+A JS process whose title is not a link name, that holds no file in state, and
+whose arguments carry neither the launch-link path nor a state path is not
+detected. This accepted fail-unsafe case is known for pi's `rpc-entry` export,
 which nothing on this fleet uses.
 A wrapper such as `timeout`, `nohup` or `bash -c` carrying a launch-link path also holds that CLI until a later run.
 A skipped or incomplete prune warns with the remaining
