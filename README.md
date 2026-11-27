@@ -206,9 +206,11 @@ check before publication. Grok's install-time home is also staged, so its
 postinstall cannot change the live Grok installation early.
 
 Each `~/.npm-global/bin` link is replaced atomically. Running processes keep
-access to the old package files; the legacy `lib/node_modules` tree and prior
-staging directories are retained. Installed versions therefore follow the
-launch links, not `npm list -g` against the legacy prefix. Use
+access to the old package files. Pruning keeps every live generation, at most
+one previous generation per declared CLI for rollback, and generations in use
+by processes. It directly deletes obsolete updater staging directories,
+including failed stages; legacy prefix packages are untouched. Installed versions
+follow the launch links, not `npm list -g` against the legacy prefix. Use
 `python3 scripts/update-ai-clis.py --check` to inspect version drift without
 installing. Both update entry points share a process lock; an interrupted
 update leaves each CLI on a complete old or new version.
@@ -216,15 +218,31 @@ update leaves each CLI on a complete old or new version.
 Before publication, the updater prints a rollback receipt path. From this
 checkout, `python3 scripts/update-ai-clis.py --rollback RECEIPT` atomically
 restores the previous launch links, refusing if another update changed them.
-Rollback requires a previous installation for every affected CLI. It makes no
-registry calls. To hold a rollback across switches, pin the affected version
+Rollback works per receipt and requires a previous installation for every affected CLI.
+A receipt covering several CLIs is refused once any of them has moved on, so another
+CLI's kept previous version must then be restored by hand by pointing its link at the kept generation.
+It makes no registry calls. To hold a rollback across switches, pin the affected version
 in `modules/uzumaki/ai-clis-npm-packages.json` through the normal reviewed
 configuration change. Restore CLI receipts before activating a pre-NIX-524
 Home Manager generation, whose updater still writes into the legacy prefix.
 Do not delete old package directories while any
 process may use them, or run a plain `npm install -g` over these managed CLIs.
-Failed staging directories are also retained for inspection. Unrelated global
-commands are preserved. Unsupported packages are skipped on that platform;
+Failed staging directories remain until the next successful update prunes them.
+Both `lsof` and `ps` must pass their canaries before pruning. Literal argument
+paths under the state directory (or its resolved form) keep that generation.
+When `lsof` attributes no state-directory file to a PID, it holds all generations
+of a CLI if an argument contains its literal launch-link path, or its first
+argument equals the bare link name (for example, `pi`).
+Unknown stages are also kept while a CLI is held. Attributed PIDs keep their
+in-use generations. Argument aliases are not resolved on disk.
+A JS process whose title is not a link name, that holds no file in state, and
+whose arguments carry neither the launch-link path nor a state path is not
+detected. This accepted fail-unsafe case is known for pi's `rpc-entry` export,
+which nothing on this fleet uses.
+A wrapper such as `timeout`, `nohup` or `bash -c` carrying a launch-link path also holds that CLI until a later run.
+A skipped or incomplete prune warns with the remaining
+generation count and total size. Unrelated global commands are preserved. Unsupported
+packages are skipped on that platform;
 other failures keep the prior files and are reported (Home Manager continues,
 whereas `just update-ai-clis` fails).
 
