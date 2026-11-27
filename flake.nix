@@ -59,20 +59,20 @@
       url = "github:markus-barta/joedesk/dad48e07f331562164da192106d2d11645b3c074";
       flake = false;
     };
-    # HOSTD-75: boards reconciled with nixcfg (hostdash #26) + HOSTD-37 (#23).
+    # HOSTD-79: hsb9 board gets the Fernsehaufnahmen tile for /fernsehen/ (hostdash #27).
+    # Before: HOSTD-75 boards reconciled with nixcfg (hostdash #26) + HOSTD-37 (#23).
     hostdash = {
-      url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
+      url = "github:markus-barta/hostdash/343e7eb3a993dcd7f1fa9a0d60587f7cbfc0bc0f";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 79: v261127140245.0.0 (sequence 149; hausnetz main c6891522 = merge of release PR #489; the tag is on
-    # the merge). Since 78: a write audit trail (HNET-616): one journal line per write, refused ones included, naming
-    # the client; Activity shows the source; X-Forwarded-For only from --allow-from peers; nothing leaves the house,
-    # no new flag. The Plan no longer writes on open (HNET-612); the acceptance script's proxy bypass is the exact
-    # origin incl. port (HNET-621). CSP header and index.html unchanged; capability manifest unchanged (1a85d9dd…);
-    # no nix/, flake or Go-dependency change; persisted formats pass (check on HNET-622). Rollback: previous
-    # generation (pin 78); a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 81: v261127164749.0.0 (sequence 151; hausnetz main 3df1b5ba = merge of release PR #495; the tag is on
+    # the merge). Since 80: while the Plan editor covers the Map, the Map underneath is inert (no second, covered Pan),
+    # restored exactly on close (HNET-610; release check HNET-626); tests, a QA script, version/history data. Host-inert:
+    # web/src/app.ts only; no Go, nix/, flake, dependency, capability manifest (1a85d9dd…) or acceptance-script change.
+    # OPS-705 gate-2 candidate (OPS-741).
+    # Rollback: previous generation (pin 80); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=c6891522f942dc2aea8668d47b46e43b99d2d32c";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=3df1b5ba332c81e1bde71a59e5c9c4545db01019";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
