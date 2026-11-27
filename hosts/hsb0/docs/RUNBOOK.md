@@ -511,8 +511,15 @@ strings removed.
 
 `hausnetz-cd-execute` is installed only on hsb0 with `allowLive = false`.
 mbp2607's two-minute launchd agent stays disabled by default
-(`inspr.hausnetzCdOrchestrator.enable = false`). Pause by disabling that option
-and applying Home Manager. A detached executor finishes its transaction;
+(`inspr.hausnetzCdOrchestrator.enable = false`). Stop immediately on the Mac:
+`hausnetz-cd --disable --reason 'operator requested CD stop'`. This works during
+a tick, persists across restarts and suppresses acceptance PASS; a pending live
+executor receives FAIL and rolls back (or rolls back at its deadline if unreachable).
+Dry-run/trial reports record `operator_disabled`. A malformed stop marker also
+disables CD. Resume is OPS only, after recovery inspection, with
+`hausnetz-cd --clear-disable --reason 'operator inspected recovery and readbacks'`;
+this clears both marker and latch and requires no pending run. Disabling the
+timer option and applying Home Manager also pauses future ticks. A detached executor finishes its transaction;
 pausing the timer does not interrupt recovery. Live activation remains a
 separate LEAD gate after attended dry-run trials and HNET-570 readiness.
 
@@ -531,6 +538,8 @@ The gates compare with the **running** `source_revision` from
   and running revision. With unchanged main it re-reads running evidence at most
   every 30 minutes; main movement invalidates the cache immediately. Failed
   preflight/fetches remain retryable and do not populate this cache.
+  An executor failed-unit preflight refusal backs off for 30 minutes for the
+  same main/running pair; either revision changing triggers immediate evaluation.
 - The Mac maintains and fetches a **full-history working clone** under
   `~/.local/share/hausnetz-cd/hausnetz`. Nix must be on PATH. G2 runs
   `nix run --offline --no-write-lock-file "git+file://<percent-encoded-clone>?rev=<running>#cd-prepare" -- --repo <clone> --rev <new> --running <running>` (600 s budget).
@@ -860,6 +869,15 @@ local alarm hook also receives the TEST prefix. Each rehearsal has its own
 ticket result line and never reserves a production revision pair.
 
 #### Persistent disable latch and attended live releases (gate 7)
+
+The operator stop marker is atomically written with mode 0600, reason, ISO time
+and `operator: true`, without taking the tick lock. Each tick merges it into the
+latch and each reconcile poll checks it again. Operator stops log once per tick
+and do not send `CD DISABLED`. Clear-disable waits up to five seconds for the
+tick lock; contention reports `busy: a tick holds the lock; retry`.
+Controller children have durable PID/process-group ownership records. TERM/INT,
+errors, timeouts and normal exit cancel their entire groups. A surviving earlier
+group quietly blocks new ticks; after 30 minutes one alarm is durably queued.
 
 The first `rollback_failed`, including B, every live/rehearsal controller `unknown` outcome
 (interrupted switch, executor crash, status unavailable or poll timeout), and

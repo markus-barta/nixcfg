@@ -1,6 +1,7 @@
 """mbp2607 timer tick. Never evaluates/builds NixOS on the workstation."""
 
 import argparse
+import datetime
 import fcntl
 import ipaddress
 import json
@@ -15,7 +16,8 @@ import uuid
 from common import (ACCEPTANCE_TIMEOUT, EXECUTOR_TERMINAL, Manual, POLL_BUDGET, POLL_INTERVAL, RESULT_SCHEMA, SSH_RETRY_TIMEOUT,
                     TERMINAL, UNIT_RUNTIME_MAX, atomic_bytes, atomic_json, blob, cache_repo,
                     diagnostics, evidence, gate_g1, gate_g2, gate_g4, git, lock_pin, now,
-                    parse_export, private_dir, require, revision, run, strict_json)
+                    parse_export, private_dir, require, revision, run, strict_json,
+                    child_group_alive, controller_children)
 
 
 # Fleet login shells are fish: every operation explicitly feeds bash. The
@@ -171,14 +173,52 @@ def mailbox_target(path):
     return host, int(values["port"]), values["user"]
 
 
-def rehearsal_reason(value):
+def operator_reason(value, command):
     value = value if isinstance(value, str) else ""
     reason = value.strip()
-    require(reason, "rehearse requires --reason <text>")
-    require(len(value) <= 500 and all(unicodedata.category(c) not in {"Cc", "Cf", "Cs", "Zl", "Zp"}
-                                    for c in value),
-            "rehearse --reason must be at most 500 characters with no control characters")
+    require(reason, command + " requires --reason <text>")
+    require(len(value) <= 500, command + " --reason must be at most 500 characters")
+    require(all(unicodedata.category(c) not in {"Cc", "Cf", "Cs", "Zl", "Zp"} for c in value),
+            command + " --reason must contain no control characters")
     return reason
+
+
+def rehearsal_reason(value):
+    return operator_reason(value, "rehearse")
+
+
+def disable_marker(config):
+    return Path(config["state_file"]).parent / "operator-disable.json"
+
+
+def read_disable(config):
+    path = disable_marker(config)
+    try:
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            return None
+        require(not path.is_symlink(), "invalid_operator_disable_marker")
+        value = strict_json(path.read_bytes())
+        require(isinstance(value, dict) and value.get("operator") is True
+                and isinstance(value.get("at"), str) and value["at"]
+                and operator_reason(value.get("reason"), "--disable") == value["reason"],
+                "invalid_operator_disable_marker")
+        require(datetime.datetime.fromisoformat(value["at"]).tzinfo is not None,
+                "invalid_operator_disable_marker")
+        return value
+    except (Manual, OSError, KeyError, TypeError, ValueError):
+        print("hausnetz-cd: malformed or unreadable operator disable marker; disabled (fail-closed)", flush=True)
+        return {"operator": True, "at": now(), "reason": "invalid_operator_disable_marker"}
+
+
+def merge_disable(config, state):
+    marker = read_disable(config)
+    if marker is not None:
+        state["disabled"] = {**marker, "operator": True}
+        save_state(config, state)
+        return True
+    return bool(state.get("disabled", {}).get("operator"))
 
 
 class AlarmRouteUnavailable(Manual):
@@ -411,6 +451,11 @@ def finish(config, state, result):
         save_state(config, state)
         return
     if result["status"] == "preflight_refused":
+        pending = state.get("pending") or {}
+        running = result.get("running_nixcfg_rev") or pending.get("running_nixcfg_rev")
+        if running:
+            state["evaluated"] = {"main": result["nixcfg_rev"], "running": running,
+                                  "at": time.time(), "check_running": True}
         state["attempted"].pop(key, None)
         ledger(config, "attempted", key).unlink(missing_ok=True)
         state["pending"] = None
@@ -463,6 +508,17 @@ def reconcile(config, state):
 
     while time.time() < pending["deadline"]:
         try:
+            operator_disabled = merge_disable(config, state)
+            if operator_disabled:
+                pending["operator_disabled"] = True
+                if pending["mode"] == "dry-run" or pending.get("phase") == "awaiting_ack":
+                    finish(config, state, {**pending, "status": "operator_disabled", "phase": "complete",
+                                           "completed_at": now(), "reason": "operator_disabled"})
+                    return
+                # The executor already accepts fail as an immediate rollback
+                # request. Persisted stop intent always overrides acceptance.
+                pending["acceptance"] = "fail"
+                remote(config, "acceptance", pending["nixcfg_rev"], run_id=pending["run_id"], digest="fail")
             response = strict_json(remote(config, "status", pending["nixcfg_rev"], run_id=pending["run_id"]))
             require(isinstance(response, dict) and response.get("unit_state") in {
                 "active", "activating", "deactivating", "inactive", "failed", "unknown"}, "remote_unit_state")
@@ -480,6 +536,8 @@ def reconcile(config, state):
                 result["vm_test_reason"] = pending.get("vm_test_reason", "not_run")
                 result["run_key"] = pending["run_key"]
                 result["trial"] = pending.get("trial", False)
+                if pending.get("operator_disabled"):
+                    result["operator_disabled"] = True
                 if pending.get("rehearsal"):
                     require(result.get("rehearsal") == pending["rehearsal"], "rehearsal_result_variant")
                     result["rehearsal_reason"] = pending.get("rehearsal_reason")
@@ -511,9 +569,12 @@ def reconcile(config, state):
                         queue_alarm(config, state, pending["run_id"] + "-acceptance",
                                     {**pending, "reason": "acceptance_failed_or_timeout"}, "ACCEPTANCE FAILED")
                     save_state(config, state)
-                deliver_alarms(config, state)
+                if merge_disable(config, state):
+                    pending.update(acceptance="fail", operator_disabled=True)
+                    save_state(config, state)
                 remote(config, "acceptance", pending["nixcfg_rev"], run_id=pending["run_id"],
                        digest=pending["acceptance"])
+                deliver_alarms(config, state)
         except (Manual, OSError, KeyError, TypeError, ValueError):
             since = pending.setdefault("unavailable_since", time.time())
             save_state(config, state)
@@ -554,6 +615,10 @@ def acceptance(config, pending):
 
 def start_pending(config, state):
     pending = state["pending"]
+    if merge_disable(config, state):
+        finish(config, state, {**pending, "status": "operator_disabled", "phase": "complete",
+                               "completed_at": now(), "reason": "operator_disabled", "operator_disabled": True})
+        return False
     if pending["mode"] == "live":
         ack = Path(config["state_file"]).parent / ("ack-live-" + pending["run_id"])
         if pending.get("attended_required"):
@@ -626,31 +691,42 @@ def acceptance_entrypoint(repo, trusted_rev):
 def pre_pair_failure(config, state):
     failure = state.setdefault("pre_pair_failure", {"since": time.time(), "alarmed": False})
     if time.time() - failure["since"] >= 6 * 60 * 60 and not failure["alarmed"]:
-        alarm(config, {"mode": config["mode"], "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
-                       "reason": "source_or_running_evidence_unavailable_6h"},
-              "CD PREFLIGHT UNAVAILABLE", pre_pair=True)
+        key = failure.setdefault("alarm_id", uuid.uuid4().hex + "-pre-pair")
+        queue_alarm(config, state, key,
+                    {"mode": config["mode"], "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
+                     "reason": "source_or_running_evidence_unavailable_6h"},
+                    "CD PREFLIGHT UNAVAILABLE", pre_pair=True)
         failure["alarmed"] = True
+        deliver_alarms(config, state)
     save_state(config, state)
 
 
 def tick(config):
-    if config.get("enabled") is not True:
+    record = Path(config["state_file"]).parent / "controller-children.json"
+    with controller_children(record):
+        tick_owned(config, record)
+
+
+def tick_owned(config, child_record):
+    marker = read_disable(config)
+    if config.get("enabled") is not True and marker is None:
         return
-    require(config["mode"] in {"dry-run", "live", "rehearse"}, "invalid_mode")
-    require(re.fullmatch(r"HNET-[0-9]+", config.get("release_ticket") or ""), "release_ticket_unset")
-    alarm_ticket_args(config)
-    if config["mode"] == "live":
-        require(config.get("secondary_telegram_command"), "independent_alert_path_unset")
     if config.get("rehearsal"):
         rehearsal_reason(config.get("rehearsal_reason"))
-        rehearsal_preflight(config)
     private_dir(Path(config["state_file"]).parent)
     directory = private_dir(config["cache_dir"])
     with open(directory / "orchestrator.lock", "a", encoding="utf-8") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return
+        lock_deadline = time.monotonic() + (5 if config.get("clear_disable") or config.get("clear_failed") else 0)
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= lock_deadline:
+                    if config.get("clear_disable") or config.get("clear_failed"):
+                        raise Manual("busy: a tick holds the lock; retry")
+                    return
+                time.sleep(0.05)
         state_path = Path(config["state_file"])
         if state_path.exists():
             state = strict_json(state_path.read_bytes())
@@ -661,7 +737,32 @@ def tick(config):
         else:
             state = {"schema": "inspr.hausnetz-cd-state.v1", "last_deployed": None,
                      "failed": [], "attempted": {}, "pending": None, "reports": {}, "sequence": 0}
-        deliver_alarms(config, state)
+        merge_disable(config, state)
+        if child_record.exists():
+            # Preserve an earlier controller's ownership evidence until all
+            # recorded groups are dead. An unreadable record also refuses work.
+            try:
+                children = strict_json(child_record.read_bytes())
+                require(isinstance(children, list), "invalid_child_record")
+                alive = any(child_group_alive(entry) for entry in children)
+            except (Manual, OSError, KeyError, TypeError, ValueError):
+                alive = True
+            if alive:
+                blocked = state.setdefault("child_blocked", {"since": time.time(), "alarmed": False})
+                print("hausnetz-cd: tick skipped; earlier controller child still alive", flush=True)
+                if time.time() - blocked["since"] > 30 * 60 and not blocked["alarmed"]:
+                    key = blocked.setdefault("alarm_id", uuid.uuid4().hex + "-child-blocked")
+                    queue_alarm(config, state, key,
+                                {"mode": config["mode"], "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
+                                 "reason": "earlier_controller_child_alive_30m"},
+                                "CD CHILD STILL ALIVE", pre_pair=True)
+                    blocked["alarmed"] = True
+                save_state(config, state)
+                if blocked["alarmed"]:
+                    deliver_alarms(config, state)
+                return
+            child_record.unlink()
+        state.pop("child_blocked", None)
         if config.get("clear_failed"):
             require(not state["pending"], "pending_refuses_clear_failed")
             target = revision(config["clear_failed"])
@@ -686,6 +787,7 @@ def tick(config):
             return
         if config.get("clear_disable"):
             require(not state["pending"], "pending_refuses_clear_disable")
+            disable_marker(config).unlink(missing_ok=True)
             state.pop("disabled", None)
             state["disable_cleared"] = {"at": now(), "reason": config["clear_reason"]}
             save_state(config, state)
@@ -693,6 +795,11 @@ def tick(config):
         if "disabled" in state:
             require(isinstance(state["disabled"], dict), "invalid_disable_latch")
             print("hausnetz-cd: disabled latch set; operator clear required", flush=True)
+            if state["disabled"].get("operator"):
+                if state["pending"]:
+                    reconcile(config, state)
+                return
+            deliver_alarms(config, state)
             if not state["disabled"].get("alarmed"):
                 for key, entry in state["reports"].items():
                     if (entry["result"].get("run_id") == state["disabled"].get("run_id")
@@ -712,6 +819,15 @@ def tick(config):
             for key in list(state["reports"]):
                 report(config, state, key)
             return
+        require(config["mode"] in {"dry-run", "live", "rehearse"}, "invalid_mode")
+        require(re.fullmatch(r"HNET-[0-9]+", config.get("release_ticket") or ""), "release_ticket_unset")
+        alarm_ticket_args(config)
+        if config["mode"] == "live":
+            require(config.get("secondary_telegram_command"), "independent_alert_path_unset")
+        # No executor acceptance window exists while waiting for human ack.
+        # Retry its durable notifications before starting the executor.
+        if not state["pending"] or state["pending"].get("phase") == "awaiting_ack":
+            deliver_alarms(config, state)
         if config["mode"] == "live":
             state.setdefault("attended_remaining", 3)
             require(type(state["attended_remaining"]) is int and 0 <= state["attended_remaining"] <= 3,
@@ -722,7 +838,7 @@ def tick(config):
                     "other_pending_refuses_rehearsal")
         if config.get("manual_dry_run"):
             require(not state["pending"] or state["pending"]["mode"] == "dry-run", "live_pending_refuses_dry_run")
-        for key in list(state["reports"]):
+        for key in list(state["reports"]) if not state["pending"] else []:
             if not config.get("manual_dry_run") or state["reports"][key]["result"]["mode"] == "dry-run":
                 report(config, state, key)
         if state["pending"]:
@@ -731,6 +847,9 @@ def tick(config):
             reconcile(config, state)
             return
         if config.get("rehearsal"):
+            rehearsal_preflight(config)
+            if merge_disable(config, state):
+                return
             running = evidence(remote(config, "evidence"))
             token = uuid.uuid4().hex
             pending = {"nixcfg_rev": running, "hausnetz_rev": running, "mode": "rehearse",
@@ -752,11 +871,13 @@ def tick(config):
             new = revision(git(repo, "rev-parse", "refs/heads/main").strip())
             expected, new_lock = lock_pin(blob(repo, new, "flake.lock"))
             evaluated = state.get("evaluated", {})
+            old = evidence(remote(config, "evidence")) if evaluated.get("check_running") else None
             if (evaluated.get("main") == new and time.time() - evaluated.get("at", 0) < 30 * 60
+                    and (not evaluated.get("check_running") or evaluated.get("running") == old)
                     and not state.get("pre_pair_failure") and not config.get("manual_dry_run")):
                 revision(evaluated["running"])
                 return
-            old = evidence(remote(config, "evidence"))
+            old = old or evidence(remote(config, "evidence"))
             cache_repo(repo, config["nixcfg_url"], old, new)
             running = lock_pin(blob(repo, old, "flake.lock"))[0]
             generation = remote(config, "generation", new, run_id=uuid.uuid4().hex).strip()
@@ -820,8 +941,10 @@ def tick(config):
                 if outage["rev"] != expected:
                     outage = state["vm_test_wait"] = {"rev": expected, "since": time.time(), "alarmed": False}
                 if time.time() - outage["since"] >= config.get("vm_test_wait_timeout", 1800) and not outage["alarmed"]:
+                    alarm_id = outage.setdefault("alarm_id", uuid.uuid4().hex + "-vm-test")
+                    queue_alarm(config, state, alarm_id, result, "VM-TEST WAIT EXCEEDED")
                     outage["alarmed"] = True
-                    alarm(config, result, "VM-TEST WAIT EXCEEDED")
+                    deliver_alarms(config, state)
             else:
                 evaluated_tick()
             result["trial"] = bool(config.get("manual_dry_run"))
@@ -867,6 +990,7 @@ def main():
     parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.add_argument("command", nargs="?", choices=["rehearse"])
     parser.add_argument("--variant", choices=["A", "B"])
+    parser.add_argument("--disable", action="store_true")
     parser.add_argument("--clear-disable", action="store_true")
     parser.add_argument("--clear-failed")
     parser.add_argument("--reason")
@@ -877,20 +1001,31 @@ def main():
     clear_failed = args.clear_failed is not None
     if bool(args.command) != bool(args.variant):
         parser.error("rehearse requires --variant A|B")
-    if args.command:
+    reason_command = ("rehearse" if args.command else "--disable" if args.disable else
+                      "--clear-disable" if args.clear_disable else "--clear-failed" if clear_failed else None)
+    if reason_command:
         try:
-            args.reason = rehearsal_reason(args.reason)
+            args.reason = operator_reason(args.reason, reason_command)
         except Manual as exc:
             parser.error(str(exc))
-    elif bool(args.clear_disable or clear_failed) != bool(args.reason and args.reason.strip()):
+    elif args.reason is not None:
         parser.error("--clear-disable or --clear-failed requires --reason <text>")
     if sum((bool(args.command), args.clear_disable, args.test_alarm, args.once or args.dry_run, clear_failed)) > 1:
+        parser.error("operator commands cannot be combined")
+    if args.disable and (args.command or args.clear_disable or clear_failed or args.test_alarm or args.once or args.dry_run):
         parser.error("operator commands cannot be combined")
     if args.once != args.dry_run:
         parser.error("manual execution requires both --once and --dry-run")
     try:
         require(not CONFIG_FILE.startswith("@"), "unsubstituted_configuration")
         config = strict_json(Path(CONFIG_FILE).read_bytes())
+        if args.disable:
+            try:
+                atomic_json(disable_marker(config), {"reason": args.reason, "at": now(), "operator": True})
+            except OSError:
+                raise SystemExit("hausnetz-cd: could not write durable disable marker") from None
+            print("hausnetz-cd: disabled by operator; durable stop marker written", flush=True)
+            return
         if args.test_alarm:
             alarm(config, {"mode": "dry-run", "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
                            "reason": "operator_alarm_test"}, "TEST (no action): CD ALARM", test=True)
@@ -899,15 +1034,19 @@ def main():
             config = {**config, "enabled": True, "mode": "rehearse", "rehearsal": args.variant,
                       "rehearsal_reason": args.reason}
         if args.clear_disable:
-            config = {**config, "enabled": True, "clear_disable": True, "clear_reason": args.reason.strip()[:500]}
+            config = {**config, "enabled": True, "clear_disable": True, "clear_reason": args.reason}
         if clear_failed:
-            config = {**config, "enabled": True, "clear_failed": revision(args.clear_failed), "clear_reason": args.reason.strip()[:500]}
+            config = {**config, "enabled": True, "clear_failed": revision(args.clear_failed), "clear_reason": args.reason}
         if args.once:
             config = {**config, "enabled": True, "mode": "dry-run", "manual_dry_run": True}
         tick(config)
     except AlarmRouteUnavailable as exc:
         raise SystemExit("hausnetz-cd: " + str(exc)) from None
-    except (Manual, OSError, KeyError, TypeError, ValueError):
+    except Manual as exc:
+        if str(exc) == "busy: a tick holds the lock; retry":
+            raise SystemExit("hausnetz-cd: " + str(exc)) from None
+        raise SystemExit("hausnetz-cd: manual; configuration, source or evidence unavailable") from None
+    except (OSError, KeyError, TypeError, ValueError):
         raise SystemExit("hausnetz-cd: manual; configuration, source or evidence unavailable") from None
 
 

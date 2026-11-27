@@ -504,6 +504,12 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                 result["status"] = "failed"
                 result["rollback"] = "failed"
                 save("rollback")
+                # Activation resets failed units. Capture the candidate's
+                # diagnostics first; diagnostics must never gate recovery.
+                try:
+                    result["failed_units_before_rollback"] = failed_units(diagnostic=True)
+                except Exception:
+                    result["failed_units_before_rollback"] = ["unavailable"]
                 try:
                     if mode != "rehearse":
                         run("nix-env", ["--profile", config["system_profile"], "--set", result["old_system"]])
