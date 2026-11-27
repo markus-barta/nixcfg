@@ -59,9 +59,10 @@
       url = "github:markus-barta/joedesk/dad48e07f331562164da192106d2d11645b3c074";
       flake = false;
     };
-    # HOSTD-75: boards reconciled with nixcfg (hostdash #26) + HOSTD-37 (#23).
+    # HOSTD-79: hsb9 board gets the Fernsehaufnahmen tile for /fernsehen/ (hostdash #27).
+    # Before: HOSTD-75 boards reconciled with nixcfg (hostdash #26) + HOSTD-37 (#23).
     hostdash = {
-      url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
+      url = "github:markus-barta/hostdash/343e7eb3a993dcd7f1fa9a0d60587f7cbfc0bc0f";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # HNET pin 79: v261127140245.0.0 (sequence 149; hausnetz main c6891522 = merge of release PR #489; the tag is on
