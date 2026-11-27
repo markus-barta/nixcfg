@@ -64,14 +64,15 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 76: v261127062553.0.0 (sequence 146; hausnetz main 1b90188c = merge of release PR #472; the tag is on
-    # the merge). Since 75: steadier floor plans; front-end runtime changes only (web/src/plan/view.ts,
-    # web/src/image-load.ts), plus tests, QA/CI and release bookkeeping; no non-test Go; CSP header and index.html
-    # unchanged; capability manifest unchanged
-    # (1a85d9dd…); no nix/, flake or Go-dependency change (check on HNET-607). Rollback: previous generation (pin 75);
-    # a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 77: v261127105834.0.0 (sequence 147; hausnetz main 95e263e8 = merge of release PR #481; the tag is on
+    # the merge). Since 76: clearer Devices column menu (HNET-613); the plan view ends its image lifecycle even when a
+    # paint throws (HNET-604/606); the HNET-611 acceptance script and its just recipe; QA/CI and release bookkeeping.
+    # Only non-test Go change: hostcaps.DeployGate (stricter: the acceptance script is
+    # never host-inert). CSP header and index.html unchanged; capability manifest unchanged (1a85d9dd…); no nix/,
+    # flake or Go-dependency change (check on HNET-615). Rollback: previous generation (pin 76); a re-pin below 65
+    # must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=1b90188cbabc40a63637fb2de8ddb49b4dbfd63b";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=95e263e8dd4361ab4d678198aad5fa670710b6c3";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
