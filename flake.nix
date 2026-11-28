@@ -119,10 +119,10 @@
     # (fresh history); earlier commits live only in the archived repository.
     # The inspr CLI's checkout paths come from inspr.cli.fleet (NIX-607).
     # INSPR-483: keep this input synchronized with the doctrine gitlink.
-    # Bump the agm-nixcfg agent-kernel pin (its inspr-modules flake input) in the
-    # same change window; its gate-time check compares the two pins (OPS-759).
     # Rollback: previous pair 9eedb7f8 (v261008075622.0.0) resolves only while
     # the archive is reachable under this name (INSPR-299 runbook).
+    # Bump the agm-nixcfg agent-kernel pin (its inspr-modules flake input) in the
+    # same change window; its gate-time check compares the two pins (OPS-759).
     inspr-modules.url = "github:inspr-at/inspr-modules/4b3c7ef3bba1c45055a7a31a21121d6dbef1216f"; # v261009132555.0.0
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
