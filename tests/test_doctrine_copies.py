@@ -1,5 +1,6 @@
 """OPS-754: exercise the real pinned modules and installers, offline, without builds."""
 import json
+import importlib.util
 import os
 from pathlib import Path
 import re
@@ -8,6 +9,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 MODULES = REPO / "modules/uzumaki"
@@ -17,6 +19,8 @@ PI = ".pi/agent/AGENTS.md"
 GROK = ".grok/AGENTS.md"
 COWORK = "Claude/CLAUDE.md"
 WORKERS = [f".local/share/inspr/codex/{name}/AGENTS.md" for name in ("markus", "admin", "agentone")]
+GATE = WORKERS[-1]
+BASH = os.environ.get("OPS754_TEST_BASH", "bash")
 ASSET = re.compile(r"OPS737_ASSET_([^\n]+?)_BEGIN\n(.*?)OPS737_ASSET_\1_END", re.S)
 
 
@@ -37,15 +41,18 @@ BUILDER = (MODULES / "builder-home-agreements.md").read_bytes()
 KERNEL = b"\n\n".join(Path(p).read_bytes() for p in (PUBLIC, PRIVATE))
 STANDARD = MARKER + b"\n\n" + KERNEL + b"\n\n" + PERSONAL
 WORKER = MARKER + b"\n\n" + KERNEL + b"\n\n" + BUILDER
+GATE_PAYLOAD = MARKER + b"\n\n" + KERNEL
 
 
-def evaluate(enabled=None, legacy=False, module=None):
+def evaluate(enabled=None, legacy=False, module=None, host=None):
     args = {
         "nixpkgs": NIXPKGS, "publicSource": str(Path(PUBLIC).parents[1]),
         "selfRev": "1" * 40, "legacy": legacy, "doctrineEnabled": enabled,
     }
     if module:
         args["modulePath"] = str(module)
+    if host:
+        args["hostHome"] = str(host)
     expression = "import ./tests/aeon-operator-mac-eval.nix (builtins.fromJSON " + json.dumps(json.dumps(args)) + ")"
     result = subprocess.run([
         "nix-instantiate", "--eval", "--strict", "--json", "--expr", expression,
@@ -90,16 +97,21 @@ def verify_enabled(cfg):
     for target in targets["targets"]:
         worker = target["path"] in WORKERS
         assert target.get("requiredDirectory") == (str(Path(target["path"]).parent) if worker else None)
-        name = "worker" if worker else "personal"
+        name = "gate" if target["path"] == GATE else "worker" if worker else "personal"
         payload = asset(target["source"], f"inspr-doctrine-{name}.md").encode()
-        assert payload == (WORKER if worker else STANDARD), "incorrect kernel/order/agreements for target"
+        assert payload == expected_payload(target["path"]), "incorrect kernel/order/agreements for target"
         if worker:
             assert PERSONAL not in payload, "canonical personal agreements leaked into builder homes"
     assert b"## INSPR worker baseline" in BUILDER
     assert PERSONAL != BUILDER
+    assert len(BUILDER) == 1458, "live builder fixture changed"
 
 
-def run_activation(cfg, home, assets, dry_run=False):
+def expected_payload(relative):
+    return GATE_PAYLOAD if relative == GATE else WORKER if relative in WORKERS else STANDARD
+
+
+def run_activation(cfg, home, assets, dry_run=False, installer_suffix=""):
     """Execute the actual evaluated shell entry with only writeText assets materialized."""
     targets = manifest(cfg)
     for target in targets["targets"]:
@@ -116,15 +128,17 @@ def run_activation(cfg, home, assets, dry_run=False):
         if match[1] == target_file.name:
             return shlex.quote(str(target_file))
         path = assets / match[1]
-        path.write_text(match[2])
+        path.write_text(match[2] + (installer_suffix if path.suffix == ".py" else ""))
         return shlex.quote(str(path))
 
     data = ASSET.sub(materialize, data)
     data = data.replace("/fixture/python3/bin/python3", shlex.quote(sys.executable))
-    result = subprocess.run(
-        ["bash", "-e", "-c", data], capture_output=True, text=True,
-        env={**os.environ, "HOME": str(home), "DRY_RUN_CMD": "echo" if dry_run else ""},
-    )
+    activation_env = {**os.environ, "HOME": str(home)}
+    activation_env.pop("DRY_RUN", None)
+    # The supported guard checks presence, including an empty variable.
+    if dry_run:
+        activation_env["DRY_RUN"] = ""
+    result = subprocess.run([BASH, "-eu", "-c", data], capture_output=True, text=True, env=activation_env)
     assert result.returncode == 0, result.stderr
     return result
 
@@ -134,14 +148,14 @@ def verify_installation(cfg):
         root = Path(temporary)
         home, assets = root / "home", root / "assets"
         assets.mkdir()
-        # All worker homes exist in this case; the skip case below is independent.
+        # Real live layout: markus/admin have 1458 B; agentone has no AGENTS.md.
         for relative in WORKERS:
             (home / relative).parent.mkdir(parents=True)
         cowork = home / COWORK
         cowork.parent.mkdir()
         foreign = b"existing Cowork doctrine\r\nkeep verbatim\r\n"
         cowork.write_bytes(foreign)
-        for relative in WORKERS:
+        for relative in WORKERS[:-1]:
             (home / relative).write_bytes(BUILDER)
         run_activation(cfg, home, assets, dry_run=True)
         assert cowork.read_bytes() == foreign and not list(home.rglob("*.pre-hm-*")), "dry run mutated files"
@@ -150,10 +164,11 @@ def verify_installation(cfg):
             dest = home / relative
             assert stat.S_ISREG(dest.lstat().st_mode), "doctrine target must be a regular file"
             assert stat.S_IMODE(dest.stat().st_mode) == 0o644
-            assert dest.read_bytes() == (STANDARD if relative == COWORK else WORKER)
+            assert dest.read_bytes() == expected_payload(relative), "live-layout target has wrong agreements"
             backups = list(dest.parent.glob(dest.name + ".pre-hm-*"))
-            assert len(backups) == 1, "foreign file overwritten without one backup"
-            assert backups[0].read_bytes() == (foreign if relative == COWORK else BUILDER)
+            assert len(backups) == (0 if relative == GATE else 1), "foreign file overwritten without one backup"
+            if backups:
+                assert backups[0].read_bytes() == (foreign if relative == COWORK else BUILDER)
         before = {str(p): (p.lstat().st_ino, p.lstat().st_mtime_ns) for p in home.rglob("*") if p.is_file()}
         run_activation(cfg, home, assets)
         after = {str(p): (p.lstat().st_ino, p.lstat().st_mtime_ns) for p in home.rglob("*") if p.is_file()}
@@ -167,28 +182,173 @@ def verify_installation(cfg):
         dest = fresh_home / COWORK
         assert stat.S_ISREG(dest.lstat().st_mode) and dest.read_bytes() == STANDARD
         assert not list(fresh_home.rglob("*.pre-hm-*")), "new file unexpectedly backed up"
-        assert result.stderr.count("WARNING") == 3
+        assert result.stderr.count("WARNING") == 3, "missing-home skips/warnings absent"
         # Symlink destinations, including broken ones, are backed up without
         # following or changing the referenced file, then replaced by regular files.
-        for broken in (False, True):
-            other_home = root / ("broken" if broken else "symlink")
+        for kind in ("foreign", "generated", "identical", "broken"):
+            other_home = root / kind
             dest = other_home / COWORK
             dest.parent.mkdir(parents=True)
-            referent = root / ("missing" if broken else "referent")
-            if not broken:
-                referent.write_bytes(foreign)
+            referent = root / (kind + "-referent")
+            content = {"foreign": foreign, "generated": MARKER + b"\nstale\n", "identical": STANDARD}.get(kind)
+            if content is not None:
+                referent.write_bytes(content)
             dest.symlink_to(referent)
             result = run_activation(cfg, other_home, assets)
             assert not dest.is_symlink() and dest.read_bytes() == STANDARD, "Cowork remains a symlink"
             backups = list(dest.parent.glob("CLAUDE.md.pre-hm-*"))
-            assert len(backups) == 1 and backups[0].is_symlink()
-            if not broken:
-                assert referent.read_bytes() == foreign
+            assert len(backups) == 1 and backups[0].is_symlink(), "destination symlink was not preserved as a backup"
+            assert backups[0].readlink() == referent
+            if content is not None:
+                assert referent.read_bytes() == content, "destination symlink referent was changed"
+            else:
+                assert not referent.exists()
             for relative in WORKERS:
                 assert not (other_home / relative).parent.exists(), "missing worker home was created"
                 assert str((other_home / relative).parent) in result.stderr
             assert result.stderr.count("WARNING") == 3
     print("T130: activation regular files, 0644, byte preservation, idempotence, backup, dry run, symlinks and absent-home warnings passed")
+
+
+def installer_module(cfg, directory):
+    data = cfg["activation"]["insprDoctrineCopies"]["data"]
+    match = next(m for m in ASSET.finditer(data) if m[1] == "inspr-doctrine-copies.py")
+    path = directory / match[1]
+    path.write_text(match[2])
+    spec = importlib.util.spec_from_file_location("doctrine_installer", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def expect_error(action, message):
+    try:
+        action()
+    except Exception as error:
+        assert message in str(error), f"expected {message!r}, got {error!r}"
+        return
+    raise AssertionError(f"expected refusal/failure: {message}")
+
+
+def verify_failure_safety(cfg):
+    with tempfile.TemporaryDirectory(prefix="ops754-faults-") as temporary:
+        root = Path(temporary)
+        installer = installer_module(cfg, root)
+        source = root / "source"
+        source.write_bytes(STANDARD)
+        destination = root / "AGENTS.md"
+        destination.mkdir()
+        with patch.object(installer.tempfile, "NamedTemporaryFile", wraps=tempfile.NamedTemporaryFile) as create:
+            expect_error(lambda: installer.install(destination, source, MARKER), "non-file doctrine target")
+            assert not create.called, "non-file refusal occurred after staging"
+        # A separate destination avoids altering the refused directory.
+        destination = root / "CLAUDE.md"
+        source.write_bytes(b"unmarked doctrine\n")
+        expect_error(lambda: installer.install(destination, source, MARKER), "missing its generated marker")
+        assert not destination.exists(), "invalid source installed"
+        source.write_bytes(STANDARD)
+        foreign = b"foreign bytes\r\n"
+        destination.write_bytes(foreign)
+        inode = destination.stat().st_ino
+        real_replace = os.replace
+
+        def observed_replace(staged, target):
+            assert target.exists() and target.read_bytes() == foreign, "target missing before atomic replacement"
+            backups = list(root.glob("CLAUDE.md.pre-hm-*"))
+            assert len(backups) == 1 and backups[0].stat().st_ino == inode, "backup must hard-link foreign inode"
+            real_replace(staged, target)
+
+        with patch.object(installer.os, "replace", side_effect=observed_replace):
+            installer.install(destination, source, MARKER)
+        assert destination.read_bytes() == STANDARD
+        destination.write_bytes(foreign)
+        with patch.object(installer.os, "replace", side_effect=OSError("replace fault")):
+            expect_error(lambda: installer.install(destination, source, MARKER), "replace fault")
+        assert destination.read_bytes() == foreign, "replace failure removed foreign target"
+        assert not list(root.glob(".CLAUDE.md.*")), "replace failure leaked our temporary file"
+        sentinel = root / ".CLAUDE.md.unrelated"
+        sentinel.write_bytes(b"leave this file alone")
+        # Fail at creation, write, flush, chmod, and fsync. Only our own staged
+        # file may be removed; unrelated similarly named files must survive.
+        create_temp = tempfile.NamedTemporaryFile
+
+        class FailedWrite:
+            def __init__(self, phase, **kwargs):
+                self.phase = phase
+                self.file = create_temp(**kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                self.file.close()
+
+            def __getattr__(self, name):
+                return getattr(self.file, name)
+
+            def write(self, payload):
+                if self.phase == "write":
+                    raise OSError("staging fault")
+                return self.file.write(payload)
+
+            def flush(self):
+                raise OSError("staging fault")
+
+        for phase in ("create", "write", "flush", "chmod", "fsync"):
+            if phase == "create":
+                failure = patch.object(installer.tempfile, "NamedTemporaryFile", side_effect=OSError("staging fault"))
+            elif phase in ("write", "flush"):
+                failure = patch.object(installer.tempfile, "NamedTemporaryFile", side_effect=lambda **kw: FailedWrite(phase, **kw))
+            else:
+                failure = patch.object(installer.os, "fchmod" if phase == "chmod" else "fsync", side_effect=OSError("staging fault"))
+            with failure:
+                expect_error(lambda: installer.install(destination, source, MARKER), "staging fault")
+            assert list(root.glob(".CLAUDE.md.*")) == [sentinel], f"{phase} failure leaked a temporary file"
+            assert sentinel.read_bytes() == b"leave this file alone", "cleanup touched unrelated file"
+            assert destination.read_bytes() == foreign, "staging failure changed the destination"
+        # chmod is also repaired on the idempotent path without a rewrite.
+        destination.write_bytes(STANDARD)
+        destination.chmod(0o600)
+        before = (destination.stat().st_ino, destination.stat().st_mtime_ns)
+        installer.install(destination, source, MARKER)
+        assert stat.S_IMODE(destination.stat().st_mode) == 0o644, "idempotent mode repair missing"
+        assert before == (destination.stat().st_ino, destination.stat().st_mtime_ns)
+    print("T130: source/non-file guards, atomic hard-link backup, replace failure and all staging cleanup faults passed")
+
+
+def verify_continuation(cfg):
+    with tempfile.TemporaryDirectory(prefix="ops754-continue-") as temporary:
+        root = Path(temporary)
+        assets = root / "assets"
+        assets.mkdir()
+        home = root / "home"
+        for relative in WORKERS:
+            (home / relative).parent.mkdir(parents=True)
+        # First target fails, but every later existing home must still run.
+        (home / COWORK).mkdir(parents=True)
+        result = run_activation(cfg, home, assets)
+        assert "WARNING" in result.stderr and str(home / COWORK) in result.stderr, "target failure lacked a clear warning"
+        assert (home / COWORK).is_dir()
+        for relative in WORKERS:
+            assert (home / relative).is_file(), "one failed target stopped later targets"
+            assert (home / relative).read_bytes() == expected_payload(relative), "one failed target stopped later targets"
+        # Immediate parent symlinks must be refused, even when their referents
+        # are empty directories (otherwise our writer could fight ~/.codex).
+        linked_home = root / "linked-home"
+        linked_home.mkdir()
+        outside = root / "outside"
+        outside.mkdir()
+        (linked_home / "Claude").symlink_to(outside, target_is_directory=True)
+        worker_parent = (linked_home / WORKERS[0]).parent
+        worker_parent.parent.mkdir(parents=True)
+        worker_parent.symlink_to(outside, target_is_directory=True)
+        result = run_activation(cfg, linked_home, assets)
+        assert not list(outside.iterdir()), "symlinked parent was written through"
+        assert result.stderr.count("refusing symlinked doctrine parent") == 2, "parent refusal missing"
+        # Process-level failure is also contained by the actual activation shell.
+        result = run_activation(cfg, home, assets, installer_suffix="\nraise RuntimeError('injected process failure')\n")
+        assert "WARNING: doctrine copy installer failed; continuing Home Manager activation." in result.stderr
+    print("T130: per-target warnings, later-target continuation, symlink-parent refusal and shell exit 0 passed")
 
 
 def must_fail(label, action):
@@ -206,15 +366,22 @@ verify_disabled(evaluate(enabled=False))
 ENABLED = evaluate(enabled=True)
 verify_enabled(ENABLED)
 verify_installation(ENABLED)
+verify_failure_safety(ENABLED)
+verify_continuation(ENABLED)
 
-# Host enablement is checked at the real module boundary; other host files must
-# not opt in. The complete host flake is intentionally neither fetched nor built.
-host = (REPO / "hosts/mbp2607/home.nix").read_text()
-assert re.search(r"inspr\.doctrineCopies\.enable\s*=\s*true\s*;", host)
-for path in (REPO / "hosts").rglob("*.nix"):
-    if path != REPO / "hosts/mbp2607/home.nix":
-        assert not re.search(r"inspr\.doctrineCopies\.enable\s*=\s*true\s*;", path.read_text()), path
-assert not re.search(r"inspr\.aeonOperatorMac\.enable\s*=\s*true\s*;", host)
+
+def verify_host(host, expected):
+    cfg = evaluate(host=host)
+    assert cfg["doctrineEnabled"] == expected, f"unexpected doctrine opt-in: {host}"
+    assert not cfg["operatorEnabled"], f"OPS-737 unexpectedly enabled: {host}"
+
+
+# Evaluate option definitions in every macOS HM entry, including the template,
+# with the same pinned lib and actual integration module. No flake fetch/build.
+for host in sorted((REPO / "hosts").glob("*/home*.nix")):
+    if host.name == "home-config.nix":  # NixOS HM entry, not a macOS host.
+        continue
+    verify_host(host, host == REPO / "hosts/mbp2607/home.nix")
 print("T130: default/explicit OFF match legacy; pinned sources, mbp2607-only opt-in, target declarations and unchanged marker writers passed")
 
 # Mutate actual source modules and the actual installer. Keep relative imports
@@ -233,17 +400,49 @@ with tempfile.TemporaryDirectory(prefix="ops754-mutants-", dir=REPO / "tests") a
                     content = content.replace("./" + source, str(MODULES / source))
             (root / name).write_text(content)
 
+    staging = '''        with tempfile.NamedTemporaryFile(prefix=f".{destination.name}.", dir=destination.parent, delete=False) as staged:
+            temporary = Path(staged.name)
+            staged.write(payload)
+            staged.flush()
+            os.fchmod(staged.fileno(), 0o644)
+            os.fsync(staged.fileno())
+'''
     mutations = [
         ("wrong source order", "doctrine-copies.nix", "[ kernel.source ] ++ kernel.extraSources", "kernel.extraSources ++ [ kernel.source ]", verify_enabled, True),
-        ("personal agreements missing", "doctrine-copies.nix", 'generate "personal" ./personal-agreements.md', 'generate "personal" ./builder-home-agreements.md', verify_enabled, True),
-        ("canonical agreements added to builder homes", "doctrine-copies.nix", 'generate "worker" ./builder-home-agreements.md', 'generate "worker" ./personal-agreements.md', verify_enabled, True),
+        ("personal agreements missing", "doctrine-copies.nix", 'generate "personal" [ ./personal-agreements.md ]', 'generate "personal" [ ./builder-home-agreements.md ]', verify_enabled, True),
+        ("canonical agreements added to builder homes", "doctrine-copies.nix", 'generate "worker" [ ./builder-home-agreements.md ]', 'generate "worker" [ ./personal-agreements.md ]', verify_enabled, True),
+        ("agentone gets builder text", "doctrine-copies.nix", "agentone = gate;", "agentone = worker;", verify_installation, True),
         ("Cowork symlink instead of regular file", "doctrine-copies.py", "os.replace(temporary, destination)", "temporary.unlink()\n        destination.symlink_to(source)", verify_installation, True),
-        ("foreign file overwritten without backup", "doctrine-copies.py", "destination.rename(backup)", "pass  # mutant discards the foreign file", verify_installation, True),
+        ("foreign file overwritten without backup", "doctrine-copies.py", "os.link(destination, backup)", "pass  # mutant discards the foreign file", verify_installation, True),
         ("option enabled by default", "doctrine-copies.nix", 'lib.mkEnableOption "doctrine copies for Cowork, Codex workers, pi and grok"', '(lib.mkEnableOption "doctrine copies for Cowork, Codex workers, pi and grok") // { default = true; }', verify_disabled, None),
+        ("dry-run guard removed", "doctrine-copies.nix", "if [[ -v DRY_RUN ]]; then", "if false; then", verify_installation, True),
+        ("missing-home skip removed", "doctrine-copies.py", 'if required and not (home / required).is_dir():', 'if False and required and not (home / required).is_dir():', verify_installation, True),
+        ("idempotent early return removed", "doctrine-copies.py", "                return\n", "                pass  # mutant rewrites identical files\n", verify_installation, True),
+        ("generated file backed up again", "doctrine-copies.py", "if exists and not generated:", "if exists:", verify_installation, True),
+        ("non-file refusal removed", "doctrine-copies.py", 'raise ValueError(f"refusing to replace non-file doctrine target: {destination}")', "pass  # mutant permits non-file targets", verify_failure_safety, True),
+        ("source-marker check removed", "doctrine-copies.py", 'if not payload.startswith(marker + b"\\n"):', 'if False and not payload.startswith(marker + b"\\n"):', verify_failure_safety, True),
+        ("destination symlink followed by is_file", "doctrine-copies.py", "if stat.S_ISREG(mode):", "if destination.is_file():", verify_installation, True),
+        ("foreign replacement has a missing-target gap", "doctrine-copies.py", "os.link(destination, backup)", "destination.rename(backup)", verify_failure_safety, True),
+        ("temporary cleanup removed", "doctrine-copies.py", "            temporary.unlink()", "            pass  # mutant leaks staging files", verify_failure_safety, True),
+        ("staging happens outside try", "doctrine-copies.py", "    try:\n" + staging, "\n".join(line[4:] for line in staging.rstrip("\n").split("\n")) + "\n    try:\n", verify_failure_safety, True),
+        ("idempotent mode repair removed", "doctrine-copies.py", "                    destination.chmod(0o644)", "                    pass  # mutant leaves wrong permissions", verify_failure_safety, True),
+        ("parent-symlink refusal removed", "doctrine-copies.py", "if destination.parent.is_symlink():", "if False and destination.parent.is_symlink():", verify_continuation, True),
+        ("target error aborts later targets", "doctrine-copies.py", '            print(f"WARNING: skipping doctrine copy for {destination}: {error}", file=sys.stderr)', "            raise", verify_continuation, True),
+        ("shell process failure aborts activation", "doctrine-copies.nix", '''        if ! ${pkgs.python3}/bin/python3 ${installer} "$HOME" ${targets}; then
+          printf '%s\\n' 'WARNING: doctrine copy installer failed; continuing Home Manager activation.' >&2
+        fi''', '''        ${pkgs.python3}/bin/python3 ${installer} "$HOME" ${targets}''', verify_continuation, True),
     ]
     for label, name, before, after, checker, enabled in mutations:
         original = originals[name]
         assert original.count(before) == 1, label
+        if name.endswith(".py"):
+            compile(original.replace(before, after), name, "exec")
         stage({name: original.replace(before, after)})
-        must_fail(label, lambda: checker(evaluate(enabled=enabled, module=root / "agent-kernel.nix")))
+        mutated = evaluate(enabled=enabled, module=root / "agent-kernel.nix")
+        must_fail(label, lambda: checker(mutated))
+    # Alternate Nix syntax evades the former regex: the evaluated host-option
+    # assertion must reject it. This fixture never touches an actual host file.
+    host_mutant = root / "host.nix"
+    host_mutant.write_text('{ ... }: { inspr.doctrineCopies = { enable = true; }; }')
+    must_fail("non-mbp2607 host uses alternate opt-in syntax", lambda: verify_host(host_mutant, False))
 print("T130: PASS (offline scoped evaluation; no home activation, builds, SSH or network)")

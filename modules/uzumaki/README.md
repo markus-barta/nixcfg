@@ -38,6 +38,17 @@ On macOS this import also links the shared Karabiner JSON config from
 `modules/config/karabiner.json`. The Karabiner-Elements app install and Input
 Monitoring approval stay manual per host.
 
+`inspr.doctrineCopies.enable` is off by default; only mbp2607 opts in. It
+creates `~/Claude/CLAUDE.md` in the configured Cowork workspace, even when
+`~/Claude` does not yet exist. Existing Codex markus/admin homes receive the
+public and private kernels plus their existing builder agreements; agentone
+receives only the kernels because it previously had no `AGENTS.md`. Missing
+Codex homes are skipped. Pi and Grok share the personal-agreements payload.
+Disabling the option leaves generated files in place. Edits that retain the
+generated marker are overwritten without a backup. Foreign files and symlinks
+are backed up; symlinked target directories are skipped with a warning. Copy
+failures warn per target and let Home Manager activation continue.
+
 ---
 
 ## Module Options

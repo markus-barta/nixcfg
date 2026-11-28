@@ -1,6 +1,9 @@
 # OPS-754: regular-file doctrine for Cowork and existing Codex worker homes.
 # Only mbp2607 opts in. pi/grok share this payload; marker harnesses retain
 # their upstream kernel-only payload and preserve personal text outside it.
+# Creates ~/Claude when absent: it is the configured Cowork workspace.
+# Disabling leaves generated files in place. Edits retaining the marker are
+# overwritten without a backup; foreign entries are preserved before replacement.
 {
   config,
   inputs,
@@ -17,18 +20,25 @@ let
   generate =
     name: agreements:
     pkgs.writeText "inspr-doctrine-${name}.md" (
-      marker + "\n\n" + lib.concatStringsSep "\n\n" (map builtins.readFile (sources ++ [ agreements ]))
+      marker + "\n\n" + lib.concatStringsSep "\n\n" (map builtins.readFile (sources ++ agreements))
     );
-  standard = generate "personal" ./personal-agreements.md;
+  standard = generate "personal" [ ./personal-agreements.md ];
   # Preserve the complete existing builder-home agreements, including their
   # older approval policy and worker baseline; canonical personal text is absent.
-  worker = generate "worker" ./builder-home-agreements.md;
+  worker = generate "worker" [ ./builder-home-agreements.md ];
+  gate = generate "gate" [ ];
+  # Per-home policy: markus/admin had builder text; agentone had no AGENTS.md.
+  workerSources = {
+    markus = worker;
+    admin = worker;
+    agentone = gate;
+  };
   workerTargets =
     map
       (account: {
         path = ".local/share/inspr/codex/${account}/AGENTS.md";
         requiredDirectory = ".local/share/inspr/codex/${account}";
-        source = worker;
+        source = workerSources.${account};
       })
       [
         "markus"
@@ -68,10 +78,13 @@ in
       ".grok/AGENTS.md".source = standard;
     };
     home.activation.insprDoctrineCopies = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
-      if [ -n "''${DRY_RUN_CMD:-}" ]; then
+      # Supported by the pinned Home Manager; DRY_RUN_CMD is deprecated.
+      if [[ -v DRY_RUN ]]; then
         printf '%s\n' 'Would update INSPR doctrine copies (Cowork and existing Codex homes).'
       else
-        ${pkgs.python3}/bin/python3 ${installer} "$HOME" ${targets}
+        if ! ${pkgs.python3}/bin/python3 ${installer} "$HOME" ${targets}; then
+          printf '%s\n' 'WARNING: doctrine copy installer failed; continuing Home Manager activation.' >&2
+        fi
       fi
     '';
   };
