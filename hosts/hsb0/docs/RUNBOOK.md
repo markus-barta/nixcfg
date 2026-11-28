@@ -511,8 +511,48 @@ strings removed.
 
 `hausnetz-cd-execute` is installed only on hsb0 with `allowLive = false`.
 mbp2607's two-minute launchd agent stays disabled by default
-(`inspr.hausnetzCdOrchestrator.enable = false`). Pause by disabling that option
-and applying Home Manager. A detached executor finishes its transaction;
+(`inspr.hausnetzCdOrchestrator.enable = false`). Stop immediately on the Mac:
+`hausnetz-cd --disable --reason 'operator requested CD stop'`. This works during
+a tick and persists across restarts. A stop observed before backup acknowledgment
+withholds the acknowledgment: the live executor exits before switching with
+`backup_copy_not_acknowledged` and needs no rollback. A stop observed before an
+acceptance decision write forces FAIL. If a stop lands during the backup ack SSH
+write (up to 45 seconds), one switch may proceed; the next poll sends FAIL and
+the executor rolls back. If the stop lands during the SSH write of
+an already-decided PASS (up to 45 seconds), that one PASS may still be consumed;
+the next poll cannot undo a completed pass. After switching, a pending live
+executor receives FAIL and rolls back (or rolls back at its deadline if unreachable).
+A rehearsal honors FAIL before switching, or finishes its own rollback if already
+switched. Stopped reports record `operator_disabled`. Outcomes caused by the stop
+remain retryable after clearing it; if the executor already started, its revision
+tombstone refuses the same nixcfg main (`revision_already_attempted`). Retry at a
+new nixcfg main instead. That refusal does not tombstone the hausnetz target.
+Real failures, including checker FAIL and rollback failures, keep their target
+tombstones even when a stop is also seen.
+A malformed stop marker fails closed and logs once per tick. Alarm/report retries
+continue while stopped after reconciliation, outside an acceptance window.
+Resume is OPS only, after recovery inspection, with
+`hausnetz-cd --clear-disable --reason 'operator inspected recovery and readbacks'`;
+this clears only the operator stop and requires no pending run. The separate
+rollback/unknown/acceptance safety latch stays in place. After independently
+inspecting its cause, clear it explicitly with
+`hausnetz-cd --clear-disable --latch --reason 'operator inspected safety latch'`.
+Each command prints which stop/latch it cleared.
+
+A prior controller's live child group or malformed child record blocks ticks and
+clear-disable/clear-failed (the clear commands exit non-zero with the reason).
+After inspecting the recorded pid/pgid and verifying the group has exited, recover
+with `hausnetz-cd --clear-child --reason 'verified previous child group dead'`.
+This recovery is lock-free. It refuses live or unverifiable records; a malformed
+record requires
+`hausnetz-cd --clear-child --force --pgid <verified-group> --reason 'operator verified recorded group dead'`.
+Force verifies pgid liveness only, for the supplied pgid and every readable
+recorded pgid; it does not verify pid identity. An unparseable record can be
+cleared only with an explicit `--pgid` whose group is verified dead.
+TERM cancellation gives adapters up to three seconds before KILL. Descendants
+which create their own session with setsid are outside the tracked group.
+A reused group leader PID remains a fail-closed block requiring inspection.
+Disabling the timer option and applying Home Manager also pauses future ticks. A detached executor finishes its transaction;
 pausing the timer does not interrupt recovery. Live activation remains a
 separate LEAD gate after attended dry-run trials and HNET-570 readiness.
 
@@ -531,6 +571,8 @@ The gates compare with the **running** `source_revision` from
   and running revision. With unchanged main it re-reads running evidence at most
   every 30 minutes; main movement invalidates the cache immediately. Failed
   preflight/fetches remain retryable and do not populate this cache.
+  An executor failed-unit preflight refusal backs off for 30 minutes for the
+  same main/running pair; either revision changing triggers immediate evaluation.
 - The Mac maintains and fetches a **full-history working clone** under
   `~/.local/share/hausnetz-cd/hausnetz`. Nix must be on PATH. G2 runs
   `nix run --offline --no-write-lock-file "git+file://<percent-encoded-clone>?rev=<running>#cd-prepare" -- --repo <clone> --rev <new> --running <running>` (600 s budget).
@@ -860,6 +902,15 @@ local alarm hook also receives the TEST prefix. Each rehearsal has its own
 ticket result line and never reserves a production revision pair.
 
 #### Persistent disable latch and attended live releases (gate 7)
+
+The operator stop marker is atomically written with mode 0600, reason, ISO time
+and `operator: true`, without taking the tick lock. Each tick merges it into the
+latch and each reconcile poll checks it again. Operator stops log once per tick
+and do not send `CD DISABLED`. Clear-disable waits up to five seconds for the
+tick lock; contention reports `busy: a tick holds the lock; retry`.
+Controller children have durable PID/process-group ownership records. TERM/INT,
+errors, timeouts and normal exit cancel their entire groups. A surviving earlier
+group quietly blocks new ticks; after 30 minutes one alarm is durably queued.
 
 The first `rollback_failed`, including B, every live/rehearsal controller `unknown` outcome
 (interrupted switch, executor crash, status unavailable or poll timeout), and
