@@ -46,12 +46,22 @@ class CacheBoundaryFixtures(unittest.TestCase):
         steps = no_setup["jobs"]["pharos-hausnetz-cd-transactions-1"]["steps"]
         steps[:] = [s for s in steps if s.get("uses") != "./.github/actions/pharos-nix"]
         broken.append(("another job without setup", no_setup))
-        nix_run = copy.deepcopy(self.workflow)
-        nix_run["jobs"][NIX_FREE_JOB]["steps"].append({"run": "nix build .#checks"})
-        broken.append(("nix in the exempt job", nix_run))
-        nix_action = copy.deepcopy(self.workflow)
-        nix_action["jobs"][NIX_FREE_JOB]["steps"].append({"uses": "cachix/install-nix-action@v31"})
-        broken.append(("nix installer in the exempt job", nix_action))
+        # Each control trips exactly one detector: a Nix token, or a flake reference.
+        for name, part, value in [
+                ("nix command", "steps", {"run": "nix-instantiate --eval --expr 1"}),
+                ("bare nix-build", "steps", {"run": "nix-build"}),
+                ("nix store path", "steps", {"run": "/nix/var/nix/profiles/default/bin/nix --version"}),
+                ("nix installer", "steps", {"uses": "cachix/install-nix-action@v31"}),
+                ("nix step env", "steps", {"run": "true", "env": {"NIX_CONFIG": "x"}}),
+                ("nix job env", "env", {"NIX_PATH": "x"}),
+                ("flake reference only", "steps", {"run": "just check .#checks"})]:
+            mutated = copy.deepcopy(self.workflow)
+            job = mutated["jobs"][NIX_FREE_JOB]
+            if part == "steps":
+                job["steps"].append(value)
+            else:
+                job[part] = value
+            broken.append((name, mutated))
         dropped = copy.deepcopy(self.workflow)
         dropped["jobs"]["pharos-rollout"]["needs"].remove(NIX_FREE_JOB)
         broken.append(("exempt job not required", dropped))
@@ -72,11 +82,12 @@ class CacheBoundaryFixtures(unittest.TestCase):
             if shard == NIX_FREE_JOB:
                 nix_free.append(shard)
                 self.assertEqual(preparations, [])
+                # The whole job definition (steps, uses, run, env, with, shell):
+                # no Nix token anywhere and no flake reference.
+                definition = json.dumps(job, sort_keys=True)
+                self.assertNotIn("nix", definition.lower())
+                self.assertNotIn(".#", definition)
                 for step in steps:
-                    uses = step.get("uses", "")
-                    run = step.get("run", "")
-                    self.assertFalse("nix" in uses.lower(), uses)
-                    self.assertNotRegex(run, r"(^|[\s;|&(])nix(-shell|-build|-store|-env)?\s|\.#")
                     self.assertNotIn("cache", step.get("if", ""))
                     self.assertNotIn("continue-on-error", step)
                 continue
