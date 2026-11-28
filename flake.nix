@@ -66,14 +66,13 @@
       url = "github:markus-barta/hostdash/7e4896dcedbe083db8aa96e82587e4da28c2c8cd";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 81: v261127164749.0.0 (sequence 151; hausnetz main 3df1b5ba = merge of release PR #495; the tag is on
-    # the merge). Since 80: while the Plan editor covers the Map, the Map underneath is inert (no second, covered Pan),
-    # restored exactly on close (HNET-610; release check HNET-626); tests, a QA script, version/history data. Host-inert:
-    # web/src/app.ts only; no Go, nix/, flake, dependency, capability manifest (1a85d9dd…) or acceptance-script change.
-    # OPS-705 gate-2 candidate (OPS-741).
-    # Rollback: previous generation (pin 80); a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 82: v261128042859.0.0 (sequence 152; hausnetz main d09257ee; annotated tag). Since 81: Undo keeps
+    # other edits (site-patch, HNET-637), scan view and HA-link fixes, timing/QA guards, acceptance-script changes.
+    # NOT host-inert: flake.nix npmHash and nix/bundle-inputs* changed (2 dev-only package-lock entries); capability
+    # manifest unchanged (1a85d9dd…); no non-test Go change. Manual switch (OPS-750; cd-prepare rc 1).
+    # Rollback: previous generation (pin 81); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=3df1b5ba332c81e1bde71a59e5c9c4545db01019";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=d09257ee24011f5408c92ccfa5b9d1f0b5f27968";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
