@@ -44,10 +44,20 @@ creates `~/Claude/CLAUDE.md` in the configured Cowork workspace, even when
 public and private kernels plus their existing builder agreements; agentone
 receives only the kernels because it previously had no `AGENTS.md`. Missing
 Codex homes are skipped. Pi and Grok share the personal-agreements payload.
+After the upstream marker activation, `~/.codex/AGENTS.md` receives only the
+canonical personal agreements after the kernel END line; all preceding bytes
+stay intact. Its first foreign suffix replacement backs up the whole file.
+Missing, duplicated, reversed or malformed markers, symlink targets, non-regular
+targets and symlinked immediate parents are refused with a warning.
+`~/.claude/CLAUDE.md` remains owned by the upstream marker writer.
 Disabling the option leaves generated files in place. Edits that retain the
 generated marker are overwritten without a backup. Foreign files and symlinks
 are backed up; symlinked target directories are skipped with a warning. Copy
 failures warn per target and let Home Manager activation continue.
+Every non-dry activation atomically records each target's path, outcome
+(`installed`, `unchanged` or `skipped:<reason>`) and UTC timestamp in
+`~/.local/state/inspr-doctrine-copies/status.json`, without file contents.
+Status-write failures also warn and allow activation to continue.
 
 ---
 
