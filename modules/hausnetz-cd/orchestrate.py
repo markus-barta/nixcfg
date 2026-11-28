@@ -50,7 +50,7 @@ case "$action" in
     sudo -n chmod 0600 "$state/ack-live-$run_id"
     ;;
   acceptance)
-    [[ "$digest" == pass || "$digest" == fail ]] || exit 2
+    [[ "$digest" == pass || "$digest" == fail || "$digest" == infra_unavailable ]] || exit 2
     temporary=$(sudo -n mktemp "$state/.acceptance-$run_id.XXXXXX")
     printf '%s\n' "$digest" | sudo -n tee "$temporary" >/dev/null
     sudo -n chmod 0600 "$temporary"
@@ -510,11 +510,28 @@ def finish(config, state, result):
                                 and result.get("reason") == "revision_already_attempted"
                                 and result["nixcfg_rev"] in stopped_revisions)
     retryable_stop = stop_caused or stopped_revision_refusal
+    infra_caused = (result.get("acceptance_infra_unavailable") is True
+        and not result.get("disable_reason") and result.get("checker_verdict") != "fail"
+        and ((result.get("reason") == "backup_copy_not_acknowledged" and not result.get("switched")
+              and result.get("rollback", "not_required") == "not_required")
+             or (result.get("reason") == "acceptance_failed_or_timeout"
+                 and result.get("rollback") == "succeeded")))
+    if infra_caused:
+        result.update(status="acceptance_infra_unavailable", reason="acceptance_infra_unavailable")
+        running = result.get("running_nixcfg_rev") or (state.get("pending") or {}).get("running_nixcfg_rev")
+        state["evaluated"] = {"main": result["nixcfg_rev"], "running": running,
+                              "at": time.time(), "check_running": True}
+        outage = state.setdefault("acceptance_infra_outage", {"alarm_id": uuid.uuid4().hex + "-infra"})
+        queue_alarm(config, state, outage["alarm_id"], result,
+                    "ACCEPTANCE INFRA UNAVAILABLE; retryable; " +
+                    ("rollback succeeded" if result.get("rollback") == "succeeded" else "no switch"))
+        retryable_stop = True
     if stop_caused:
         state["operator_stopped_revisions"] = (list(dict.fromkeys(
             [*stopped_revisions, result["nixcfg_rev"]]))[-200:])
     if retryable_stop:
-        # The executor still refuses this main revision; a new main may retry.
+        # Operator stops still reserve the executor revision; infrastructure
+        # recovery retires both reservations after proving a safe outcome.
         state["attempted"].pop(key, None)
         ledger(config, "attempted", key).unlink(missing_ok=True)
     if not retryable_stop and result["status"] not in {"operator_disabled", "fetch_failed", "vm_test_wait", "preflight_refused"} and not result.get("trial") and not result.get("rehearsal"):
@@ -542,6 +559,10 @@ def finish(config, state, result):
     state["reports"][key] = {"result": result, "ticket": False, "alarm": False, "order": order}
     save_state(config, state)
     report(config, state, key)
+    if infra_caused:
+        deliver_alarms(config, state)
+    if result["mode"] == "live":
+        acceptance_release(config)
 
 
 def fixture_limit(config, name, default):
@@ -591,6 +612,8 @@ def reconcile(config, state):
                     result["operator_disabled"] = True
                 if "checker_verdict" in pending:
                     result["checker_verdict"] = pending["checker_verdict"]
+                if pending.get("acceptance_infra_unavailable"):
+                    result["acceptance_infra_unavailable"] = True
                 if pending.get("rehearsal"):
                     require(result.get("rehearsal") == pending["rehearsal"], "rehearsal_result_variant")
                     result["rehearsal_reason"] = pending.get("rehearsal_reason")
@@ -617,7 +640,18 @@ def reconcile(config, state):
                 # Never acknowledge a backup once stopped: the executor's
                 # backup_copy_not_acknowledged path exits without switching.
                 if not pending.get("operator_disabled") and not merge_disable(config, state):
-                    copy_export(config, result)
+                    if pending["mode"] == "live" and "acceptance_preflight" not in pending:
+                        pending["acceptance_preflight"] = acceptance_preflight(config)
+                        if not pending["acceptance_preflight"]:
+                            pending["acceptance_infra_unavailable"] = True
+                        save_state(config, state)
+                    if not pending.get("acceptance_infra_unavailable"):
+                        copy_export(config, result)
+                    else:
+                        # FAIL-equivalent, with retry permitted only after the
+                        # executor independently confirms safe recovery.
+                        remote(config, "acceptance", pending["nixcfg_rev"],
+                               run_id=pending["run_id"], digest="infra_unavailable")
                 else:
                     pending["operator_disabled"] = True
                     save_state(config, state)
@@ -625,7 +659,11 @@ def reconcile(config, state):
                 if "acceptance" not in pending:
                     pending["checker_verdict"] = acceptance(config, pending)
                     pending["acceptance"] = pending["checker_verdict"]
-                    if pending["acceptance"] != "pass":
+                    if pending["checker_verdict"] == "pass":
+                        state.pop("acceptance_infra_outage", None)
+                    if pending["checker_verdict"] == "infra_unavailable":
+                        pending["acceptance_infra_unavailable"] = True
+                    if pending["acceptance"] == "fail":
                         queue_alarm(config, state, pending["run_id"] + "-acceptance",
                                     {**pending, "reason": "acceptance_failed_or_timeout"}, "ACCEPTANCE FAILED")
                     save_state(config, state)
@@ -658,6 +696,26 @@ def acceptance_settings(config):
     return command
 
 
+def acceptance_preflight(config, timeout=70):
+    """Readiness is infrastructure, never a checker verdict or backup ack."""
+    try:
+        command = acceptance_settings(config)
+        prefix = command[:next(i for i, arg in enumerate(command) if "{trusted_rev}" in arg)]
+        value = strict_json(run(prefix[0], [*prefix[1:], "--preflight", config["acceptance_url"]], timeout=timeout))
+        return isinstance(value, dict) and value.get("ok") is True
+    except (Manual, OSError, KeyError, TypeError, ValueError):
+        return False
+
+
+def acceptance_release(config):
+    try:
+        command = acceptance_settings(config)
+        prefix = command[:next(i for i, arg in enumerate(command) if "{trusted_rev}" in arg)]
+        run(prefix[0], [*prefix[1:], "--release"], timeout=3)
+    except (Manual, OSError, KeyError, TypeError, ValueError):
+        pass  # Durable adapter lease remains available to explicit --release.
+
+
 def acceptance(config, pending):
     """Only an operator-configured CI-VM invocation may run the trusted checker."""
     try:
@@ -669,8 +727,15 @@ def acceptance(config, pending):
                   "caps_sha256": pending["manifest_sha256"]}
         require(all("{" + name + "}" in " ".join(command) for name in values), "acceptance_contract_unset")
         argv = [arg.format_map(values) for arg in command]
-        value = strict_json(run(argv[0], argv[1:], timeout=config.get("acceptance_timeout", ACCEPTANCE_TIMEOUT)))
+        output, code = run(argv[0], argv[1:], timeout=config.get("acceptance_timeout", ACCEPTANCE_TIMEOUT), return_status=True)
+        value = strict_json(output)
+        if (code == 75 and isinstance(value, dict)
+                and value.get("schema") == "hausnetz-cd.acceptance-adapter.v1"
+                and value.get("ok") is False and value.get("infra") == "unavailable"):
+            return "infra_unavailable"
+        require(code == 0, "acceptance_exit")
         require(isinstance(value, dict) and value.get("ok") is True, "acceptance_red_or_schema")
+        require(value.get("schema") == "hausnetz.acceptance.v1", "acceptance_schema")
         return "pass"
     except (Manual, OSError, KeyError, TypeError, ValueError):
         return "fail"
@@ -700,7 +765,21 @@ def start_pending(config, state):
             if not valid_ack:
                 print("hausnetz-cd: awaiting attended ack run_token=" + pending["run_id"], flush=True)
                 return False
+        # Cold VM provisioning may take longer than the executor's backup ack
+        # window. Prepare before submitting it; still withhold the backup ack
+        # on any outage and independently recheck readiness at backup_ready.
+        if not pending.get("acceptance_startup_checked"):
+            pending["acceptance_startup_checked"] = True
+            if not acceptance_preflight(config, timeout=950):
+                pending["acceptance_infra_unavailable"] = True
+            save_state(config, state)
+        if merge_disable(config, state):
+            finish(config, state, {**pending, "status": "operator_disabled", "phase": "complete",
+                                   "completed_at": now(), "reason": "operator_disabled", "operator_disabled": True})
+            return False
         remote(config, "ack-live", pending["nixcfg_rev"], run_id=pending["run_id"], digest=pending["run_id"])
+    if pending.get("acceptance_infra_unavailable"):
+        remote(config, "acceptance", pending["nixcfg_rev"], run_id=pending["run_id"], digest="infra_unavailable")
     pending["phase"] = "executor"
     pending["deadline"] = time.time() + fixture_limit(config, "poll_timeout", POLL_BUDGET)
     if not pending.get("trial"):

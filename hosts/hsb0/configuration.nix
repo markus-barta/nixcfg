@@ -142,7 +142,9 @@ assert joeSet.pusher != null && joeSet.executor != null;
   # The module owns the initially empty StateDirectory (:428); no data import.
   inspr.hausnetzCd = {
     enable = true;
-    allowLive = false; # Separate LEAD gate after attended dry-run trials.
+    # OPS-705 point 4: LEAD go 2026-11-27, host-inert pins only;
+    # the first three live runs require attended acknowledgement (OPS-752).
+    allowLive = true;
   };
 
   services.hausnetz = {

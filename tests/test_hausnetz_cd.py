@@ -2385,6 +2385,69 @@ class TestCD(unittest.TestCase):
         self.assertEqual(self.f.result()["reason"], "attended_ack_missing")
         self.assertFalse(self.f.events("switch"))
 
+    def test_infra_preflight_busy_withholds_ack_and_retries(self):
+        self.f.scenario["acceptance_preflight_busy"] = True
+        self.f.executor["backup_ack_timeout"] = 1.5
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "acceptance_infra_unavailable")
+        self.assertEqual(result["reason"], "acceptance_infra_unavailable")
+        self.assertEqual(result["rollback"], "not_required")
+        self.assertIs(result["switched"], False)
+        self.assertFalse(self.f.events("switch"))
+        self.assertFalse(list(Path(self.f.executor["state_dir"]).glob("ack-[0-9a-f]*")))
+        self.assertFalse(list((Path(self.f.executor["state_dir"]) / "attempted").glob("*.json")))
+        state = self.f.state()
+        self.assertFalse(state["failed"])
+        self.assertFalse(state["attempted"])
+        self.assertNotIn("disabled", state)
+        self.assertFalse(list(ledger(self.f.orchestrator, "failed", "unused").parent.glob("*.json")))
+        starts = len(self.f.events("start"))
+        self.f.tick()
+        self.assertEqual(len(self.f.events("start")), starts)
+        # A second eligible attempt in the same outage emits no duplicate alarm.
+        for ready in (False, True):
+            state = self.f.state()
+            state["evaluated"]["at"] -= 1801
+            self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+            self.f.scenario["acceptance_preflight_busy"] = not ready
+            self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "succeeded")
+        self.assertEqual(len(self.f.events("switch")), 1)
+        alarms = [e for e in self.f.events("mailbox") if "ACCEPTANCE INFRA UNAVAILABLE" in e["text"]]
+        self.assertEqual(len(alarms), 2)  # one per outage, two recipients
+
+    def test_infra_after_switch_rolls_back_retryable(self):
+        self.f.scenario.update(acceptance_exit=75, acceptance_output=json.dumps({
+            "schema":"hausnetz-cd.acceptance-adapter.v1", "ok":False,
+            "infra":"unavailable", "reason":"guest_unavailable"}))
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "acceptance_infra_unavailable")
+        self.assertEqual(result["checker_verdict"], "infra_unavailable")
+        self.assertEqual(result["rollback"], "succeeded")
+        self.assertEqual(len(self.f.events("switch")), 2)
+        self.assertFalse(self.f.state()["failed"])
+        self.assertFalse(self.f.state()["attempted"])
+        self.assertNotIn("disabled", self.f.state())
+        self.assertFalse(list((Path(self.f.executor["state_dir"]) / "attempted").glob("*.json")))
+        self.assertIn("rollback succeeded", self.f.events("mailbox")[0]["text"])
+        state = self.f.state()
+        state["evaluated"]["at"] -= 1801
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.scenario.clear()
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "succeeded")
+
+    def test_infra_rollback_failure_still_latches(self):
+        self.f.scenario.update(acceptance_exit=75, acceptance_output=json.dumps({
+            "schema":"hausnetz-cd.acceptance-adapter.v1", "ok":False,
+            "infra":"unavailable", "reason":"guest_unavailable"}), rollback_fail=True)
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["rollback"], "failed")
+        self.assertIn("disabled", self.f.state())
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+
     def test_acceptance_green_runs_trusted_pre_switch_revision(self):
         self.f.tick("live")
         self.assertEqual(self.f.terminal()["status"], "succeeded")
@@ -2408,7 +2471,14 @@ class TestCD(unittest.TestCase):
         self.assertIn("reason=acceptance_failed_or_timeout", self.f.events("mailbox")[0]["text"])
 
     def test_acceptance_red_rolls_back(self):
-        self.acceptance_bad(acceptance_output='{"ok":false}')
+        self.acceptance_bad(acceptance_output='{"schema":"hausnetz.acceptance.v1","ok":false}')
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+
+    def test_real_acceptance_fail_exit_one_tombstones(self):
+        self.acceptance_bad(acceptance_output='{"schema":"hausnetz.acceptance.v1","ok":false}', acceptance_exit=1)
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
 
     def test_acceptance_nonzero_rolls_back(self):
         self.acceptance_bad(acceptance_exit=1)
@@ -2420,7 +2490,7 @@ class TestCD(unittest.TestCase):
         self.acceptance_bad(acceptance_output="garbage")
 
     def test_acceptance_nonstandard_json_rolls_back(self):
-        self.acceptance_bad(acceptance_output='{"ok":true,"invalid":NaN}')
+        self.acceptance_bad(acceptance_output='{"schema":"hausnetz.acceptance.v1","ok":true,"invalid":NaN}')
 
     def test_acceptance_missing_rolls_back(self):
         self.acceptance_bad(acceptance_missing=True)
@@ -2982,7 +3052,8 @@ class TestCD(unittest.TestCase):
         original_run = orchestrate.run
         durations = []
         def timed_run(executable, args, **kwargs):
-            if executable != str(self.f.bin / "acceptance"):
+            if (executable != str(self.f.bin / "acceptance")
+                    or (args and args[0] in {"--preflight", "--release"})):
                 return original_run(executable, args, **kwargs)
             started = time.monotonic()
             try:
@@ -3781,10 +3852,11 @@ class TestCD(unittest.TestCase):
         from orchestrate import disable_marker
         adapter = self.f.root / "stop-during-acceptance.py"
         marker = disable_marker(self.f.orchestrator)
-        adapter.write_text("import json\nfrom pathlib import Path\n"
+        adapter.write_text("import json, sys\nfrom pathlib import Path\n"
+                           "if sys.argv[1] in ('--preflight','--release'):\n    print('{\"ok\":true}'); sys.exit(0)\n"
                            + "Path(" + repr(str(marker)) + ").write_text(json.dumps({"
                            "'operator':True,'at':'2026-11-27T17:30:34+00:00','reason':'operator stop'}))\n"
-                           "print('{\"ok\":true}')\n")
+                           "print('{\"schema\":\"hausnetz.acceptance.v1\",\"ok\":true}')\n")
         self.f.orchestrator["acceptance_command"] = [sys.executable, str(adapter), "{trusted_rev}", "{url}",
                                                       "{version}", "{caps_sha256}"]
         self.f.tick("live")
@@ -4072,10 +4144,12 @@ class TestCD(unittest.TestCase):
         from orchestrate import start_pending
         state = {**copy.deepcopy(self.f.live_state), "pending": self.pending_record()}
         self.operator_stop()
-        with mock.patch("orchestrate.remote") as remote, mock.patch("orchestrate.report"):
+        with mock.patch("orchestrate.remote") as remote, mock.patch("orchestrate.report"), \
+                mock.patch("orchestrate.acceptance_preflight", return_value=True) as preflight:
             result = start_pending(self.f.orchestrator, state)
         self.assertFalse(result)
         self.assertEqual(remote.call_count, 0)
+        preflight.assert_not_called()
         self.assertIsNone(state["pending"])
 
     def test_stop_before_attended_request_sends_no_ack_alarm(self):
@@ -4744,8 +4818,8 @@ def mutants(only=None, start_after=None):
            'if result["status"] not in {"fetch_failed", "vm_test_wait", "preflight_refused"} and')],
          "test_stopped_pair_retries_after_clear"),
         ("R2 attended ack requested while stopped", "orchestrate.py",
-         [('        if merge_disable(config, state):\n            finish(config, state, {**pending,',
-           '        if False:\n            finish(config, state, {**pending,')],
+         [('        state["pending"] = pending\n        if merge_disable(config, state):\n            finish(config, state, {**pending,',
+           '        state["pending"] = pending\n        if False:\n            finish(config, state, {**pending,')],
          "test_stop_before_attended_request_sends_no_ack_alarm"),
         ("R2 child block episode reset not saved", "orchestrate.py",
          [('        if state.pop("child_blocked", None) is not None:\n            save_state(config, state)',
@@ -4767,13 +4841,27 @@ def mutants(only=None, start_after=None):
          [('retryable_stop = stop_caused or stopped_revision_refusal', 'retryable_stop = False')],
          "test_stop_before_backup_never_acks_or_switches"),
         ("R3 checker verdict ignored", "orchestrate.py",
-         [('result.get("checker_verdict") != "fail"', 'True')],
+         [('or (result.get("reason") == "acceptance_failed_or_timeout"\n                and result.get("checker_verdict") != "fail")',
+           'or (result.get("reason") == "acceptance_failed_or_timeout"\n                and True)')],
          "test_checker_fail_then_stop_keeps_failed_target"),
         ("R3 copy_export marker recheck removed", "orchestrate.py",
          [('if read_disable(config) is None:\n        remote(config, "ack",',
            'if True:\n        remote(config, "ack",')],
          "test_stop_during_copy_export_withholds_ack"),
     ]
+    cases.extend([
+        ("OPS752 preflight skipped", "orchestrate.py",
+         [('pending["acceptance_preflight"] = acceptance_preflight(config)',
+           'pending["acceptance_preflight"] = True'),
+          ('if not acceptance_preflight(config, timeout=950):', 'if False:')],
+         "test_infra_preflight_busy_withholds_ack_and_retries"),
+        ("OPS752 infra tombstoned", "orchestrate.py",
+         [('infra_caused = (result.get("acceptance_infra_unavailable") is True',
+           'infra_caused = (False')], "test_infra_after_switch_rolls_back_retryable"),
+        ("OPS752 infra accepted", "orchestrate.py",
+         [('return "infra_unavailable"', 'return "pass"')],
+         "test_infra_after_switch_rolls_back_retryable"),
+    ])
     if only is not None:
         cases = [case for case in cases if case[0].startswith(only)]
     if start_after is not None:
@@ -4804,6 +4892,9 @@ def mutants(only=None, start_after=None):
             # mutant. The selected behavior assertion itself must fail.
             if "FAIL: " not in result.stderr:
                 raise AssertionError("Invalid mutant run: " + label + "\n" + result.stderr)
+            if label.startswith("OPS752"):
+                assertion = next(line for line in result.stderr.splitlines() if line.startswith("AssertionError:"))
+                return label + " — " + assertion
             return label
     for case in cases:
         print("must-fail mutant killed: " + check_mutant(case), flush=True)

@@ -13,7 +13,7 @@ test ! -L /etc/ci-vm-private
 install -d -o root -g root -m 0700 /etc/ci-vm-private
 
 # Ubuntu repositories only. Avoid repeating apt work on every on-demand boot.
-if [ ! -f "$cache/ubuntu-dependencies-v2" ]; then
+if [ ! -f "$cache/ubuntu-dependencies-v3" ]; then
   # DNS can lag the guest agent on a cold VZ boot. Bound both DNS and apt.
   for attempt in $(seq 1 12); do
     if timeout 5 getent ahostsv4 ports.ubuntu.com >/dev/null; then break; fi
@@ -24,9 +24,9 @@ if [ ! -f "$cache/ubuntu-dependencies-v2" ]; then
   apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
   timeout 300 apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update -qq
   timeout 300 dpkg --configure -a
-  timeout 300 apt-get "${apt_options[@]}" install -y --no-install-recommends ca-certificates curl xz-utils git jq sudo \
+  timeout 300 apt-get "${apt_options[@]}" install -y --no-install-recommends ca-certificates curl xz-utils git jq just sudo \
     nftables procps python3 libicu-dev libkrb5-3 zlib1g libssl-dev
-  touch "$cache/ubuntu-dependencies-v2"
+  touch "$cache/ubuntu-dependencies-v3"
 fi
 
 download_verified() {

@@ -8,7 +8,49 @@ let
   cfg = config.inspr.hausnetzCdOrchestrator;
   home = config.home.homeDirectory;
   stateDir = "${home}/.local/share/ops-qa/state";
+  cacheDir = "${home}/.local/share/hausnetz-cd";
   source = ../../modules/hausnetz-cd;
+  adapterSettings = pkgs.writeText "hausnetz-cd-acceptance.json" (
+    builtins.toJSON {
+      acceptance_url = cfg.acceptanceUrl;
+      cache_dir = cacheDir;
+      state_dir = "${cacheDir}/acceptance";
+      colima = "${pkgs.colima}/bin/colima";
+      ci_vm = "${config.services.ciVm.package}/bin/ci-vm";
+      git = "${pkgs.git}/bin/git";
+      budget = lib.max 0.1 (cfg.acceptanceTimeout - 5);
+      timeout = lib.max 0.1 (cfg.acceptanceTimeout - 90);
+    }
+  );
+  adapterEntrypoint = pkgs.writeText "hausnetz-cd-acceptance.py" (
+    builtins.replaceStrings
+      [ "@CONFIG@" "@GUEST@" ]
+      [
+        (toString adapterSettings)
+        (toString (source + "/acceptance-guest.py"))
+      ]
+      (builtins.readFile (source + "/acceptance-adapter.py"))
+  );
+  adapter = pkgs.writeShellApplication {
+    name = "hausnetz-cd-acceptance";
+    derivationArgs.passthru = {
+      settings = adapterSettings;
+      entrypoint = adapterEntrypoint;
+    };
+    runtimeInputs = with pkgs; [
+      colima
+      git
+      openssh
+      coreutils
+      python3
+    ];
+    text = ''
+      export COLIMA_HOME="$HOME/.config/colima"
+      export LIMA_HOME="$COLIMA_HOME/_lima"
+      export PYTHONPATH=${source}
+      exec ${pkgs.python3}/bin/python3 -B ${adapterEntrypoint} "$@"
+    '';
+  };
   settings = pkgs.writeText "hausnetz-cd-orchestrator.json" (
     builtins.toJSON {
       enabled = cfg.enable;
@@ -27,7 +69,7 @@ let
       target = "mba@hsb0.lan";
       nixcfg_url = "https://github.com/markus-barta/nixcfg.git";
       hausnetz_url = "ssh://git@github.com/inspr-at/hausnetz";
-      cache_dir = "${home}/.local/share/hausnetz-cd";
+      cache_dir = cacheDir;
       state_file = "${stateDir}/hsb0-hausnetz-cd.json";
       export_dir = "${home}/.local/share/ops-qa/hsb0-hausnetz-exports";
       alarm_file = "${stateDir}/hsb0-hausnetz-cd-alarm.json";
@@ -59,6 +101,12 @@ let
 in
 {
   options.inspr.hausnetzCdOrchestrator = {
+    acceptancePackage = lib.mkOption {
+      type = lib.types.package;
+      readOnly = true;
+      default = adapter;
+      description = "Pinned CI-VM acceptance adapter (also supports --preflight and --release).";
+    };
     enable = lib.mkEnableOption "the two-minute hausnetz CD timer (separate activation gate)";
     mode = lib.mkOption {
       type = lib.types.enum [
@@ -137,7 +185,10 @@ in
     };
   };
   config = {
-    home.packages = [ runner ];
+    home.packages = [
+      runner
+      adapter
+    ];
     home.activation.hausnetzCdStateDirectory = lib.mkIf cfg.enable (
       lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "writeBoundary" ] ''
         run mkdir -p ${lib.escapeShellArg stateDir}

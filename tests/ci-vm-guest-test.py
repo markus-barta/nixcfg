@@ -325,7 +325,7 @@ assert (directory / ".runner").exists(), "reset prevented re-enrollment"
 assert run(control, base, "ready", OLD_STALE_RUNNER="1").returncode == 0, "re-enrollment lost a cycle to old journal diagnostics"
 print("ok guest re-enrollment: refuses active/unknown work, privately retires only registration files, and accepts a fresh enrollment immediately")
 
-dependencies = provision[provision.index('if [ ! -f "$cache/ubuntu-dependencies-v2" ]; then'):provision.index("\ndownload_verified()")]
+dependencies = provision[provision.index('if [ ! -f "$cache/ubuntu-dependencies-v3" ]; then'):provision.index("\ndownload_verified()")]
 
 
 def dependencies_contract(source, **settings):
@@ -337,13 +337,14 @@ def dependencies_contract(source, **settings):
 
 
 result, base = dependencies_contract(dependencies)
-assert result.returncode == 0 and (base / "cache/ubuntu-dependencies-v2").exists(), result.stderr
+assert result.returncode == 0 and (base / "cache/ubuntu-dependencies-v3").exists(), result.stderr
 calls = (base / "calls").read_text()
 assert calls.index("dpkg --configure -a") < calls.index(" install ")
+assert " git jq just sudo " in calls, "required acceptance preflight tool just missing"
 mutant = dependencies.replace("timeout 300 dpkg --configure -a", ":")
 assert mutant != dependencies and dependencies_contract(mutant)[0].returncode != 0, "interrupted-dpkg mutant survived"
 result, base = dependencies_contract(dependencies, DPKG_FAIL="1")
-assert result.returncode != 0 and not (base / "cache/ubuntu-dependencies-v2").exists()
+assert result.returncode != 0 and not (base / "cache/ubuntu-dependencies-v3").exists()
 assert " install " not in (base / "calls").read_text(), "failed dpkg repair reached install"
 print("ok guest apt: repairs interrupted dpkg before install, aborts on repair failure; omitted-repair mutant killed")
 

@@ -119,6 +119,12 @@ let
 in
 {
   options.services.ciVm = {
+    package = lib.mkOption {
+      type = lib.types.package;
+      readOnly = true;
+      default = dispatcher;
+      description = "The lock-respecting ci-vm operator CLI.";
+    };
     enable = lib.mkEnableOption "the memory-capped, on-demand Colima CI VM";
     heavyLockPath = lib.mkOption {
       type = lib.types.str;

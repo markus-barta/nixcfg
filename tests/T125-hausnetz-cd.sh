@@ -3,10 +3,12 @@
 set -euo pipefail
 started=$SECONDS
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+python3 -B "$repo/tests/test_hausnetz_cd_adapter.py"
+python3 -B "$repo/tests/test_hausnetz_cd_adapter.py" --mutants
 python3 -B "$repo/tests/test_hsb0_deploy_lock.py"
 python3 -B "$repo/tests/test_hausnetz_cd.py"
 python3 -B "$repo/tests/test_hausnetz_cd.py" --mutants
-for source in "$repo/modules/hausnetz-cd/default.nix" "$repo/hosts/mbp2607/hausnetz-cd.nix" "$repo/hosts/csb1/hausnetz-cd-alert.nix"; do
+for source in "$repo/modules/hausnetz-cd/default.nix" "$repo/hosts/mbp2607/hausnetz-cd.nix" "$repo/hosts/csb1/hausnetz-cd-alert.nix" "$repo/hosts/mbp2607/ci-vm.nix"; do
   nix-instantiate --parse "$source" >/dev/null
 done
 nix-instantiate --eval --strict --json "$repo/tests/hausnetz-cd-eval.nix" | python3 -c '
@@ -28,7 +30,25 @@ assert o["vmTestWaitTimeout"] == 1800
 assert not {"agentsHost", "agentsPort"}.intersection(o)
 assert o["mailboxRemoteFile"] == "/fixture/home/.config/inspr/mbx-remote"
 assert o["localMailboxCommand"] == "/fixture/home/.local/bin/mbx"
-assert c["hostSettings"] == {"enable": True, "allowLive": False}
+assert c["hostSettings"] == {"enable": True, "allowLive": True}
+h = c["homeSettings"]
+assert h["enable"] is True and h["mode"] == "live"
+assert h["acceptanceUrl"] == "http://192.168.1.99/"
+assert h["acceptanceCommand"] == ["/fixture/runner/bin/hausnetz-cd-acceptance", "{trusted_rev}", "{url}", "{version}", "{caps_sha256}"]
+live = json.loads(c["liveSettings"])
+assert c["liveAgent"]["enable"] is True and live["enabled"] is True and live["mode"] == "live"
+assert live["acceptance_command"] == h["acceptanceCommand"]
+assert live["acceptance_url"] == json.loads(c["liveAdapterSettings"])["acceptance_url"] == h["acceptanceUrl"]
+a = c["adapterRunner"]
+aset = json.loads(a["settings"])
+assert aset["cache_dir"] == "/fixture/home/.local/share/hausnetz-cd"
+assert 0 < aset["timeout"] < aset["budget"] < o["acceptanceTimeout"]
+assert aset["ci_vm"] == "/fixture/ci-vm/bin/ci-vm"
+assert aset["colima"] == "colima/bin/colima"
+assert {"colima", "git", "openssh", "coreutils", "python3"}.issubset(a["runtimeInputs"])
+assert "COLIMA_HOME" in a["text"] and "PYTHONPATH" in a["text"]
+assert "@CONFIG@" not in a["entrypoint"] and "@GUEST@" not in a["entrypoint"]
+compile(a["entrypoint"], "adapter", "exec")
 assert c["hostAssertion"] is True and c["otherHostAssertion"] is False
 assert any(p.endswith("/modules/hausnetz-cd") for p in c["hostImports"])
 assert any(p.endswith("/hosts/mbp2607/hausnetz-cd.nix") for p in c["homeImports"])
@@ -63,7 +83,7 @@ for name in ("executorRunner", "orchestratorRunner"):
     assert "add_argument(" + json.dumps("--config") not in c[name]["entrypoint"]
     assert "@CONFIG@" not in c[name]["entrypoint"]
     compile(c[name]["entrypoint"], name, "exec")
-print("T125 Nix module contracts: disabled timer, dry-run host, readiness required, selected Nix passed")
+print("T125 Nix module contracts: safe module defaults, live host opt-ins, packaged adapter, selected Nix passed")
 '
 printf 'T125 hausnetz CD: offline transactions and mutants passed\n'
 printf 'T125 elapsed: %s seconds\n' "$((SECONDS - started))"
