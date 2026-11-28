@@ -1,7 +1,7 @@
 """Offline transactions and guard-removal mutants for OPS-705."""
 
 import copy
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 import io
 import fcntl
 from concurrent.futures import ThreadPoolExecutor
@@ -44,6 +44,8 @@ from common import (Manual, EXECUTOR_BUDGET, POLL_BUDGET, POLL_INTERVAL, SSH_RET
                     parse_export, prepare_result, strict_json)
 from orchestrate import REMOTE, ledger, save_state, tick, validate_result
 from execute import execute as execute_transaction, health
+sys.path.insert(0, str(REPO / "tests/fixtures"))
+import hausnetz_cd_http
 
 
 class Fixture:
@@ -158,6 +160,9 @@ class Fixture:
                               + "sys.path.insert(0, " + repr(str(SOURCE)) + ")\n"
                               + "import common\ncommon.STATE_ROOT = " + repr(str(root / "remote-state")) + "\n"
                               + "import " + module + "\n"
+                              + ("sys.path.insert(0, " + repr(str(REPO / "tests/fixtures")) + ")\n"
+                                 + "import hausnetz_cd_http\nhausnetz_cd_http.install(orchestrate, "
+                                 + repr(str(root)) + ")\n" if module == "orchestrate" else "")
                               + module + ".CONFIG_FILE = " + repr(str(root / settings)) + "\n"
                               + module + ".main()\n")
             target.chmod(0o700)
@@ -317,6 +322,10 @@ class TestCD(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="t125-")
         self.f = Fixture(Path(self.temporary.name))
+        self.http = mock.patch("orchestrate.urllib.request.build_opener",
+                               side_effect=lambda *_: hausnetz_cd_http.opener(self.f.root))
+        self.http.start()
+        self.addCleanup(self.http.stop)
 
     def tearDown(self):
         self.f.stop()
@@ -3537,6 +3546,8 @@ class TestCD(unittest.TestCase):
                 "run_id": "a" * 32, "run_key": self.f.key, "phase": "executor",
                 "running_nixcfg_rev": self.f.old, "trusted_hausnetz_rev": self.f.old_hnet,
                 "expected_version": self.f.new_version, "manifest_sha256": self.f.manifest_sha,
+                "data_guard_before": {"site": {"rev": 8, "devices": 1, "floors": 1, "rooms": 1},
+                                      "layout": {"rev": 3, "entities": 0}},
                 "deadline": time.time() + 5}
 
     def test_failed_units_captured_before_and_after_rollback(self):
@@ -4335,6 +4346,228 @@ class TestCD(unittest.TestCase):
                     os.kill(int(ready.read_text()), signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+
+    def test_data_guard_case1_equal_counts(self):
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["data_guard"]["outcome"], "pass")
+        self.assertEqual(result["data_guard"]["layout"]["before"], {"rev": 3, "entities": 0})
+        self.assertEqual(result["checker_verdict"], "pass")
+        self.assertEqual([(e["phase"], e["side"]) for e in self.f.events("data-read")],
+                         [("before", "site"), ("before", "layout"), ("after", "site"), ("after", "layout")])
+        events = self.f.events()
+        reads = [i for i, e in enumerate(events) if e["kind"] == "data-read"]
+        switch = next(i for i, e in enumerate(events) if e["kind"] == "switch")
+        acceptance = next(i for i, e in enumerate(events) if e["kind"] == "acceptance")
+        self.assertLess(reads[1], switch)
+        self.assertLess(switch, reads[2])
+        self.assertLess(reads[-1], acceptance)
+        self.assertEqual(len(self.f.events("switch")), 1)
+        self.assertFalse(self.f.events("mailbox"))
+
+    def assert_data_guard_rejected(self, side, case):
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["rollback"], "succeeded")
+        self.assertEqual(result["acceptance"], "fail")
+        self.assertNotIn("checker_verdict", result)
+        self.assertEqual(result["data_guard"][side]["case"], case)
+        self.assertEqual(result["data_guard"]["outcome"], "reject")
+        self.assertFalse(self.f.events("acceptance"))
+        self.assertEqual(len(self.f.events("switch")), 2)
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertEqual(self.f.state()["disabled"]["reason"], "data_guard_failed")
+        self.assertIn('"case":' + str(case), self.f.events("alarm")[0]["text"])
+
+    def test_data_guard_case2_site_count_change(self):
+        self.f.scenario["data_after_site"] = {"nodes": {}}
+        self.assert_data_guard_rejected("site", 2)
+
+    def test_data_guard_case2_layout_only_count_change(self):
+        self.f.scenario["data_after_layout"] = {"links": {"l": {}}}
+        self.assert_data_guard_rejected("layout", 2)
+        self.assertEqual(self.f.terminal()["data_guard"]["site"]["case"], 1)
+
+    def test_data_guard_case3_reset(self):
+        self.f.scenario["data_after_site"] = {"rev": 0}
+        self.assert_data_guard_rejected("site", 3)
+
+    def test_data_guard_case3_layout_lower_overrides_site_save(self):
+        self.f.scenario["data_after_site"] = {"rev": 9}
+        self.f.scenario["data_after_layout"] = {"rev": 2}
+        self.assert_data_guard_rejected("layout", 3)
+        self.assertEqual(self.f.terminal()["data_guard"]["site"]["case"], 4)
+
+    def test_data_guard_case4_owner_save_keeps_release(self):
+        self.f.scenario["data_after_site"] = {"rev": 9, "nodes": {}}
+        self.f.scenario["data_after_layout"] = {"rev": 4, "nodes": {"n": {}}}
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["rollback"], "not_required")
+        self.assertEqual(result["data_guard"]["outcome"], "owner_save")
+        self.assertEqual([result["data_guard"][s]["case"] for s in ("site", "layout")], [4, 4])
+        self.assertEqual(len(self.f.events("switch")), 1)
+        self.assertEqual(result["checker_verdict"], "pass")
+        self.assertFalse(self.f.state()["failed"])
+        self.assertNotIn("disabled", self.f.state())
+        receipt = json.loads(ledger(self.f.orchestrator, "attempted", self.f.key).read_text())
+        self.assertEqual(receipt["data_guard"]["outcome"], "owner_save")
+        self.assertIn("DATA GUARD OWNER SAVE", self.f.events("alarm")[0]["text"])
+        self.assertIn('"rev":9', self.f.events("alarm")[0]["text"])
+        self.assertIn('data_guard={"outcome":"owner_save"', self.f.events("ticket")[0]["text"])
+
+    def test_data_guard_before_failure_no_ack_retryable(self):
+        self.f.scenario["data_read_fail"] = "before-layout"
+        self.f.executor["backup_ack_timeout"] = 0.8
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "acceptance_infra_unavailable")
+        self.assertEqual(result["data_guard"], {"outcome": "before_read_failed", "side": "layout"})
+        self.assertFalse(self.f.events("switch"))
+        self.assertFalse(self.f.events("acceptance"))
+        self.assertFalse(list(Path(self.f.executor["state_dir"]).glob("ack-[0-9a-f]*")))
+        self.assertFalse(self.f.state()["attempted"])
+        self.assertFalse(self.f.state()["failed"])
+        self.assertNotIn("disabled", self.f.state())
+        self.assertFalse(ledger(self.f.orchestrator, "attempted", self.f.key).exists())
+        self.assertFalse(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertEqual(len(self.f.events("alarm")), 1)
+        state = self.f.state()
+        state["evaluated"]["at"] = 0
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.tick()
+        self.assertEqual(len(self.f.events("alarm")), 1)  # one alarm per outage
+        self.f.scenario.pop("data_read_fail")
+        self.f.executor["backup_ack_timeout"] = 30
+        state = self.f.state()
+        state["evaluated"]["at"] = 0
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "succeeded")
+
+    def test_data_guard_after_failure_rolls_back(self):
+        self.f.scenario["data_read_fail"] = "after-site"
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["acceptance"], "fail")
+        self.assertEqual(result["rollback"], "succeeded")
+        self.assertEqual(result["data_guard"], {"outcome": "after_read_failed", "side": "site"})
+        self.assertNotIn("checker_verdict", result)
+        self.assertFalse(self.f.events("acceptance"))
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertIn("disabled", self.f.state())
+
+    def test_data_guard_after_layout_failure_rolls_back(self):
+        self.f.scenario["data_read_fail"] = "after-layout"
+        result = self.f.tick("live")
+        self.assertEqual(self.f.terminal()["status"], "failed")
+        self.assertEqual(self.f.terminal()["data_guard"], {"outcome": "after_read_failed", "side": "layout"})
+        self.assertEqual(self.f.terminal()["rollback"], "succeeded")
+        self.assertNotIn(hausnetz_cd_http.PRIVATE_NAME, result.stderr + result.stdout)
+        self.assertNotIn(hausnetz_cd_http.PRIVATE_NAME, Path(self.f.orchestrator["alarm_file"]).read_text())
+
+    def test_data_guard_rejection_survives_alarm_crash(self):
+        import orchestrate
+        self.f.orchestrator["mode"] = "live"
+        self.f.scenario["data_after_site"] = {"nodes": {}}
+        self.f.save()
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(self.f.live_state))
+        original = orchestrate.save_state
+        def save_then_crash(config, state):
+            original(config, state)
+            if any(key.endswith("-data-guard") for key in state.get("pending_alarms", {})):
+                raise RuntimeError("crash after guard decision saved")
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.save_state", side_effect=save_then_crash):
+            with self.assertRaisesRegex(RuntimeError, "guard decision"):
+                tick(self.f.orchestrator)
+        self.assertEqual(self.f.state()["pending"]["acceptance"], "fail")
+        self.assertTrue(self.f.state()["pending"]["data_guard_failed"])
+        # A later read would look safe, but the saved rejection is final.
+        self.f.scenario.pop("data_after_site")
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "failed")
+        self.assertEqual(self.f.terminal()["rollback"], "succeeded")
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertEqual(len(self.f.events("alarm")), 1)
+
+    def test_data_guard_real_failure_not_excused_by_stop(self):
+        from orchestrate import finish
+        state = copy.deepcopy(self.f.live_state)
+        result = {**self.pending_record(), "status": "failed", "operator_disabled": True,
+                  "reason": "acceptance_failed_or_timeout", "rollback": "succeeded",
+                  "data_guard_failed": True, "disable_reason": "data_guard_failed"}
+        with mock.patch("orchestrate.comment"), mock.patch("orchestrate.acceptance_release"):
+            finish(self.f.orchestrator, state, result)
+        self.assertIn(self.f.new_hnet, state["failed"])
+        self.assertIn("disabled", state)
+
+    def test_data_guard_missing_baseline_rejects(self):
+        from orchestrate import data_guard
+        state = copy.deepcopy(self.f.live_state)
+        pending = self.pending_record()
+        pending.pop("data_guard_before")
+        self.assertTrue(data_guard(self.f.orchestrator, state, pending))
+        self.assertEqual(pending["acceptance"], "fail")
+        self.assertTrue(pending["data_guard_failed"])
+
+    def test_data_guard_privacy(self):
+        self.f.scenario["data_after_site"] = {"nodes": {}}
+        result = self.f.tick("live")
+        self.assertEqual(self.f.terminal()["data_guard"]["outcome"], "reject")
+        persisted = [Path(self.f.orchestrator["state_file"]), Path(self.f.orchestrator["alarm_file"]),
+                     self.f.root / "events", self.f.root / "executor.log"]
+        persisted.extend((Path(self.f.orchestrator["state_file"]).parent / "hausnetz-cd-ledger").rglob("*.json"))
+        for path in persisted:
+            self.assertNotIn(hausnetz_cd_http.PRIVATE_NAME, path.read_text(), str(path))
+        self.assertNotIn(hausnetz_cd_http.PRIVATE_NAME, result.stderr + result.stdout)
+
+    def test_data_guard_http_fail_closed(self):
+        import orchestrate
+        valid = {"site": {"rev": 1, "nodes": {}, "building": {"levels": {}, "zones": {}}}}
+        invalid = [b'not-json', b'{"site":{}}', b'{"site":{"rev":true}}',
+                   b'{"site":{"rev":1.5}}', b'{"site":{"rev":-1}}', b'{"site":{"rev":"1"}}',
+                   b'{"site":{"rev":1,"rev":2}}',
+                   json.dumps({"site": {**valid["site"], "nodes": None}}).encode(),
+                   b'x' * (orchestrate.DATA_READ_LIMIT + 1)]
+        for body in invalid:
+            response = hausnetz_cd_http.Response(body)
+            opener = mock.Mock()
+            opener.open.return_value = response
+            with self.subTest(body_size=len(body)), mock.patch("orchestrate.urllib.request.build_opener", return_value=opener):
+                with self.assertRaises(orchestrate.DataReadUnavailable):
+                    orchestrate.data_snapshot(self.f.orchestrator)
+        for code in (201, 301, 403, 500):
+            opener = mock.Mock()
+            opener.open.return_value = hausnetz_cd_http.Response(json.dumps(valid).encode(), status=code)
+            with self.subTest(status=code), mock.patch("orchestrate.urllib.request.build_opener", return_value=opener):
+                with self.assertRaises(orchestrate.DataReadUnavailable):
+                    orchestrate.data_snapshot(self.f.orchestrator)
+        for url in ("file:///etc/passwd", "http://user:pass@host/", "http://host/?query", "http://host/#frag",
+                    "http://host:99999/", "http://host/\nheader", "http://host/../other"):
+            with self.subTest(url=url), mock.patch("orchestrate.urllib.request.build_opener") as build:
+                with self.assertRaises(orchestrate.DataReadUnavailable):
+                    orchestrate.data_snapshot({"acceptance_url": url})
+                build.assert_not_called()
+        handler = orchestrate.NoDataRedirect()
+        self.assertIsNone(handler.redirect_request(None, None, 302, "", {}, "http://other.invalid/"))
+        for error in (orchestrate.http.client.IncompleteRead(hausnetz_cd_http.PRIVATE_NAME.encode()),
+                      TimeoutError(hausnetz_cd_http.PRIVATE_NAME)):
+            opener = mock.Mock()
+            opener.open.side_effect = error
+            with mock.patch("orchestrate.urllib.request.build_opener", return_value=opener):
+                with self.assertRaises(orchestrate.DataReadUnavailable) as caught:
+                    orchestrate.data_snapshot(self.f.orchestrator)
+                self.assertNotIn(hausnetz_cd_http.PRIVATE_NAME, str(caught.exception))
+
+    def test_data_guard_dry_run_makes_no_reads(self):
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "dry-run")
+        self.assertFalse(self.f.events("data-read"))
 
     def test_backup_ready_preflight_can_fail_after_startup(self):
         self.f.scenario["acceptance_preflight_busy"] = [False, True]
@@ -5145,6 +5378,21 @@ def mutants(only=None, start_after=None):
          [('stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)',
            'stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=False)')],
          "test_release_detached_from_controller_timeout"),
+        ("OPS753 before read skipped", "orchestrate.py",
+         [('pending["data_guard_before"] = data_snapshot(config)',
+           'pending["data_guard_before"] = {"site": {"rev": 8, "devices": 1, "floors": 1, "rooms": 1}, "layout": {"rev": 3, "entities": 0}}')],
+         "test_data_guard_case1_equal_counts"),
+        ("OPS753 count difference passes", "orchestrate.py",
+         [('elif new != old:', 'elif False:')], "test_data_guard_case2_site_count_change"),
+        ("OPS753 higher revision rolls back", "orchestrate.py",
+         [('case = 4', 'case = 3')], "test_data_guard_case4_owner_save_keeps_release"),
+        ("OPS753 after read failure passes", "orchestrate.py",
+         [('pending["data_guard"] = {"outcome": "after_read_failed", "side": exc.side}\n        rejected = True',
+           'pending["data_guard"] = {"outcome": "after_read_failed", "side": exc.side}\n        rejected = False')],
+         "test_data_guard_after_failure_rolls_back"),
+        ("OPS753 layout comparison dropped", "orchestrate.py",
+         [('for side in ("site", "layout"):\n            old, new', 'for side in ("site",):\n            old, new')],
+         "test_data_guard_case2_layout_only_count_change"),
     ])
     if only is not None:
         cases = [case for case in cases if case[0].startswith(only)]
@@ -5176,7 +5424,7 @@ def mutants(only=None, start_after=None):
             # mutant. The selected behavior assertion itself must fail.
             if "FAIL: " not in result.stderr:
                 raise AssertionError("Invalid mutant run: " + label + "\n" + result.stderr)
-            if label.startswith("OPS752"):
+            if label.startswith(("OPS752", "OPS753")):
                 assertion = next(line for line in result.stderr.splitlines() if line.startswith("AssertionError:"))
                 return label + " — " + assertion
             return label
