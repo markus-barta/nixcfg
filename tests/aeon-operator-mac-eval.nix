@@ -9,6 +9,7 @@
   legacy ? false,
   modulePath ? ../modules/uzumaki/agent-kernel.nix,
   hostHome ? null,
+  kernelOverrides ? { },
 }:
 let
   lib = (import (nixpkgs + "/lib")).extend (
@@ -80,6 +81,9 @@ let
     # The same pinned integration also exercises OPS-754 without a host build.
     ++ lib.optional (enabled != null) { inspr.aeonOperatorMac.enable = enabled; }
     ++ lib.optional (doctrineEnabled != null) { inspr.doctrineCopies.enable = doctrineEnabled; }
+    ++ lib.optional (kernelOverrides != { }) {
+      inspr.agent-kernel = lib.mapAttrs (_: lib.mkForce) kernelOverrides;
+    }
     # Evaluate the real host's option definitions with the pinned module system.
     # Omit its infrastructure imports and ignore unrelated undeclared HM options;
     # lazy evaluation never demands packages, secrets, or activation derivations.
