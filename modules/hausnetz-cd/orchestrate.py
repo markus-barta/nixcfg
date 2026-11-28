@@ -1,9 +1,11 @@
 """mbp2607 timer tick. Never evaluates/builds NixOS on the workstation."""
 
 import argparse
+import datetime
 import fcntl
 import ipaddress
 import json
+import os
 from pathlib import Path
 import re
 import shlex
@@ -15,7 +17,8 @@ import uuid
 from common import (ACCEPTANCE_TIMEOUT, EXECUTOR_TERMINAL, Manual, POLL_BUDGET, POLL_INTERVAL, RESULT_SCHEMA, SSH_RETRY_TIMEOUT,
                     TERMINAL, UNIT_RUNTIME_MAX, atomic_bytes, atomic_json, blob, cache_repo,
                     diagnostics, evidence, gate_g1, gate_g2, gate_g4, git, lock_pin, now,
-                    parse_export, private_dir, require, revision, run, strict_json)
+                    parse_export, private_dir, require, revision, run, strict_json,
+                    child_group_alive, controller_children)
 
 
 # Fleet login shells are fish: every operation explicitly feeds bash. The
@@ -171,14 +174,55 @@ def mailbox_target(path):
     return host, int(values["port"]), values["user"]
 
 
-def rehearsal_reason(value):
+def operator_reason(value, command):
     value = value if isinstance(value, str) else ""
     reason = value.strip()
-    require(reason, "rehearse requires --reason <text>")
-    require(len(value) <= 500 and all(unicodedata.category(c) not in {"Cc", "Cf", "Cs", "Zl", "Zp"}
-                                    for c in value),
-            "rehearse --reason must be at most 500 characters with no control characters")
+    require(reason, command + " requires --reason <text>")
+    require(len(value) <= 500, command + " --reason must be at most 500 characters")
+    require(all(unicodedata.category(c) not in {"Cc", "Cf", "Cs", "Zl", "Zp"} for c in value),
+            command + " --reason must contain no control characters")
     return reason
+
+
+def rehearsal_reason(value):
+    return operator_reason(value, "rehearse")
+
+
+def disable_marker(config):
+    return Path(config["state_file"]).parent / "operator-disable.json"
+
+
+def read_disable(config):
+    path = disable_marker(config)
+    try:
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            return None
+        require(not path.is_symlink(), "invalid_operator_disable_marker")
+        value = strict_json(path.read_bytes())
+        require(isinstance(value, dict) and value.get("operator") is True
+                and isinstance(value.get("at"), str) and value["at"]
+                and operator_reason(value.get("reason"), "--disable") == value["reason"],
+                "invalid_operator_disable_marker")
+        require(datetime.datetime.fromisoformat(value["at"]).tzinfo is not None,
+                "invalid_operator_disable_marker")
+        return value
+    except (Manual, OSError, KeyError, TypeError, ValueError):
+        if not config.get("_malformed_disable_logged"):
+            print("hausnetz-cd: malformed or unreadable operator disable marker; disabled (fail-closed)", flush=True)
+            config["_malformed_disable_logged"] = True
+        return {"operator": True, "at": now(), "reason": "invalid_operator_disable_marker"}
+
+
+def merge_disable(config, state):
+    require("disabled" not in state or isinstance(state["disabled"], dict), "invalid_disable_latch")
+    marker = read_disable(config)
+    if marker is not None:
+        state["operator_stop"] = {**marker, "operator": True}
+        save_state(config, state)
+        return True
+    return "operator_stop" in state
 
 
 class AlarmRouteUnavailable(Manual):
@@ -300,7 +344,11 @@ def copy_export(config, result):
              and re.fullmatch(r"export-[0-9a-f]{40}\.(json|zip)", p.name)]
     for path in sorted(owned, key=lambda p: p.stat().st_mtime_ns, reverse=True)[20:]:
         path.unlink()
-    remote(config, "ack", result["nixcfg_rev"], digest=digest, run_id=result["run_id"])
+    # A stop may have arrived during the export read/copy. A stop during the
+    # up-to-45-second ack SSH write can still let one switch through; the next
+    # poll sends FAIL and the executor rolls back.
+    if read_disable(config) is None:
+        remote(config, "ack", result["nixcfg_rev"], digest=digest, run_id=result["run_id"])
 
 
 def validate_result(result, pending):
@@ -354,6 +402,11 @@ def deliver_alarms(config, state):
     # Stable alarm IDs allow operator-side deduplication if a process dies after
     # delivery but before its receipt is saved. Completed ticks never resend.
     for key, entry in list(state.get("pending_alarms", {}).items()):
+        if entry["label"] == "awaiting attended ack" and (
+                "operator_stop" in state or read_disable(config) is not None):
+            state["pending_alarms"].pop(key)
+            save_state(config, state)
+            continue
         receipt = ledger(config, "alarms", key)
         if not receipt.exists():
             if not alarm(config, entry["result"], entry["label"], pre_pair=entry.get("pre_pair", False)):
@@ -364,8 +417,20 @@ def deliver_alarms(config, state):
 
 
 def report(config, state, key):
+    reported = config.get("_reported_this_tick")
+    if reported is not None:
+        if key in reported:
+            return
+        reported.add(key)
     entry = state["reports"][key]
     result = entry["result"]
+    stopped_rehearsal = (result.get("rehearsal") and result.get("operator_disabled")
+                         and result.get("reason") == "operator_disabled"
+                         and result.get("rollback", "not_required") == "not_required")
+    if stopped_rehearsal and not entry["alarm"]:
+        print("hausnetz-cd: rehearsal stopped by operator run_id=" + result["run_id"], flush=True)
+        entry["alarm"] = True
+        save_state(config, state)
     if (result["status"] in {"rollback_failed", "unknown", "rehearsal_aborted"}
             and (result["mode"] == "live" or result.get("rehearsal")) and not entry["alarm"]):
         prefix = "TEST (no action): " if result.get("rehearsal") else ""
@@ -411,6 +476,11 @@ def finish(config, state, result):
         save_state(config, state)
         return
     if result["status"] == "preflight_refused":
+        pending = state.get("pending") or {}
+        running = result.get("running_nixcfg_rev") or pending.get("running_nixcfg_rev")
+        if running:
+            state["evaluated"] = {"main": result["nixcfg_rev"], "running": running,
+                                  "at": time.time(), "check_running": True}
         state["attempted"].pop(key, None)
         ledger(config, "attempted", key).unlink(missing_ok=True)
         state["pending"] = None
@@ -424,7 +494,30 @@ def finish(config, state, result):
         return  # One report per fetch outage/pair; the source remains retryable.
     state["sequence"] += 1
     order = state["sequence"]
-    if result["status"] not in {"fetch_failed", "vm_test_wait", "preflight_refused"} and not result.get("trial") and not result.get("rehearsal"):
+    # Seeing a stop does not excuse a real failure. Keep the checker's verdict
+    # separate from a forced FAIL, including when the stop arrives next poll.
+    stop_caused = ((result.get("operator_disabled") or result["status"] == "operator_disabled")
+        and result.get("rollback") != "failed" and not result.get("disable_reason") and (
+        (result["status"] == "operator_disabled" and not result.get("switched")
+         and result.get("rollback", "not_required") == "not_required")
+        or (result["status"] in {"manual", "failed", "rolled_back"} and (
+            (result.get("reason") == "backup_copy_not_acknowledged" and not result.get("switched")
+             and result.get("rollback", "not_required") == "not_required")
+            or (result.get("reason") == "acceptance_failed_or_timeout"
+                and result.get("checker_verdict") != "fail")))))
+    stopped_revisions = state.setdefault("operator_stopped_revisions", [])
+    stopped_revision_refusal = (result["status"] == "manual"
+                                and result.get("reason") == "revision_already_attempted"
+                                and result["nixcfg_rev"] in stopped_revisions)
+    retryable_stop = stop_caused or stopped_revision_refusal
+    if stop_caused:
+        state["operator_stopped_revisions"] = (list(dict.fromkeys(
+            [*stopped_revisions, result["nixcfg_rev"]]))[-200:])
+    if retryable_stop:
+        # The executor still refuses this main revision; a new main may retry.
+        state["attempted"].pop(key, None)
+        ledger(config, "attempted", key).unlink(missing_ok=True)
+    if not retryable_stop and result["status"] not in {"operator_disabled", "fetch_failed", "vm_test_wait", "preflight_refused"} and not result.get("trial") and not result.get("rehearsal"):
         state["attempted"][key] = {"status": result["status"], "order": order}
         atomic_json(ledger(config, "attempted", key), {"status": result["status"], "at": now()})
     if (result["status"] == "rollback_failed" or (result["status"] == "unknown" and result["mode"] != "dry-run")
@@ -437,12 +530,15 @@ def finish(config, state, result):
         if result["mode"] == "live" and state.get("attended_remaining", 3) > 0:
             state["attended_remaining"] -= 1
         state["last_deployed"] = result["nixcfg_rev"]
-    elif result["status"] in {"failed", "rolled_back", "rollback_failed", "manual", "unknown"} and not result.get("trial") and not result.get("rehearsal"):
+    elif not retryable_stop and result["status"] in {"failed", "rolled_back", "rollback_failed", "manual", "unknown"} and not result.get("trial") and not result.get("rehearsal"):
         target = result["hausnetz_rev"]
         if re.fullmatch(r"[0-9a-f]{40}", target):
             state["failed"] = [rev for rev in state["failed"] if rev != target] + [target]
             atomic_json(ledger(config, "failed", target), {"status": result["status"], "at": now()})
     state["pending"] = None
+    if (key in state["reports"] and state["reports"][key]["result"]["run_id"] != result["run_id"]
+            or ledger(config, "outbox", key).exists()):
+        key += "-" + result["run_id"]
     state["reports"][key] = {"result": result, "ticket": False, "alarm": False, "order": order}
     save_state(config, state)
     report(config, state, key)
@@ -463,6 +559,17 @@ def reconcile(config, state):
 
     while time.time() < pending["deadline"]:
         try:
+            operator_disabled = merge_disable(config, state)
+            if operator_disabled:
+                pending["operator_disabled"] = True
+                if pending["mode"] == "dry-run" or pending.get("phase") == "awaiting_ack":
+                    finish(config, state, {**pending, "status": "operator_disabled", "phase": "complete",
+                                           "completed_at": now(), "reason": "operator_disabled"})
+                    return
+                # The executor already accepts fail as an immediate rollback
+                # request. Persisted stop intent always overrides acceptance.
+                pending["acceptance"] = "fail"
+                remote(config, "acceptance", pending["nixcfg_rev"], run_id=pending["run_id"], digest="fail")
             response = strict_json(remote(config, "status", pending["nixcfg_rev"], run_id=pending["run_id"]))
             require(isinstance(response, dict) and response.get("unit_state") in {
                 "active", "activating", "deactivating", "inactive", "failed", "unknown"}, "remote_unit_state")
@@ -480,6 +587,10 @@ def reconcile(config, state):
                 result["vm_test_reason"] = pending.get("vm_test_reason", "not_run")
                 result["run_key"] = pending["run_key"]
                 result["trial"] = pending.get("trial", False)
+                if pending.get("operator_disabled"):
+                    result["operator_disabled"] = True
+                if "checker_verdict" in pending:
+                    result["checker_verdict"] = pending["checker_verdict"]
                 if pending.get("rehearsal"):
                     require(result.get("rehearsal") == pending["rehearsal"], "rehearsal_result_variant")
                     result["rehearsal_reason"] = pending.get("rehearsal_reason")
@@ -503,17 +614,30 @@ def reconcile(config, state):
             pending.pop("unavailable_since", None)
             save_state(config, state)
             if matching and result.get("phase") == "backup_ready":
-                copy_export(config, result)
+                # Never acknowledge a backup once stopped: the executor's
+                # backup_copy_not_acknowledged path exits without switching.
+                if not pending.get("operator_disabled") and not merge_disable(config, state):
+                    copy_export(config, result)
+                else:
+                    pending["operator_disabled"] = True
+                    save_state(config, state)
             if matching and result.get("phase") == "acceptance_ready":
                 if "acceptance" not in pending:
-                    pending["acceptance"] = acceptance(config, pending)
+                    pending["checker_verdict"] = acceptance(config, pending)
+                    pending["acceptance"] = pending["checker_verdict"]
                     if pending["acceptance"] != "pass":
                         queue_alarm(config, state, pending["run_id"] + "-acceptance",
                                     {**pending, "reason": "acceptance_failed_or_timeout"}, "ACCEPTANCE FAILED")
                     save_state(config, state)
-                deliver_alarms(config, state)
+                if merge_disable(config, state):
+                    pending.update(acceptance="fail", operator_disabled=True)
+                    save_state(config, state)
+                # A stop observed before this write forces FAIL. A stop landing
+                # during the SSH write of an already-decided PASS may not stop
+                # that one pass; the executor can consume it before the next poll.
                 remote(config, "acceptance", pending["nixcfg_rev"], run_id=pending["run_id"],
                        digest=pending["acceptance"])
+                deliver_alarms(config, state)
         except (Manual, OSError, KeyError, TypeError, ValueError):
             since = pending.setdefault("unavailable_since", time.time())
             save_state(config, state)
@@ -554,6 +678,10 @@ def acceptance(config, pending):
 
 def start_pending(config, state):
     pending = state["pending"]
+    if merge_disable(config, state):
+        finish(config, state, {**pending, "status": "operator_disabled", "phase": "complete",
+                               "completed_at": now(), "reason": "operator_disabled", "operator_disabled": True})
+        return False
     if pending["mode"] == "live":
         ack = Path(config["state_file"]).parent / ("ack-live-" + pending["run_id"])
         if pending.get("attended_required"):
@@ -626,31 +754,100 @@ def acceptance_entrypoint(repo, trusted_rev):
 def pre_pair_failure(config, state):
     failure = state.setdefault("pre_pair_failure", {"since": time.time(), "alarmed": False})
     if time.time() - failure["since"] >= 6 * 60 * 60 and not failure["alarmed"]:
-        alarm(config, {"mode": config["mode"], "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
-                       "reason": "source_or_running_evidence_unavailable_6h"},
-              "CD PREFLIGHT UNAVAILABLE", pre_pair=True)
+        key = failure.setdefault("alarm_id", uuid.uuid4().hex + "-pre-pair")
+        queue_alarm(config, state, key,
+                    {"mode": config["mode"], "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
+                     "reason": "source_or_running_evidence_unavailable_6h"},
+                    "CD PREFLIGHT UNAVAILABLE", pre_pair=True)
         failure["alarmed"] = True
+        deliver_alarms(config, state)
     save_state(config, state)
 
 
-def tick(config):
-    if config.get("enabled") is not True:
+def clear_child(config, reason, *, force=False, pgid=None):
+    path = Path(config["state_file"]).parent / "controller-children.json"
+    if not path.exists():
+        print("hausnetz-cd: child record already clear", flush=True)
         return
-    require(config["mode"] in {"dry-run", "live", "rehearse"}, "invalid_mode")
-    require(re.fullmatch(r"HNET-[0-9]+", config.get("release_ticket") or ""), "release_ticket_unset")
-    alarm_ticket_args(config)
-    if config["mode"] == "live":
-        require(config.get("secondary_telegram_command"), "independent_alert_path_unset")
+    require(not path.is_symlink(), "clear-child: record is a symlink; cannot verify recorded pid/pgid")
+    try:
+        before_identity = path.lstat()
+        before = path.read_bytes()
+    except OSError:
+        raise Manual("clear-child: record unreadable; cannot verify recorded pid/pgid") from None
+    groups = []
+    seen = "pid=unknown pgid=unknown"
+    try:
+        entries = strict_json(before)
+        require(isinstance(entries, list), "invalid_child_record")
+        for entry in entries:
+            require(isinstance(entry, dict), "invalid_child_record")
+            seen = "pid=" + str(entry.get("pid") if type(entry.get("pid")) is int else "invalid")
+            seen += " pgid=" + str(entry.get("pgid") if type(entry.get("pgid")) is int else "invalid")
+            groups.append(entry.get("pgid"))
+            require(not child_group_alive(entry),
+                    "clear-child: child alive pid=" + str(entry.get("pid")) + " pgid=" + str(entry.get("pgid")))
+    except Manual as exc:
+        if str(exc).startswith("clear-child:"):
+            raise
+        require(force, "clear-child: record malformed (" + seen + "); inspect and use --force --pgid <group> only after it exits")
+    except (OSError, KeyError, TypeError, ValueError):
+        require(force, "clear-child: record malformed or unverifiable (" + seen + "); inspect before forced recovery")
+    if force:
+        # Include every recoverable recorded group, not just the supplied one.
+        try:
+            raw = strict_json(before)
+            raw_entries = raw if isinstance(raw, list) else [raw]
+            groups.extend(e["pgid"] for e in raw_entries if isinstance(e, dict) and "pgid" in e)
+        except (Manual, ValueError):
+            pass
+        for group in [*groups, pgid]:
+            require(type(group) is int and group > 1,
+                    "clear-child: invalid pgid; cannot verify group death")
+            try:
+                os.killpg(group, 0)
+            except ProcessLookupError:
+                continue
+            except OSError:
+                raise Manual("clear-child: cannot verify pgid=" + str(group)) from None
+            raise Manual("clear-child: group alive pgid=" + str(group) + "; force refused")
+    require(not path.is_symlink() and path.read_bytes() == before
+            and (path.lstat().st_dev, path.lstat().st_ino) == (before_identity.st_dev, before_identity.st_ino),
+            "clear-child: record changed; retry after inspecting it")
+    path.unlink()
+    # Keep recovery attribution separate from controller state: no tick lock.
+    atomic_json(path.with_name("child-cleared.json"), {"at": now(), "reason": reason,
+                                                      "forced": force, "pgid": pgid})
+    print("hausnetz-cd: cleared dead child record", flush=True)
+
+
+def tick(config):
+    config = {**config, "_malformed_disable_logged": False, "_reported_this_tick": set()}
+    record = Path(config["state_file"]).parent / "controller-children.json"
+    with controller_children(record):
+        tick_owned(config, record)
+
+
+def tick_owned(config, child_record):
+    marker = read_disable(config)
+    if config.get("enabled") is not True and marker is None:
+        return
     if config.get("rehearsal"):
         rehearsal_reason(config.get("rehearsal_reason"))
-        rehearsal_preflight(config)
     private_dir(Path(config["state_file"]).parent)
     directory = private_dir(config["cache_dir"])
     with open(directory / "orchestrator.lock", "a", encoding="utf-8") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return
+        lock_deadline = time.monotonic() + (5 if config.get("clear_disable") or config.get("clear_failed") else 0)
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= lock_deadline:
+                    if config.get("clear_disable") or config.get("clear_failed"):
+                        raise Manual("busy: a tick holds the lock; retry")
+                    return
+                time.sleep(0.05)
         state_path = Path(config["state_file"])
         if state_path.exists():
             state = strict_json(state_path.read_bytes())
@@ -661,7 +858,37 @@ def tick(config):
         else:
             state = {"schema": "inspr.hausnetz-cd-state.v1", "last_deployed": None,
                      "failed": [], "attempted": {}, "pending": None, "reports": {}, "sequence": 0}
-        deliver_alarms(config, state)
+        merge_disable(config, state)
+        if child_record.exists():
+            # Never overlap an earlier controller's group, including malformed
+            # ownership evidence. Keep the diagnostic distinct from a live group.
+            problem = "earlier controller child still alive"
+            try:
+                children = strict_json(child_record.read_bytes())
+                require(isinstance(children, list), "invalid_child_record")
+                alive = any(child_group_alive(entry) for entry in children)
+            except (Manual, OSError, KeyError, TypeError, ValueError):
+                alive = True
+                problem = "earlier controller child record malformed or unreadable"
+            if alive:
+                blocked = state.setdefault("child_blocked", {"since": time.time(), "alarmed": False})
+                print("hausnetz-cd: tick skipped; " + problem, flush=True)
+                if time.time() - blocked["since"] > 30 * 60 and not blocked["alarmed"]:
+                    key = blocked.setdefault("alarm_id", uuid.uuid4().hex + "-child-blocked")
+                    queue_alarm(config, state, key,
+                                {"mode": config["mode"], "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
+                                 "reason": problem.replace(" ", "_") + "_30m"},
+                                "CD CHILD RECORD MALFORMED" if "malformed" in problem else "CD CHILD STILL ALIVE", pre_pair=True)
+                    blocked["alarmed"] = True
+                save_state(config, state)
+                if blocked["alarmed"]:
+                    deliver_alarms(config, state)
+                if config.get("clear_disable") or config.get("clear_failed"):
+                    raise Manual("blocked: " + problem + "; inspect and use --clear-child --reason <text>")
+                return
+            child_record.unlink()
+        if state.pop("child_blocked", None) is not None:
+            save_state(config, state)
         if config.get("clear_failed"):
             require(not state["pending"], "pending_refuses_clear_failed")
             target = revision(config["clear_failed"])
@@ -686,13 +913,39 @@ def tick(config):
             return
         if config.get("clear_disable"):
             require(not state["pending"], "pending_refuses_clear_disable")
-            state.pop("disabled", None)
-            state["disable_cleared"] = {"at": now(), "reason": config["clear_reason"]}
+            if config.get("clear_latch"):
+                had_latch = state.pop("disabled", None) is not None
+                if not had_latch:
+                    print("hausnetz-cd: no safety latch set", flush=True)
+                cleared = "safety latch"
+            elif "operator_stop" in state or disable_marker(config).exists():
+                disable_marker(config).unlink(missing_ok=True)
+                state.pop("operator_stop", None)
+                cleared = "operator stop"
+            else:
+                require("disabled" not in state, "safety latch present; use --clear-disable --latch --reason <text>")
+                cleared = "operator stop (already clear)"
+            if not config.get("clear_latch") or had_latch:
+                print("hausnetz-cd: cleared " + cleared, flush=True)
+            state["disable_cleared"] = {"at": now(), "reason": config["clear_reason"], "cleared": cleared}
             save_state(config, state)
             return
+        if "operator_stop" in state:
+            print("hausnetz-cd: operator stop set; operator clear required", flush=True)
+            if state["pending"]:
+                reconcile(config, state)
+            # Acceptance/recovery owns the foreground until reconciliation ends.
+            if ("disabled" not in state and
+                    (not state["pending"] or state["pending"].get("phase") == "awaiting_ack")):
+                deliver_alarms(config, state)
+                for key in list(state["reports"]):
+                    report(config, state, key)
+            if "disabled" not in state:
+                return
         if "disabled" in state:
             require(isinstance(state["disabled"], dict), "invalid_disable_latch")
             print("hausnetz-cd: disabled latch set; operator clear required", flush=True)
+            deliver_alarms(config, state)
             if not state["disabled"].get("alarmed"):
                 for key, entry in state["reports"].items():
                     if (entry["result"].get("run_id") == state["disabled"].get("run_id")
@@ -712,6 +965,15 @@ def tick(config):
             for key in list(state["reports"]):
                 report(config, state, key)
             return
+        require(config["mode"] in {"dry-run", "live", "rehearse"}, "invalid_mode")
+        require(re.fullmatch(r"HNET-[0-9]+", config.get("release_ticket") or ""), "release_ticket_unset")
+        alarm_ticket_args(config)
+        if config["mode"] == "live":
+            require(config.get("secondary_telegram_command"), "independent_alert_path_unset")
+        # No executor acceptance window exists while waiting for human ack.
+        # Retry its durable notifications before starting the executor.
+        if not state["pending"] or state["pending"].get("phase") == "awaiting_ack":
+            deliver_alarms(config, state)
         if config["mode"] == "live":
             state.setdefault("attended_remaining", 3)
             require(type(state["attended_remaining"]) is int and 0 <= state["attended_remaining"] <= 3,
@@ -722,7 +984,7 @@ def tick(config):
                     "other_pending_refuses_rehearsal")
         if config.get("manual_dry_run"):
             require(not state["pending"] or state["pending"]["mode"] == "dry-run", "live_pending_refuses_dry_run")
-        for key in list(state["reports"]):
+        for key in list(state["reports"]) if not state["pending"] else []:
             if not config.get("manual_dry_run") or state["reports"][key]["result"]["mode"] == "dry-run":
                 report(config, state, key)
         if state["pending"]:
@@ -731,6 +993,9 @@ def tick(config):
             reconcile(config, state)
             return
         if config.get("rehearsal"):
+            rehearsal_preflight(config)
+            if merge_disable(config, state):
+                return
             running = evidence(remote(config, "evidence"))
             token = uuid.uuid4().hex
             pending = {"nixcfg_rev": running, "hausnetz_rev": running, "mode": "rehearse",
@@ -752,11 +1017,13 @@ def tick(config):
             new = revision(git(repo, "rev-parse", "refs/heads/main").strip())
             expected, new_lock = lock_pin(blob(repo, new, "flake.lock"))
             evaluated = state.get("evaluated", {})
+            old = evidence(remote(config, "evidence")) if evaluated.get("check_running") else None
             if (evaluated.get("main") == new and time.time() - evaluated.get("at", 0) < 30 * 60
+                    and (not evaluated.get("check_running") or evaluated.get("running") == old)
                     and not state.get("pre_pair_failure") and not config.get("manual_dry_run")):
                 revision(evaluated["running"])
                 return
-            old = evidence(remote(config, "evidence"))
+            old = old or evidence(remote(config, "evidence"))
             cache_repo(repo, config["nixcfg_url"], old, new)
             running = lock_pin(blob(repo, old, "flake.lock"))[0]
             generation = remote(config, "generation", new, run_id=uuid.uuid4().hex).strip()
@@ -820,8 +1087,10 @@ def tick(config):
                 if outage["rev"] != expected:
                     outage = state["vm_test_wait"] = {"rev": expected, "since": time.time(), "alarmed": False}
                 if time.time() - outage["since"] >= config.get("vm_test_wait_timeout", 1800) and not outage["alarmed"]:
+                    alarm_id = outage.setdefault("alarm_id", uuid.uuid4().hex + "-vm-test")
+                    queue_alarm(config, state, alarm_id, result, "VM-TEST WAIT EXCEEDED")
                     outage["alarmed"] = True
-                    alarm(config, result, "VM-TEST WAIT EXCEEDED")
+                    deliver_alarms(config, state)
             else:
                 evaluated_tick()
             result["trial"] = bool(config.get("manual_dry_run"))
@@ -844,6 +1113,10 @@ def tick(config):
                    "vm_test": result["gates"]["G5"], "vm_test_reason": result["vm_test_reason"],
                    "deadline": time.time() + fixture_limit(config, "poll_timeout", POLL_BUDGET)}
         state["pending"] = pending
+        if merge_disable(config, state):
+            finish(config, state, {**pending, "status": "operator_disabled", "phase": "complete",
+                                   "completed_at": now(), "reason": "operator_disabled", "operator_disabled": True})
+            return
         if config["mode"] == "live" and state["attended_remaining"] > 0:
             pending.update(phase="awaiting_ack", attended_required=True, ack_requested_at=time.time(),
                            ack_deadline=time.time() + 60 * config.get("attended_ack_minutes", 30))
@@ -867,7 +1140,12 @@ def main():
     parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.add_argument("command", nargs="?", choices=["rehearse"])
     parser.add_argument("--variant", choices=["A", "B"])
+    parser.add_argument("--disable", action="store_true")
     parser.add_argument("--clear-disable", action="store_true")
+    parser.add_argument("--latch", action="store_true")
+    parser.add_argument("--clear-child", action="store_true")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--pgid", type=int)
     parser.add_argument("--clear-failed")
     parser.add_argument("--reason")
     parser.add_argument("--once", action="store_true")
@@ -877,20 +1155,41 @@ def main():
     clear_failed = args.clear_failed is not None
     if bool(args.command) != bool(args.variant):
         parser.error("rehearse requires --variant A|B")
-    if args.command:
+    reason_command = ("rehearse" if args.command else "--disable" if args.disable else
+                      "--clear-disable" if args.clear_disable else "--clear-child" if args.clear_child else
+                      "--clear-failed" if clear_failed else None)
+    if reason_command:
         try:
-            args.reason = rehearsal_reason(args.reason)
+            args.reason = operator_reason(args.reason, reason_command)
         except Manual as exc:
             parser.error(str(exc))
-    elif bool(args.clear_disable or clear_failed) != bool(args.reason and args.reason.strip()):
-        parser.error("--clear-disable or --clear-failed requires --reason <text>")
-    if sum((bool(args.command), args.clear_disable, args.test_alarm, args.once or args.dry_run, clear_failed)) > 1:
+    elif args.reason is not None:
+        parser.error("--reason requires rehearse, --disable, --clear-disable, --clear-failed or --clear-child")
+    if args.latch and not args.clear_disable:
+        parser.error("--latch requires --clear-disable")
+    if (args.force or args.pgid is not None) and not args.clear_child:
+        parser.error("--force and --pgid require --clear-child")
+    if args.clear_child and (args.force != (args.pgid is not None)):
+        parser.error("forced --clear-child requires both --force and --pgid <group>")
+    if sum((bool(args.command), args.clear_disable, args.clear_child, args.test_alarm, args.once or args.dry_run, clear_failed)) > 1:
+        parser.error("operator commands cannot be combined")
+    if args.disable and (args.command or args.clear_disable or args.clear_child or clear_failed or args.test_alarm or args.once or args.dry_run):
         parser.error("operator commands cannot be combined")
     if args.once != args.dry_run:
         parser.error("manual execution requires both --once and --dry-run")
     try:
         require(not CONFIG_FILE.startswith("@"), "unsubstituted_configuration")
         config = strict_json(Path(CONFIG_FILE).read_bytes())
+        if args.disable:
+            try:
+                atomic_json(disable_marker(config), {"reason": args.reason, "at": now(), "operator": True})
+            except OSError:
+                raise SystemExit("hausnetz-cd: could not write durable disable marker") from None
+            print("hausnetz-cd: disabled by operator; durable stop marker written", flush=True)
+            return
+        if args.clear_child:
+            clear_child(config, args.reason, force=args.force, pgid=args.pgid)
+            return
         if args.test_alarm:
             alarm(config, {"mode": "dry-run", "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",
                            "reason": "operator_alarm_test"}, "TEST (no action): CD ALARM", test=True)
@@ -899,15 +1198,23 @@ def main():
             config = {**config, "enabled": True, "mode": "rehearse", "rehearsal": args.variant,
                       "rehearsal_reason": args.reason}
         if args.clear_disable:
-            config = {**config, "enabled": True, "clear_disable": True, "clear_reason": args.reason.strip()[:500]}
+            config = {**config, "enabled": True, "clear_disable": True, "clear_latch": args.latch, "clear_reason": args.reason}
         if clear_failed:
-            config = {**config, "enabled": True, "clear_failed": revision(args.clear_failed), "clear_reason": args.reason.strip()[:500]}
+            config = {**config, "enabled": True, "clear_failed": revision(args.clear_failed), "clear_reason": args.reason}
         if args.once:
             config = {**config, "enabled": True, "mode": "dry-run", "manual_dry_run": True}
         tick(config)
     except AlarmRouteUnavailable as exc:
         raise SystemExit("hausnetz-cd: " + str(exc)) from None
-    except (Manual, OSError, KeyError, TypeError, ValueError):
+    except Manual as exc:
+        if (str(exc) == "busy: a tick holds the lock; retry" or str(exc).startswith(("blocked:", "clear-child:", "safety latch present"))
+                or str(exc) in {"invalid_disable_latch", "pending_refuses_clear_disable", "pending_refuses_clear_failed"}):
+            messages = {"invalid_disable_latch": "invalid safety latch; CD remains disabled",
+                        "pending_refuses_clear_disable": "cannot clear disable while a run is pending; reconcile it first",
+                        "pending_refuses_clear_failed": "cannot clear failed while a run is pending; reconcile it first"}
+            raise SystemExit("hausnetz-cd: " + messages.get(str(exc), str(exc))) from None
+        raise SystemExit("hausnetz-cd: manual; configuration, source or evidence unavailable") from None
+    except (OSError, KeyError, TypeError, ValueError):
         raise SystemExit("hausnetz-cd: manual; configuration, source or evidence unavailable") from None
 
 

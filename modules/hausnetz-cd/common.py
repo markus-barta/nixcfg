@@ -1,6 +1,7 @@
 """OPS-705: shared fail-closed checks; no host or credential access on import."""
 
 import datetime
+from contextlib import contextmanager
 import hashlib
 import io
 import json
@@ -10,6 +11,7 @@ import re
 import signal
 import subprocess
 import tempfile
+import time
 from urllib.parse import quote
 import zipfile
 
@@ -49,7 +51,7 @@ TERMINAL = EXECUTOR_TERMINAL | {"unknown", "fetch_failed", "vm_test_wait", "ack_
 DRY_ACTIVATE_CHATTER = frozenset({
     "dry activating the configuration...", "would activate the configuration...",
     "Not checking switch inhibitors (action = dry-activate)",
-    "would run sysinit-reactivation", "setting up /etc...",
+    "setting up /etc...",
 })
 
 
@@ -99,19 +101,153 @@ def now():
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 
+CHILD_RECORD = None
+CHILDREN = {}
+CHILD_STARTING = False
+CHILD_SIGNAL = None
+
+
+def child_group_alive(entry):
+    pid, pgid = entry["pid"], entry["pgid"]
+    require(type(pid) is int and type(pgid) is int and pid > 1 and pgid == pid,
+            "invalid_child_record")
+    try:
+        if os.getpgid(pid) == pgid:
+            return True
+    except ProcessLookupError:
+        pass
+    # The leader may have exited while descendants still occupy its group.
+    # Signal zero checks that exact group without inspecting command lines.
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+
+
+@contextmanager
+def controller_children(path):
+    """Persist ownership before waiting; TERM/INT unwind all child groups."""
+    global CHILD_RECORD, CHILD_SIGNAL
+    previous = CHILD_RECORD
+    handlers = {}
+    def interrupted(signum, _frame):
+        global CHILD_SIGNAL
+        if CHILD_STARTING:
+            CHILD_SIGNAL = signum
+            return
+        # A second signal must not interrupt group cleanup.
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(sig, signal.SIG_IGN)
+        raise SystemExit(128 + signum)
+    CHILD_RECORD = Path(path)
+    try:
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            handlers[sig] = signal.signal(sig, interrupted)
+        yield
+    finally:
+        try:
+            for process in list(CHILDREN.values()):
+                cancel_child(process)
+                CHILDREN.pop(process.pid, None)
+        finally:
+            CHILD_RECORD = previous
+            CHILD_SIGNAL = None
+            for sig, handler in handlers.items():
+                signal.signal(sig, handler)
+
+
+def cancel_child(process):
+    cancelled = True
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        # Match the timeout path's bounded three-second TERM grace. Descendants
+        # which call setsid leave this group and are out of reach.
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            process.poll()  # reap the leader so signal zero can prove group exit
+            try:
+                os.killpg(process.pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        # A restricted host may deny group signals after the leader exits.
+        # Reap our child, but retain ownership so the next tick fails closed.
+        cancelled = False
+        try:
+            process.kill()
+        except OSError:
+            pass
+    try:
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        cancelled = False
+    return cancelled
+
+
+@contextmanager
+def child_process(argv, **kwargs):
+    global CHILD_STARTING, CHILD_SIGNAL
+    process = None
+    record = CHILD_RECORD
+    try:
+        # Defer controller termination across spawn + durable registration.
+        # Blocking signals here would also block them in the exec'd child.
+        CHILD_STARTING = record is not None
+        process = subprocess.Popen(argv, start_new_session=True, **kwargs)
+        if record is not None:
+            CHILDREN[process.pid] = process
+            entries = strict_json(record.read_bytes()) if record.exists() else []
+            atomic_json(record, [*entries, {"pid": process.pid, "pgid": process.pid}])
+        CHILD_STARTING = False
+        if CHILD_SIGNAL is not None:
+            signum, CHILD_SIGNAL = CHILD_SIGNAL, None
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                signal.signal(sig, signal.SIG_IGN)
+            raise SystemExit(128 + signum)
+        yield process
+    finally:
+        CHILD_STARTING = False
+        if record is not None and process is not None:
+            cancelled = cancel_child(process)
+            for pipe in (process.stdin, process.stdout, process.stderr):
+                if pipe is not None:
+                    pipe.close()
+            CHILDREN.pop(process.pid, None)
+            entries = strict_json(record.read_bytes()) if record.exists() else []
+            if cancelled:
+                entries = [entry for entry in entries if entry["pid"] != process.pid]
+            if entries:
+                atomic_json(record, entries)
+            else:
+                record.unlink(missing_ok=True)
+
+
 def run(executable, args, *, timeout=60, data=None, binary=False):
     # Keep the executable separate from data arguments. Production callers
     # select it from literals, the Nix-baked config, or a proved store output.
     # Diagnostics can contain credential-bearing URLs; never return them.
     try:
-        process = subprocess.Popen([str(executable), *[str(a) for a in args]],
+        with child_process([str(executable), *[str(a) for a in args]],
                               stdin=subprocess.PIPE if data is not None else None,
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=not binary,
-                              start_new_session=True)
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=not binary) as process:
+            return communicate(process, timeout, data)
+    except OSError as exc:
+        raise Manual("command_unavailable_or_timeout") from exc
+
+
+def communicate(process, timeout, data):
+    cancelled = False
+    try:
         try:
             try:
                 stdout, _ = process.communicate(input=data, timeout=timeout)
             except subprocess.TimeoutExpired as exc:
+                cancelled = True
                 # Give VM adapters time to forward cancellation to their child.
                 def cancel_group(sig):
                     try:
@@ -150,8 +286,11 @@ def run(executable, args, *, timeout=60, data=None, binary=False):
             for pipe in (process.stdin, process.stdout, process.stderr):
                 if pipe is not None:
                     pipe.close()
-    except OSError as exc:
-        raise Manual("command_unavailable_or_timeout") from exc
+    finally:
+        # An unbounded activation must never be killed on an exception, even
+        # if its caller's signal handling changes.
+        if timeout is not None and not cancelled and CHILD_RECORD is None and process.poll() is None:
+            cancel_child(process)
 
 
 def http_get(url, timeout):
@@ -451,9 +590,18 @@ def gate_g2(repo, old, new, nar_hash):
         require(Path(repo).is_absolute() and all(c.isprintable() for c in path), "G2_checker_path")
         revision(old)
         checker = "git+file://" + quote(path, safe="/") + "?rev=" + old + "#cd-prepare"
-        result = subprocess.run(["nix", "run", "--offline", "--no-write-lock-file", checker, "--",
-                                 "--repo", str(repo), "--rev", new, "--running", old],
-                                capture_output=True, timeout=600, check=False)
+        argv = ["nix", "run", "--offline", "--no-write-lock-file", checker, "--",
+                "--repo", str(repo), "--rev", new, "--running", old]
+        if CHILD_RECORD is None:
+            result = subprocess.run(argv, capture_output=True, timeout=600, check=False)
+        else:
+            with child_process(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+                try:
+                    stdout, _ = process.communicate(timeout=600)
+                    result = subprocess.CompletedProcess(argv, process.returncode, stdout)
+                finally:
+                    process.stdout.close()
+                    process.stderr.close()
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise Manual("G2_prepare_unavailable_or_timeout") from exc
     return prepare_result(result.stdout, result.returncode, new, nar_hash, old)
