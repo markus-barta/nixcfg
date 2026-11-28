@@ -401,7 +401,7 @@ class HomeManagerTests(unittest.TestCase):
         home = str(Path(e["pairedStateRootDefault"]).parents[3])
         script = Path(e["pairedPreflightScript"]).read_text()
         config = json.loads(json.loads(re.search(r"json\.loads\((\".*\")\)", script).group(1)))
-        # The pinned release (08199a73, R154, AEON-2568) has `pair` (AEON-333, since release 12).
+        # The pinned release (3eb60f44, R155, AEON-2611) has `pair` (AEON-333, since release 12).
         self.assertEqual(config["pairHint"], "run `aeon-agentd pair --workspace " + e["workspace"]
                          + " --state-root '" + e["pairedStateRootDefault"] + "' --url https://aeon.barta.cm"
                          + " --harness claude --node-path " + home + "/.local/share/aeon-agentd/bin/node"
@@ -477,8 +477,8 @@ class HomeManagerTests(unittest.TestCase):
 
     def test_argv_matches_exact_reviewed_release(self):
         lock = json.loads((ROOT / "flake.lock").read_text())["nodes"]["aeon"]
-        self.assertEqual(lock["locked"]["rev"], "08199a733a31a2bc8f6cdcbc005cd721c3930ab0")
-        self.assertEqual(lock["locked"]["narHash"], "sha256-NkCbWhm5czNSxiXQIdODauMTiTdSIoG9rlQU+HPMWIQ=")
+        self.assertEqual(lock["locked"]["rev"], "3eb60f449dcf9ed67680a9476f5c79760d76eb3a")
+        self.assertEqual(lock["locked"]["narHash"], "sha256-o517TRwL1pZu1DVpkDND1GcX6Zvm2SKhBqL3gnC0IiI=")
         source = subprocess.check_output(["nix", "eval", "--impure", "--raw", "--expr",
             f'(builtins.getFlake "{ROOT}").inputs.aeon.outPath'], cwd=ROOT, text=True).strip()
         main = (Path(source) / "cmd/aeon-agentd/main.go").read_text()
