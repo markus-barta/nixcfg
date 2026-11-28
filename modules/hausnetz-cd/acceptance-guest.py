@@ -69,7 +69,8 @@ def prune(root):
 
 
 def main():
-    os.environ.update(HOME=str(HOME), PATH=PATH, GIT_TERMINAL_PROMPT="0")
+    os.environ.update(HOME=str(HOME), PATH=PATH, GIT_TERMINAL_PROMPT="0",
+                      GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")
     os.umask(0o077)
     mode, token, *args = sys.argv[1:]
     if not re.fullmatch(r"[0-9a-f]{32}", token):
@@ -111,7 +112,7 @@ def main():
             with bundle.open("xb") as output:
                 shutil.copyfileobj(sys.stdin.buffer, output)
             def git(*argv):
-                return subprocess.check_output(["git", *map(str, argv)], stderr=sys.stderr,
+                return subprocess.check_output(["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", *map(str, argv)], stderr=sys.stderr,
                                                timeout=30, text=True).strip()
             heads = git("bundle", "list-heads", bundle).splitlines()
             if heads != [rev + " refs/heads/trusted"]:
@@ -121,6 +122,8 @@ def main():
             git("-C", checkout, "checkout", "--quiet", "--detach", rev)
             if git("-C", checkout, "rev-parse", "HEAD") != rev:
                 raise RuntimeError("head_mismatch")
+            if git("-C", checkout, "status", "--porcelain"):
+                raise RuntimeError("worktree_dirty")
             # Serialize PID publication and cancellation, so the cancellation
             # command cannot miss a child in the spawn/publication window.
             with (work / "spawn.lock").open("a") as spawn:
@@ -132,10 +135,15 @@ def main():
                                          start_new_session=True, text=True)
                 atomic(work / "pgid", str(child.pid))
             try:
+                print(json.dumps({"schema": "hausnetz-cd.checker-started.v1"}),
+                      file=sys.__stdout__, flush=True)
                 stdout, _ = child.communicate(timeout=float(timeout))
             except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGKILL)
-                child.communicate(timeout=1)
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                    child.communicate(timeout=1)
+                except (OSError, subprocess.SubprocessError):
+                    print("acceptance: timeout cleanup failed", file=sys.stderr)
                 print(json.dumps({"schema": ADAPTER_SCHEMA, "ok": False, "reason": "checker_timeout"}))
                 return 1
             value = None
@@ -152,18 +160,24 @@ def main():
                     print(line, file=sys.stderr)
             print(json.dumps(value if value is not None else
                              {"schema": ADAPTER_SCHEMA, "ok": False, "reason": "checker_json_missing"}))
-            return child.returncode if child.returncode != 0 else (0 if value is not None else 1)
+            return 0 if child.returncode == 0 and value is not None else 1
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
-        print(json.dumps(error("materialize_failed")))
-        return 75
+        # Once spawned, any checker/protocol error is FAIL, including exit 75.
+        print(json.dumps(error("materialize_failed") if child is None else
+                         {"schema": ADAPTER_SCHEMA, "ok": False, "reason": "checker_failed"}))
+        return 75 if child is None else 1
     finally:
         if child is not None:
             try:
-                os.killpg(child.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            child.wait(timeout=1)
-        shutil.rmtree(work)
+                if child.poll() is None:
+                    os.killpg(child.pid, signal.SIGKILL)
+                child.wait(timeout=1)
+            except (OSError, subprocess.SubprocessError):
+                print("acceptance: child cleanup failed", file=sys.stderr)
+        try:
+            shutil.rmtree(work)
+        except OSError:
+            print("acceptance: directory cleanup failed", file=sys.stderr)
 
 
 if __name__ == "__main__":

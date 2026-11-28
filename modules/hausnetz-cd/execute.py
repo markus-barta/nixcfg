@@ -444,8 +444,10 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                     export_format, digest = parse_export(data)
                     atomic_bytes(state / "export", data)
                     result.update(backup="ready", export_sha256=digest, export_format=export_format)
+                    ack_budget = min(config.get("backup_ack_timeout", ACK_TIMEOUT), ACK_TIMEOUT)
+                    result["backup_ack_deadline"] = time.time() + ack_budget
+                    deadline = time.monotonic() + ack_budget
                     save("backup_ready")
-                    deadline = time.monotonic() + min(config.get("backup_ack_timeout", ACK_TIMEOUT), ACK_TIMEOUT)
                     ack = state_path(state / ("ack-" + run_token))
                     while not ack.exists() and time.monotonic() < deadline:
                         time.sleep(min(1, max(0, deadline - time.monotonic())))
@@ -573,7 +575,9 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                        and ((not switched and result.get("reason") == "backup_copy_not_acknowledged")
                             or (result.get("reason") == "acceptance_failed_or_timeout"
                                 and result.get("rollback") == "succeeded")))
-        if (result["status"] == "preflight_refused" or infra_retry) and not trial:
+        live_refused = (mode == "live" and not switched and result.get("reason") == "live_disabled"
+                        and result.get("rollback", "not_required") == "not_required")
+        if (result["status"] == "preflight_refused" or infra_retry or live_refused) and not trial:
             attempt.unlink(missing_ok=True)
         if mode == "dry-run":
             try:

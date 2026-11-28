@@ -136,7 +136,7 @@ class Fixture:
             # timeouts (rollback-readiness cases) on loaded CI runners. Crash cases wait for this deadline, so it
             # must stay well below tick()'s subprocess timeout (36 s).
             "alarm_file": str(root / "local/alarm.json"), "poll_timeout": 24, "poll_interval": 0.02,
-            "ssh_retry_timeout": 0.4,
+            "ssh_retry_timeout": 0.4, "backup_preflight_budget": 0.1, "backup_copy_budget": 0.1, "backup_ack_margin": 0.05,
             "acceptance_command": [str(self.bin / "acceptance"), "{trusted_rev}", "just", "acceptance",
                                    "{url}", "{version}", "{caps_sha256}"],
             "acceptance_url": "http://fixture.invalid", "acceptance_timeout": 2,
@@ -612,6 +612,26 @@ class TestCD(unittest.TestCase):
         self.assertEqual(self.f.terminal()["status"], "manual")
         self.assertFalse(self.f.events("nix"))
         self.assertFalse(self.f.events("switch"))
+
+    def test_live_disabled_is_retryable_with_one_alarm(self):
+        self.f.executor["allow_live"] = False
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["reason"], "live_disabled")
+        self.assertFalse(self.f.state()["failed"])
+        self.assertFalse(self.f.state()["attempted"])
+        self.assertNotIn("disabled", self.f.state())
+        state = self.f.state()
+        state["evaluated"]["at"] -= 1801
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.tick()
+        self.assertFalse(self.f.state()["failed"])
+        self.assertEqual(len([e for e in self.f.events("mailbox") if "EXECUTOR LIVE DISABLED" in e["text"]]), 2)
+        self.f.executor["allow_live"] = True
+        state = self.f.state()
+        state["evaluated"]["at"] -= 1801
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "succeeded")
 
     def test_missing_independent_alert_refuses_live(self):
         self.f.orchestrator["secondary_telegram_command"] = []
@@ -2273,6 +2293,12 @@ class TestCD(unittest.TestCase):
         self.assertEqual(self.f.terminal()["status"], "rollback_failed")
         self.assertIn("disabled", self.f.state())
         self.assertTrue(self.f.state()["disabled"])
+        # Detached release belongs to the completed transaction. Settle it
+        # before checking that a subsequent disabled tick performs no work.
+        deadline = time.monotonic() + 2
+        while not self.f.events("acceptance-release") and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(self.f.events("acceptance-release"))
         before = self.f.events()
         self.f.tick()
         self.assertEqual(self.f.events(), before)
@@ -2386,9 +2412,10 @@ class TestCD(unittest.TestCase):
         self.assertFalse(self.f.events("switch"))
 
     def test_infra_preflight_busy_withholds_ack_and_retries(self):
+        self.attended_setup()
         self.f.scenario["acceptance_preflight_busy"] = True
-        self.f.executor["backup_ack_timeout"] = 1.5
         self.f.tick("live")
+        self.assertIsNone(self.f.state()["pending"])
         result = self.f.terminal()
         self.assertEqual(result["status"], "acceptance_infra_unavailable")
         self.assertEqual(result["reason"], "acceptance_infra_unavailable")
@@ -2402,11 +2429,14 @@ class TestCD(unittest.TestCase):
         self.assertFalse(state["attempted"])
         self.assertNotIn("disabled", state)
         self.assertFalse(list(ledger(self.f.orchestrator, "failed", "unused").parent.glob("*.json")))
+        self.assertFalse(self.f.events("start"))
+        self.assertFalse(any("awaiting attended ack" in e["text"] for e in self.f.events("mailbox")))
+        self.f.auto_ack = True
         starts = len(self.f.events("start"))
         self.f.tick()
         self.assertEqual(len(self.f.events("start")), starts)
         # A second eligible attempt in the same outage emits no duplicate alarm.
-        for ready in (False, True):
+        for ready in (False, False, False, True):
             state = self.f.state()
             state["evaluated"]["at"] -= 1801
             self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
@@ -2439,6 +2469,81 @@ class TestCD(unittest.TestCase):
         self.f.tick()
         self.assertEqual(self.f.terminal()["status"], "succeeded")
 
+    def test_two_post_switch_infra_failures_tombstone(self):
+        self.f.scenario.update(acceptance_exit=75, acceptance_output=json.dumps({
+            "schema":"hausnetz-cd.acceptance-adapter.v1", "ok":False,
+            "infra":"unavailable", "reason":"guest_unavailable"}))
+        self.f.tick("live")
+        self.assertEqual(self.f.state()["post_switch_infra"]["count"], 1)
+        state = self.f.state()
+        state["evaluated"]["at"] -= 1801
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.tick()
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["reason"], "acceptance_infrastructure_failed_after_switch_twice")
+        self.assertEqual(result["rollback"], "succeeded")
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertEqual(self.f.state()["post_switch_infra"]["count"], 2)
+        self.assertNotIn("disabled", self.f.state())
+        self.f.tick()
+        self.assertEqual(len(self.f.events("switch")), 4)
+        alarms = [e for e in self.f.events("mailbox") if
+                  "acceptance infrastructure failed after switch twice; manual" in e["text"]]
+        self.assertEqual(len(alarms), 2)  # one alarm, two recipients
+
+    def test_post_switch_infra_new_pair_resets_counter(self):
+        from orchestrate import finish
+        state = copy.deepcopy(self.f.live_state)
+        state["post_switch_infra"] = {"main":"b"*40, "running":self.f.old,
+                                      "candidate":"c"*40, "count":1}
+        result = {**self.pending_record(), "status":"failed", "reason":"acceptance_failed_or_timeout",
+                  "switched":True, "rollback":"succeeded", "acceptance_infra_unavailable":True,
+                  "checker_verdict":"infra_unavailable"}
+        with mock.patch("orchestrate.report"), mock.patch("orchestrate.deliver_alarms"), \
+                mock.patch("orchestrate.acceptance_release"):
+            finish(self.f.orchestrator, state, result)
+        self.assertEqual(state["post_switch_infra"]["count"], 1)
+        self.assertFalse(state["failed"])
+
+    def test_checker_fail_is_not_infra_even_with_infra_marker(self):
+        from orchestrate import finish
+        state = copy.deepcopy(self.f.live_state)
+        result = {**self.pending_record(), "status":"failed", "reason":"acceptance_failed_or_timeout",
+                  "switched":True, "rollback":"succeeded", "acceptance_infra_unavailable":True,
+                  "checker_verdict":"fail"}
+        with mock.patch("orchestrate.report"), mock.patch("orchestrate.deliver_alarms"), \
+                mock.patch("orchestrate.acceptance_release"):
+            finish(self.f.orchestrator, state, result)
+        self.assertEqual(result["status"], "failed")
+        self.assertIn(self.f.new_hnet, state["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+
+    def test_infra_marker_does_not_retire_unrelated_executor_failure(self):
+        token = "f" * 32
+        state = Path(self.f.executor["state_dir"])
+        self.f.write(state / ("acceptance-" + token), "infra_unavailable")
+        self.f.write(state / ("ack-live-" + token), token)
+        self.f.write(state / ("ack-" + token), hashlib.sha256(b'{"devices":[]}').hexdigest())
+        self.f.scenario["health_fail"] = True  # failure before checker, rollback succeeds
+        self.f.execute("live")
+        self.assertEqual(self.f.result()["rollback"], "succeeded")
+        self.assertNotEqual(self.f.result()["reason"], "acceptance_failed_or_timeout")
+        self.assertTrue((state / "attempted" / (self.f.new + ".json")).exists())
+
+    def test_infra_marker_no_attended_ack_keeps_reservation(self):
+        token = "f" * 32
+        state = Path(self.f.executor["state_dir"])
+        self.f.write(state / ("acceptance-" + token), "infra_unavailable")
+        self.f.execute("live")
+        self.assertEqual(self.f.result()["reason"], "attended_ack_missing")
+        self.assertTrue((state / "attempted" / (self.f.new + ".json")).exists())
+
+    def test_failed_verdict_keeps_executor_reservation(self):
+        self.acceptance_bad(acceptance_output='{"schema":"hausnetz.acceptance.v1","ok":false}', acceptance_exit=1)
+        self.assertTrue((Path(self.f.executor["state_dir"]) / "attempted" / (self.f.new + ".json")).exists())
+
     def test_infra_rollback_failure_still_latches(self):
         self.f.scenario.update(acceptance_exit=75, acceptance_output=json.dumps({
             "schema":"hausnetz-cd.acceptance-adapter.v1", "ok":False,
@@ -2447,6 +2552,8 @@ class TestCD(unittest.TestCase):
         self.assertEqual(self.f.terminal()["rollback"], "failed")
         self.assertIn("disabled", self.f.state())
         self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+
+        self.assertTrue((Path(self.f.executor["state_dir"]) / "attempted" / (self.f.new + ".json")).exists())
 
     def test_acceptance_green_runs_trusted_pre_switch_revision(self):
         self.f.tick("live")
@@ -2475,6 +2582,12 @@ class TestCD(unittest.TestCase):
         self.assertIn(self.f.new_hnet, self.f.state()["failed"])
         self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
 
+    def test_checker_timeout_exit_one_tombstones(self):
+        self.acceptance_bad(acceptance_output=json.dumps({"schema":"hausnetz-cd.acceptance-adapter.v1",
+                            "ok":False, "reason":"checker_timeout"}), acceptance_exit=1)
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+
     def test_real_acceptance_fail_exit_one_tombstones(self):
         self.acceptance_bad(acceptance_output='{"schema":"hausnetz.acceptance.v1","ok":false}', acceptance_exit=1)
         self.assertIn(self.f.new_hnet, self.f.state()["failed"])
@@ -2485,6 +2598,10 @@ class TestCD(unittest.TestCase):
 
     def test_acceptance_timeout_rolls_back(self):
         self.acceptance_bad(acceptance_hang=True)
+
+    def test_schemaless_green_rolls_back(self):
+        self.acceptance_bad(acceptance_output='{"ok":true}')
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
 
     def test_acceptance_garbage_rolls_back(self):
         self.acceptance_bad(acceptance_output="garbage")
@@ -3997,6 +4114,8 @@ class TestCD(unittest.TestCase):
         self.assertNotEqual(first["run_id"], refusal["run_id"])
         self.f.pin(self.f.new_hnet, 3)
         self.f.new = self.f.commit(self.f.repo)
+        # The one-second deadline belonged to the intentional no-ack stop.
+        self.f.executor["backup_ack_timeout"] = 30
         self.f.tick()
         self.assertEqual(self.f.terminal()["status"], "succeeded")
         self.assertEqual(len(self.f.events("switch")), 1)
@@ -4140,6 +4259,33 @@ class TestCD(unittest.TestCase):
         self.assertEqual(self.f.terminal()["status"], "dry-run")
         self.assertTrue(self.f.events("start"))
 
+    def test_release_detached_from_controller_timeout(self):
+        from orchestrate import acceptance_release
+        with mock.patch("orchestrate.subprocess.Popen") as spawn:
+            acceptance_release(self.f.orchestrator)
+        self.assertEqual(spawn.call_args.args[0], [str(self.f.bin / "acceptance"), "--release"])
+        self.assertTrue(spawn.call_args.kwargs["start_new_session"])
+
+    def test_backup_preflight_budget_insufficient_withholds_ack(self):
+        self.f.orchestrator["backup_preflight_budget"] = 100
+        # The fixture's 30s backup window cannot contain the real 70s preflight.
+        self.f.executor["backup_ack_timeout"] = 0.5
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["status"], "acceptance_infra_unavailable")
+        self.assertFalse(self.f.events("switch"))
+        self.assertFalse(self.f.state()["failed"])
+        self.assertFalse(list(Path(self.f.executor["state_dir"]).glob("ack-[0-9a-f]*")))
+        self.assertEqual(len(self.f.events("acceptance-preflight")), 1)  # startup only
+
+    def test_startup_preflight_precedes_attended_alarm(self):
+        self.attended_setup()
+        self.f.tick("live")
+        events = self.f.events()
+        preflight = next(i for i, e in enumerate(events) if e["kind"] == "acceptance-preflight")
+        attended = next(i for i, e in enumerate(events) if e["kind"] == "mailbox" and "awaiting attended ack" in e["text"])
+        self.assertLess(preflight, attended)
+        self.assertFalse(self.f.events("start"))
+
     def test_start_pending_checks_stop_before_remote_work(self):
         from orchestrate import start_pending
         state = {**copy.deepcopy(self.f.live_state), "pending": self.pending_record()}
@@ -4163,8 +4309,10 @@ class TestCD(unittest.TestCase):
             self.operator_stop()  # lands during preparation, before requesting ack
             return result
         with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.gate_g2", side_effect=prepared), \
-                mock.patch("orchestrate.queue_alarm", wraps=orchestrate.queue_alarm) as queue:
+                mock.patch("orchestrate.queue_alarm", wraps=orchestrate.queue_alarm) as queue, \
+                mock.patch("orchestrate.acceptance_preflight", wraps=orchestrate.acceptance_preflight) as preflight:
             tick(self.f.orchestrator)
+        preflight.assert_not_called()  # an existing stop must avoid VM startup too
         self.assertEqual(self.f.terminal()["status"], "operator_disabled")
         self.assertFalse(self.f.events("start"))
         self.assertFalse(any("awaiting attended ack" in e["text"] for e in self.f.events("mailbox")))
@@ -4780,8 +4928,8 @@ def mutants(only=None, start_after=None):
          [('            operator_disabled = merge_disable(config, state)', '            operator_disabled = False')],
          "test_reconcile_operator_stop_refuses_live_and_dry_pass"),
         ("R2 start pending stop removed", "orchestrate.py",
-         [('    if merge_disable(config, state):\n        finish(config, state, {**pending,',
-           '    if False:\n        finish(config, state, {**pending,')],
+         [('def start_pending(config, state):\n    pending = state["pending"]\n    if merge_disable(config, state):',
+           'def start_pending(config, state):\n    pending = state["pending"]\n    if False:')],
          "test_start_pending_checks_stop_before_remote_work"),
         ("R2 rehearsal start stop removed", "orchestrate.py",
          [('            if merge_disable(config, state):\n                return\n            running = evidence',
@@ -4851,9 +4999,7 @@ def mutants(only=None, start_after=None):
     ]
     cases.extend([
         ("OPS752 preflight skipped", "orchestrate.py",
-         [('pending["acceptance_preflight"] = acceptance_preflight(config)',
-           'pending["acceptance_preflight"] = True'),
-          ('if not acceptance_preflight(config, timeout=950):', 'if False:')],
+         [('ready = acceptance_preflight(config, timeout=950)', 'ready = True')],
          "test_infra_preflight_busy_withholds_ack_and_retries"),
         ("OPS752 infra tombstoned", "orchestrate.py",
          [('infra_caused = (result.get("acceptance_infra_unavailable") is True',
@@ -4861,6 +5007,32 @@ def mutants(only=None, start_after=None):
         ("OPS752 infra accepted", "orchestrate.py",
          [('return "infra_unavailable"', 'return "pass"')],
          "test_infra_after_switch_rolls_back_retryable"),
+    ])
+    cases.extend([
+        ("OPS752 post-switch cap removed", "orchestrate.py",
+         [('if counter["count"] >= 2:', 'if False:')], "test_two_post_switch_infra_failures_tombstone"),
+        ("OPS752 checker verdict infra guard removed", "orchestrate.py",
+         [('and not result.get("disable_reason") and result.get("checker_verdict") != "fail"',
+           'and not result.get("disable_reason")')], "test_checker_fail_is_not_infra_even_with_infra_marker"),
+        ("OPS752 schema check removed", "orchestrate.py",
+         [('require(value.get("schema") == "hausnetz.acceptance.v1", "acceptance_schema")', 'pass')],
+         "test_schemaless_green_rolls_back"),
+        ("OPS752 executor reservation without infra decision", "execute.py",
+         [('and decision.read_text().strip() == "infra_unavailable"', 'and True')],
+         "test_failed_verdict_keeps_executor_reservation"),
+        ("OPS752 executor reservation unrelated failure", "execute.py",
+         [('or (result.get("reason") == "acceptance_failed_or_timeout"', 'or (True')],
+         "test_infra_marker_does_not_retire_unrelated_executor_failure"),
+        ("OPS752 executor reservation rollback failure", "execute.py",
+         [('and result.get("rollback") == "succeeded")))', 'and True)))')],
+         "test_infra_rollback_failure_still_latches"),
+        ("OPS752 live disabled tombstone", "orchestrate.py",
+         [('live_disabled = (result.get("reason") == "live_disabled" and not result.get("switched")',
+           'live_disabled = (False')], "test_live_disabled_is_retryable_with_one_alarm"),
+        ("OPS752 release process group", "orchestrate.py",
+         [('stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)',
+           'stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=False)')],
+         "test_release_detached_from_controller_timeout"),
     ])
     if only is not None:
         cases = [case for case in cases if case[0].startswith(only)]

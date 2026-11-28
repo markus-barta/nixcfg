@@ -15,6 +15,7 @@ let
       acceptance_url = cfg.acceptanceUrl;
       cache_dir = cacheDir;
       state_dir = "${cacheDir}/acceptance";
+      demand_stamp = "${home}/.local/state/ci-vm/acceptance-demand";
       colima = "${pkgs.colima}/bin/colima";
       ci_vm = "${config.services.ciVm.package}/bin/ci-vm";
       git = "${pkgs.git}/bin/git";

@@ -560,7 +560,9 @@ A reused group leader PID remains a fail-closed block requiring inspection.
 Disabling the timer option and applying Home Manager also pauses future ticks. A detached executor finishes its transaction;
 pausing the timer does not interrupt recovery. Apply live settings only in the
 coordinator's approved order after the attended dry-run/rehearsal evidence and
-HNET-570 readiness are verified. The OPS-752 builder does not deploy them.
+HNET-570 readiness are verified: **switch hsb0 first, then mbp2607**. An executor
+`live_disabled` refusal stays retryable with one alarm per pair; it never
+tombstones the pin. The OPS-752 builder does not deploy them.
 
 The gates compare with the **running** `source_revision` from
 `/etc/pharos-deployment/evidence.json`, never a merge parent:
@@ -1057,36 +1059,46 @@ An already-running VM is left running. A VM started by the adapter has a private
 run-scoped lease under the controller cache's `acceptance/` directory. Successful
 `--preflight <url>` leaves it up; the later acceptance or `--release` stops only
 that leased VM through `ci-vm stop`, without `--force`. A failed/deferred stop
-retains the lease for recovery. Do not remove leases to work around a busy guest.
+retains the lease for recovery. A fresh host `ci-vm/acceptance-demand` stamp
+counts as active work for dispatcher idle detection and drain; release clears
+it before stopping. Crash residue expires after one hour. Explicit force and
+absolute uptime safety limits still apply. Do not remove leases to work around
+a busy guest.
 
-The controller runs startup preflight before executor submission (cold VM
-provisioning has a 950-second bound), then rechecks before acknowledging the
-backup (70-second bound within the executor's 120-second ack window). Preflight
-proves SSH as `ci-hausnetz` and availability of `nix` and `just`. Guest
-provisioning includes Ubuntu `just` in dependency marker `ubuntu-dependencies-v3`;
-older provisioned VMs install it on the next approved provisioning boot. If unavailable,
-the controller writes **no backup ack**; the executor exits
-`backup_copy_not_acknowledged`, `switched=false`, without rollback. The controller
-records `acceptance_infra_unavailable`. The pair remains retryable with the normal
-30-minute evaluated backoff and one durable alarm per outage. Recovery is marked
-only by an actual acceptance PASS, so repeated materialization outages cannot
-create a new alarm every tick.
+The controller runs startup preflight **before requesting attended ack** and
+before executor submission (cold VM provisioning has a 950-second bound).
+Failure submits no executor and requests no attended ack. Preflight proves SSH
+as `ci-hausnetz`, its home directory and availability of `nix`; `just` comes from
+the trusted hausnetz dev shell. Guest apt dependencies retain their v2 marker.
+Before the backup ack, a second 70-second preflight must fit the executor's
+published 120-second deadline with two 10-second transfers and 10 seconds of
+margin. Insufficient time refuses readiness before ack; copy/ack also recheck
+the remaining budget. Unavailable readiness writes **no backup ack**; a submitted
+executor exits `backup_copy_not_acknowledged`, `switched=false`, without rollback.
+The controller records `acceptance_infra_unavailable`. Pre-switch outages remain
+retryable without a cap, with the normal 30-minute evaluated backoff and one
+durable alarm per outage. Recovery is marked only by an acceptance PASS.
 
 The Mac makes a local Git bundle with one advertised head, exactly `trusted_rev`,
 from the same configured `cache_dir/hausnetz` used by the orchestrator. No fetch
 from an external origin is permitted by the adapter. The bundle streams over
 Colima SSH stdin to `ci-hausnetz` with HOME `/var/lib/ci-runners/hausnetz`.
 The guest clones into a fresh `cd-acceptance/run-<token>/checkout`, detaches at
-the trusted revision, verifies HEAD, then runs
+the trusted revision, verifies HEAD and an empty `git status --porcelain`, then runs
 `nix develop -c just acceptance <url> <version> <caps_sha256>` with
 PATH `/nix/var/nix/profiles/default/bin:/usr/bin:/bin`. Its checker timeout is
-below the controller's acceptance timeout. Run directories are removed afterwards;
+below the controller's acceptance timeout. Git ignores global/system config,
+hooks and fsmonitor. A flushed checker-start transport marker distinguishes
+setup expiry (infra 75) from post-start expiry (FAIL 1). The transport uses the
+adapter's full remaining budget, rather than checker timeout plus two seconds.
+Run directories are removed afterwards;
 crash residue pruning retains at most three inactive owned run directories and
 never touches unrelated paths, symlinks or active runs.
 
 The last checker JSON object with `schema=hausnetz.acceptance.v1` is the sole
 stdout result; checker chatter and preceding objects go to stderr. Exit 0 plus
-`ok=true` is PASS; a checker FAIL retains its JSON and nonzero status (normally 1).
+`ok=true` is PASS; a checker FAIL retains its JSON and returns 1. Checker exits
+other than 0/1 normalize to FAIL 1; cleanup errors only reach stderr.
 The guest carries its result and status in an internal zero-exit transport
 envelope because Colima normalizes nonzero guest exits to 1; the Mac unwraps it
 before emitting the public result. A failed SSH transport remains infrastructure
@@ -1094,15 +1106,21 @@ unavailability, independently of the checker's status.
 Infrastructure failures emit exit 75 and
 `{"schema":"hausnetz-cd.acceptance-adapter.v1","ok":false,"infra":"unavailable","reason":"<closed word>"}`.
 After a switch, exit 75 still forces rollback: a candidate cannot be kept without
-PASS. A successful rollback is retryable, with no failed tombstone or latch;
-the alarm explicitly says rollback succeeded. Real checker FAILs retain failure
-tombstones, while failed/unknown rollback retains the safety latch. Both controller
-and executor retire their own attempt reservations only for the narrowly proven
-infrastructure recovery case. `checker_verdict` remains separate from forced FAIL.
+PASS. The first successful infrastructure rollback for a (main, running→candidate)
+pair is retryable with no tombstone or latch; its alarm says rollback succeeded.
+The durable per-pair counter makes the second such outcome tombstone the target
+as failed and alarm once: `acceptance infrastructure failed after switch twice;
+manual`. It does not latch; use the existing manual recovery route. A new
+candidate resets the counter. Real checker FAILs retain failure tombstones,
+while failed/unknown rollback retains the safety latch. Both sides also retire reservations for a proven pre-switch `live_disabled`
+refusal. Otherwise the executor retires its reservation only for proven infrastructure recovery; the controller retires its
+reservation only while that pair remains retryable. `checker_verdict` remains
+separate from forced FAIL.
 
 The guest records its child process group under the run token. SIGTERM/SIGINT
 causes a second Colima SSH command to kill that group, synchronized with PID
-publication, then a nonzero result. Cancellation hands leased-VM shutdown to an
+publication, then a nonzero result. Controller release always launches a detached
+process group. Cancellation also hands leased-VM shutdown to an
 isolated `--release` process because the dispatcher's safe drain/stop may exceed
 the controller's three-second TERM grace. A long checker can likewise defer stop
 to preserve the adapter budget. The durable lease survives cleanup interruption;

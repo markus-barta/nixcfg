@@ -26,6 +26,10 @@ class Unavailable(Exception):
     pass
 
 
+class CheckerTimeout(Exception):
+    pass
+
+
 class Cancelled(BaseException):
     pass
 
@@ -47,7 +51,7 @@ class Adapter:
         self.process = None
         self.deadline = None
 
-    def command(self, argv, *, timeout=30, stdin=None, chatter=False):
+    def command(self, argv, *, timeout=30, stdin=None, chatter=False, checker_transport=False):
         if self.deadline is not None:
             timeout = min(timeout, self.deadline - time.monotonic())
             if timeout <= 0:
@@ -63,13 +67,24 @@ class Adapter:
             # Tool diagnostics may include configuration/secrets. Only closed
             # reasons cross this boundary; checker chatter is handled in guest.
             return process.returncode, output.decode("utf-8", errors="replace")
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
+            # A marker is emitted on the real transport stream only after
+            # checker spawn. Setup expiry remains retryable infrastructure.
+            output = (exc.output or b"").decode("utf-8", errors="replace")
+            if checker_transport and any(line == '{"schema": "hausnetz-cd.checker-started.v1"}'
+                                          for line in output.splitlines()):
+                raise CheckerTimeout() from None
             raise Unavailable("command_timeout") from None
         finally:
-            if process.poll() is None:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait(timeout=1)
-            self.process = None
+            try:
+                if process.poll() is None:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait(timeout=1)
+            except (OSError, subprocess.SubprocessError):
+                # Cleanup cannot replace a completed result or CheckerTimeout.
+                print("hausnetz-cd-acceptance: command_cleanup_failed", file=sys.stderr)
+            finally:
+                self.process = None
 
     def ssh(self, mode, *args):
         remote = ["sudo", "-n", "-u", "ci-hausnetz", "--", "/usr/bin/python3", "-c",
@@ -80,7 +95,17 @@ class Adapter:
         return [p for p in self.state.iterdir() if re.fullmatch(r"vm-[0-9a-f]{32}\.json", p.name)
                 and p.is_file() and not p.is_symlink()]
 
+    def demand(self):
+        # Dispatcher treats a fresh stamp as active work, including drain.
+        stamp = Path(self.config["demand_stamp"])
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(mode="w", dir=stamp.parent, delete=False) as output:
+            temporary = Path(output.name)
+            output.write(str(int(time.time())))
+        temporary.replace(stamp)
+
     def ready(self):
+        self.demand()
         rc, status = self.command([self.config["colima"], "list", "--json"])
         try:
             profiles = [strict_json(line) for line in status.splitlines()]
@@ -105,7 +130,7 @@ class Adapter:
         probe = ("sudo -n -u ci-hausnetz -- /bin/sh -c " + shlex.quote(
             "export HOME=/var/lib/ci-runners/hausnetz; "
             "export PATH=/nix/var/nix/profiles/default/bin:/usr/bin:/bin; "
-            "test -d \"$HOME\" && command -v nix >/dev/null && command -v just >/dev/null"))
+            "test -d \"$HOME\" && command -v nix >/dev/null"))
         rc, _ = self.command([self.config["colima"], "--profile", "ci", "ssh", "--", probe], timeout=10)
         if rc != 0:
             raise Unavailable("guest_unavailable")
@@ -116,6 +141,7 @@ class Adapter:
                          stderr=subprocess.DEVNULL, start_new_session=True)
 
     def release(self):
+        Path(self.config["demand_stamp"]).unlink(missing_ok=True)
         markers = self.markers()
         if markers:
             if self.deadline is not None and self.deadline - time.monotonic() < 205:
@@ -166,7 +192,7 @@ class Adapter:
             with bundle.open("rb") as data:
                 rc, stdout = self.command(self.ssh("run", rev, url, version, caps,
                                                   str(self.config["timeout"])), stdin=data,
-                                          timeout=self.config["timeout"] + 2, chatter=True)
+                                          timeout=self.config["budget"], chatter=True, checker_transport=True)
         value = None
         infra = None
         guest_code = None
@@ -251,6 +277,9 @@ def main():
                 rc, value = 0, {"schema": ADAPTER_SCHEMA, "ok": True}
             else:
                 rc, value = adapter.run(args)
+        except CheckerTimeout:
+            adapter.cancel()
+            rc, value = 1, error("checker_timeout", infra=False)
         except Cancelled:
             cancelled = True
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -274,7 +303,8 @@ def main():
                         signal.signal(signal.SIGINT, signal.SIG_IGN)
                         adapter.cancel()
                         adapter.defer_release()
-                        rc, value = 75, error("cancelled")
+                        # A completed checker verdict survives cleanup failure.
+                        print("hausnetz-cd-acceptance: vm_stop_deferred", file=sys.stderr)
                     except (OSError, Unavailable):
                         print("hausnetz-cd-acceptance: vm_stop_deferred", file=sys.stderr)
     print(json.dumps(value, allow_nan=False))

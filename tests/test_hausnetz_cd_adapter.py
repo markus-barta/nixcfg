@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -45,6 +46,11 @@ if name == 'colima':
         event('remote-' + remote[8])
         if scenario.get('ssh_fail'):
             raise SystemExit(1)  # Actual Colima transport errors collapse here.
+        if remote[8] == 'run' and scenario.get('setup_hang'):
+            time.sleep(20)
+        if remote[8] == 'run' and scenario.get('transport_hang_after_start'):
+            print('{"schema": "hausnetz-cd.checker-started.v1"}', flush=True)
+            time.sleep(20)
         result = subprocess.run([sys.executable, *remote[6:]])
         raise SystemExit(1 if result.returncode else 0)
 elif name == 'ci-vm':
@@ -61,13 +67,19 @@ elif name == 'ci-vm':
     else:
         raise AssertionError(args)
 elif name == 'git':
+    event('guest-git', global_config=os.environ.get('GIT_CONFIG_GLOBAL'),
+          nosystem=os.environ.get('GIT_CONFIG_NOSYSTEM'))
+    if args[-2:] == ['status','--porcelain'] and scenario.get('dirty'):
+        print('?? injected')
+        raise SystemExit(0)
     if args[-2:] == ['rev-parse','HEAD'] and scenario.get('head_mismatch'):
         print('b' * 40)
     else:
         raise SystemExit(subprocess.run([str(root / 'real-git'), *args]).returncode)
 elif name == 'nix':
     event('checker', head=subprocess.check_output([str(root / 'real-git'),'rev-parse','HEAD'], text=True).strip(),
-          home=os.environ['HOME'], path=os.environ['PATH'])
+          home=os.environ['HOME'], path=os.environ['PATH'],
+          demand=(root / 'ci-state/acceptance-demand').exists())
     assert args[:5] == ['develop','-c','just','acceptance','http://192.168.1.99/']
     candidate = (root / 'candidate-rev').read_text()
     assert subprocess.run([str(root / 'real-git'), 'cat-file', '-e', candidate], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0, 'bundle included the candidate'
@@ -128,6 +140,7 @@ class AdapterTests(unittest.TestCase):
         (self.root / "guest.py").write_text(guest)
         self.config = {"acceptance_url":"http://192.168.1.99/", "cache_dir":str(self.root / "cache"),
                        "state_dir":str(self.root / "state"), "git":self.git,
+                       "demand_stamp":str(self.root / "ci-state/acceptance-demand"),
                        "colima":str(self.bin / "colima"), "ci_vm":str(self.bin / "ci-vm"), "timeout":5, "budget":600}
         self.path = self.root / "adapter.py"
         self.path.write_text((SOURCE / "acceptance-adapter.py").read_text()
@@ -263,7 +276,7 @@ class AdapterTests(unittest.TestCase):
     def test_checker_status_survives_colima_exit_collapse(self):
         self.scenario.update(red=True, checker_exit=42)
         result, value = self.run_adapter()
-        self.assertEqual(result.returncode, 42)
+        self.assertEqual(result.returncode, 1)
         self.assertFalse(value["ok"])
 
     def test_sigterm_remote_kill_and_stop(self):
@@ -290,9 +303,9 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
 
-    def test_budget_expiry_returns_infra_before_slow_vm_stop(self):
+    def test_setup_expiry_returns_infra_before_slow_vm_stop(self):
         self.config["budget"] = 0.8
-        self.scenario.update(hang=True, stop_delay=1.5)
+        self.scenario.update(setup_hang=True, stop_delay=1.5)
         started = time.monotonic()
         result, value = self.run_adapter()
         self.assertEqual(result.returncode, 75)
@@ -319,13 +332,119 @@ class AdapterTests(unittest.TestCase):
         self.save()
         process.send_signal(signal.SIGTERM)
         stdout, stderr = process.communicate(timeout=3)
-        self.assertEqual(process.returncode, 75, stderr)
+        self.assertEqual(process.returncode, 0, stderr)
         self.assertEqual(len(stdout.splitlines()), 1)
-        self.assertEqual(json.loads(stdout)["reason"], "cancelled")
+        self.assertTrue(json.loads(stdout)["ok"])
         deadline = time.monotonic() + 3
         while (self.root / "running").exists() and time.monotonic() < deadline:
             time.sleep(0.02)
         self.assertFalse((self.root / "running").exists())
+
+    def test_checker_timeout_is_fail(self):
+        self.config["timeout"] = 0.1
+        self.scenario["hang"] = True
+        result, value = self.run_adapter()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(value["reason"], "checker_timeout")
+        self.assertNotIn("infra", value)
+
+    def test_transport_expiry_after_start_is_fail(self):
+        self.config["budget"] = 1.2
+        self.scenario["transport_hang_after_start"] = True
+        result, value = self.run_adapter()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(value["reason"], "checker_timeout")
+        self.assertNotIn("infra", value)
+
+    def test_post_start_timeout_survives_transport_cleanup_error(self):
+        namespace = {"__name__":"fixture", "__file__":str(self.path)}
+        source = self.path.read_text().split('if __name__ == "__main__":')[0]
+        with mock.patch.object(sys, "path", [str(SOURCE), *sys.path]):
+            exec(compile(source, "adapter", "exec"), namespace)
+        adapter = namespace["Adapter"](self.config)
+        process = mock.MagicMock()
+        process.poll.return_value = None
+        process.communicate.side_effect = subprocess.TimeoutExpired(
+            "fixture", 1, output=b'{"schema": "hausnetz-cd.checker-started.v1"}\n')
+        error = None
+        with mock.patch("subprocess.Popen", return_value=process), \
+                mock.patch("os.killpg", side_effect=ProcessLookupError), mock.patch("sys.stderr") as stderr:
+            try:
+                adapter.command(["fixture"], checker_transport=True)
+            except BaseException as exc:
+                error = exc
+        self.assertIsInstance(error, namespace["CheckerTimeout"])
+        self.assertIsNone(adapter.process)
+        self.assertTrue(stderr.write.called)
+
+    def test_checker_75_is_fail(self):
+        self.scenario.update(checker_exit=75, red=True)
+        result, value = self.run_adapter()
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("infra", value)
+
+    def test_cleanup_errors_preserve_verdict(self):
+        guest = self.root / "guest.py"
+        guest.write_text(guest.read_text().replace('shutil.rmtree(work)',
+                         '(_ for _ in ()).throw(OSError("fixture cleanup"))'))
+        for red, code in ((False, 0), (True, 1)):
+            self.scenario["red"] = red
+            result, value = self.run_adapter()
+            self.assertEqual(result.returncode, code, result.stderr)
+            self.assertEqual(value["ok"], not red)
+            self.assertIn("directory cleanup failed", result.stderr)
+
+    def test_second_communicate_error_preserves_timeout(self):
+        guest = self.root / "guest.py"
+        guest.write_text(guest.read_text().replace('child.communicate(timeout=1)',
+                         '(_ for _ in ()).throw(subprocess.TimeoutExpired("fixture", 1))'))
+        self.config["timeout"] = 0.1
+        self.scenario["hang"] = True
+        result, value = self.run_adapter()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(value["reason"], "checker_timeout")
+        self.assertNotIn("infra", value)
+
+    def test_dirty_checkout_refuses_before_checker(self):
+        self.scenario["dirty"] = True
+        result, value = self.run_adapter()
+        self.assertEqual(result.returncode, 75)
+        self.assertFalse(self.events("checker"))
+
+    def test_git_ignores_shared_config(self):
+        result, _ = self.run_adapter()
+        self.assertEqual(result.returncode, 0)
+        for event in self.events("guest-git"):
+            self.assertEqual(event["global_config"], "/dev/null")
+            self.assertEqual(event["nosystem"], "1")
+            self.assertEqual(event["args"][:4], ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"])
+        self.assertTrue(self.events("guest-git"))
+
+    def test_lease_retains_dispatcher_drain(self):
+        result, _ = self.run_adapter(["--preflight", self.args[1]])
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue(Path(self.config["demand_stamp"]).exists())
+        source = (REPO / "hosts/mbp2607/files/ci-vm/dispatcher.sh").read_text()
+        active = source[source.index("acceptance_active() {"):source.index("worker_cap_reached() {")]
+        stop = source[source.index("stop_if_idle() {"):source.index("vm_status() {")]
+        script = ('state=$1\nlog() { :; }\nworker_cap_reached() { return 1; }\n'
+                  'guest_status() { echo drained; }\nstop_now() { echo stopped; }\n'
+                  + active + stop + 'local_worker_active || exit 2\nstop_if_idle fixture; test "$?" = 3\n')
+        checked = subprocess.run(["/bin/bash", "-c", script, "fixture", str(Path(self.config["demand_stamp"]).parent)],
+                                 capture_output=True, text=True)
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        self.assertNotIn("stopped", checked.stdout)
+        self.assertEqual(self.run_adapter()[0].returncode, 0)
+        self.assertTrue(self.events("checker")[0]["demand"])
+        self.assertFalse(Path(self.config["demand_stamp"]).exists())
+
+    def test_preflight_has_no_system_just_probe(self):
+        result, _ = self.run_adapter(["--preflight", self.args[1]])
+        self.assertEqual(result.returncode, 0)
+        probe = self.events("probe")[0]["args"][-1]
+        self.assertIn("command -v nix", probe)
+        self.assertNotIn("command -v just", probe)
+        self.run_adapter(["--release"])
 
     def test_prune_only_owned_directories(self):
         root = self.home / "cd-acceptance"
@@ -347,6 +466,13 @@ class AdapterTests(unittest.TestCase):
 
 def mutants():
     cases = [
+        ("post-start timeout cleanup preserves FAIL", "acceptance-adapter.py", 'except (OSError, subprocess.SubprocessError):', 'except ():', "test_post_start_timeout_survives_transport_cleanup_error", 1),
+        ("VM ownership", "acceptance-adapter.py", 'if markers:', 'if True:', "test_running_vm_not_owned", 1),
+        ("candidate exclusion", "acceptance-adapter.py", 'rev + ":refs/heads/trusted"', '"HEAD:refs/heads/trusted"', "test_stopped_vm_bundle_and_single_json", 1),
+        ("transport 75 mapping", "acceptance-adapter.py", 'if rc == 75:', 'if False:', "test_head_mismatch", 2),
+        ("post-start timeout becomes infra", "acceptance-adapter.py", 'rc, value = 1, error("checker_timeout", infra=False)', 'rc, value = 75, error("checker_timeout")', "test_transport_expiry_after_start_is_fail", 1),
+        ("checker timeout becomes infra", "acceptance-guest.py", '"reason": "checker_timeout"}))\n                return 1', '"reason": "checker_timeout"}))\n                return 75', "test_checker_timeout_is_fail", 1),
+        ("clean worktree check", "acceptance-guest.py", 'if git("-C", checkout, "status", "--porcelain"):', 'if False:', "test_dirty_checkout_refuses_before_checker", 1),
         ("URL check", "acceptance-adapter.py", 'if args[1] != config["acceptance_url"]:', 'if False:', "test_arguments", 2),
         ("HEAD verification", "acceptance-guest.py", 'if git("-C", checkout, "rev-parse", "HEAD") != rev:', 'if False:', "test_head_mismatch", 1),
         ("lock busy fail closed", "acceptance-adapter.py", 'raise Unavailable("heavy_lock_busy")', 'rc = 0', "test_busy_lock", 1),

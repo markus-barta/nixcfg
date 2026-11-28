@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import subprocess
 import sys
 import time
 import unicodedata
@@ -112,12 +113,12 @@ esac
 
 
 def remote(config, action, rev="", expected="", mode="", digest="", run_id="",
-           version="", manifest_sha="", running="", variant="", one_shot="", binary=False):
+           version="", manifest_sha="", running="", variant="", one_shot="", binary=False, timeout=45):
     args = [action, rev, expected, mode, digest, run_id, version, manifest_sha, running, variant, one_shot]
     command = "bash -s -- " + " ".join(shlex.quote(value) for value in args)
     return run("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
                 "-o", "StrictHostKeyChecking=yes", config["target"], command],
-               data=REMOTE.encode() if binary else REMOTE, binary=binary, timeout=45)
+               data=REMOTE.encode() if binary else REMOTE, binary=binary, timeout=timeout)
 
 
 def log_line(result):
@@ -334,7 +335,11 @@ def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False
 
 
 def copy_export(config, result):
-    data = remote(config, "export", result["nixcfg_rev"], run_id=result["run_id"], binary=True)
+    deadline = result.get("backup_ack_deadline") if result.get("mode") == "live" else None
+    if deadline is not None and deadline - time.time() < fixture_limit(config, "backup_copy_budget", 25):
+        return False
+    data = remote(config, "export", result["nixcfg_rev"], run_id=result["run_id"], binary=True,
+                  timeout=10 if deadline is not None else 45)
     export_format, digest = parse_export(data)
     require(digest == result["export_sha256"] and export_format == result["export_format"],
             "offhost_backup_mismatch")
@@ -345,10 +350,13 @@ def copy_export(config, result):
     for path in sorted(owned, key=lambda p: p.stat().st_mtime_ns, reverse=True)[20:]:
         path.unlink()
     # A stop may have arrived during the export read/copy. A stop during the
-    # up-to-45-second ack SSH write can still let one switch through; the next
+    # bounded ack SSH write can still let one switch through; the next
     # poll sends FAIL and the executor rolls back.
+    if deadline is not None and deadline - time.time() < fixture_limit(config, "backup_ack_margin", 15):
+        return False
     if read_disable(config) is None:
-        remote(config, "ack", result["nixcfg_rev"], digest=digest, run_id=result["run_id"])
+        remote(config, "ack", result["nixcfg_rev"], digest=digest, run_id=result["run_id"],
+               timeout=10 if deadline is not None else 45)
 
 
 def validate_result(result, pending):
@@ -516,6 +524,14 @@ def finish(config, state, result):
               and result.get("rollback", "not_required") == "not_required")
              or (result.get("reason") == "acceptance_failed_or_timeout"
                  and result.get("rollback") == "succeeded")))
+    live_disabled = (result.get("reason") == "live_disabled" and not result.get("switched")
+                     and result.get("rollback", "not_required") == "not_required")
+    if live_disabled:
+        retryable_stop = True
+        running = result.get("running_nixcfg_rev") or (state.get("pending") or {}).get("running_nixcfg_rev")
+        state["evaluated"] = {"main": result["nixcfg_rev"], "running": running,
+                              "at": time.time(), "check_running": True}
+        queue_alarm(config, state, key + "-live-disabled", result, "EXECUTOR LIVE DISABLED; retryable")
     if infra_caused:
         result.update(status="acceptance_infra_unavailable", reason="acceptance_infra_unavailable")
         running = result.get("running_nixcfg_rev") or (state.get("pending") or {}).get("running_nixcfg_rev")
@@ -526,6 +542,16 @@ def finish(config, state, result):
                     "ACCEPTANCE INFRA UNAVAILABLE; retryable; " +
                     ("rollback succeeded" if result.get("rollback") == "succeeded" else "no switch"))
         retryable_stop = True
+        if result.get("switched"):
+            pair = {"main": result["nixcfg_rev"], "running": running, "candidate": result["hausnetz_rev"]}
+            counter = state.get("post_switch_infra", {})
+            count = counter.get("count", 0) if all(counter.get(k) == v for k, v in pair.items()) else 0
+            counter = state["post_switch_infra"] = {**pair, "count": count + 1}
+            if counter["count"] >= 2:
+                retryable_stop = False
+                result.update(status="failed", reason="acceptance_infrastructure_failed_after_switch_twice")
+                queue_alarm(config, state, key + "-infra-manual", result,
+                            "acceptance infrastructure failed after switch twice; manual")
     if stop_caused:
         state["operator_stopped_revisions"] = (list(dict.fromkeys(
             [*stopped_revisions, result["nixcfg_rev"]]))[-200:])
@@ -559,7 +585,7 @@ def finish(config, state, result):
     state["reports"][key] = {"result": result, "ticket": False, "alarm": False, "order": order}
     save_state(config, state)
     report(config, state, key)
-    if infra_caused:
+    if infra_caused or live_disabled:
         deliver_alarms(config, state)
     if result["mode"] == "live":
         acceptance_release(config)
@@ -641,12 +667,21 @@ def reconcile(config, state):
                 # backup_copy_not_acknowledged path exits without switching.
                 if not pending.get("operator_disabled") and not merge_disable(config, state):
                     if pending["mode"] == "live" and "acceptance_preflight" not in pending:
-                        pending["acceptance_preflight"] = acceptance_preflight(config)
+                        # 70s readiness + two 10s transfers + 10s margin must
+                        # fit before the executor's published backup deadline.
+                        deadline = result.get("backup_ack_deadline", 0)
+                        budget = fixture_limit(config, "backup_preflight_budget", 100)
+                        pending["acceptance_preflight"] = (deadline - time.time() >= budget
+                                                           and acceptance_preflight(config))
                         if not pending["acceptance_preflight"]:
                             pending["acceptance_infra_unavailable"] = True
                         save_state(config, state)
                     if not pending.get("acceptance_infra_unavailable"):
-                        copy_export(config, result)
+                        if copy_export(config, result) is False:
+                            pending["acceptance_infra_unavailable"] = True
+                            save_state(config, state)
+                            remote(config, "acceptance", pending["nixcfg_rev"],
+                                   run_id=pending["run_id"], digest="infra_unavailable")
                     else:
                         # FAIL-equivalent, with retry permitted only after the
                         # executor independently confirms safe recovery.
@@ -711,7 +746,10 @@ def acceptance_release(config):
     try:
         command = acceptance_settings(config)
         prefix = command[:next(i for i, arg in enumerate(command) if "{trusted_rev}" in arg)]
-        run(prefix[0], [*prefix[1:], "--release"], timeout=3)
+        # Detached from the controller's tracked group and 3s TERM grace.
+        # The adapter serializes this child with any active acceptance run.
+        subprocess.Popen([prefix[0], *prefix[1:], "--release"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     except (Manual, OSError, KeyError, TypeError, ValueError):
         pass  # Durable adapter lease remains available to explicit --release.
 
@@ -741,6 +779,26 @@ def acceptance(config, pending):
         return "fail"
 
 
+def startup_preflight(config, state):
+    pending = state["pending"]
+    if pending.get("acceptance_startup_checked"):
+        return True
+    ready = acceptance_preflight(config, timeout=950)
+    if merge_disable(config, state):
+        finish(config, state, {**pending, "status": "operator_disabled", "phase": "complete",
+                               "completed_at": now(), "reason": "operator_disabled", "operator_disabled": True})
+        return False
+    if not ready:
+        # No attended request, ack or executor build on startup failure.
+        finish(config, state, {**pending, "status": "manual", "phase": "complete", "completed_at": now(),
+                               "reason": "backup_copy_not_acknowledged", "switched": False,
+                               "rollback": "not_required", "acceptance_infra_unavailable": True})
+        return False
+    pending["acceptance_startup_checked"] = True
+    save_state(config, state)
+    return True
+
+
 def start_pending(config, state):
     pending = state["pending"]
     if merge_disable(config, state):
@@ -748,6 +806,8 @@ def start_pending(config, state):
                                "completed_at": now(), "reason": "operator_disabled", "operator_disabled": True})
         return False
     if pending["mode"] == "live":
+        if not startup_preflight(config, state):
+            return False
         ack = Path(config["state_file"]).parent / ("ack-live-" + pending["run_id"])
         if pending.get("attended_required"):
             valid_ack = (ack.is_file() and not ack.is_symlink()
@@ -765,21 +825,11 @@ def start_pending(config, state):
             if not valid_ack:
                 print("hausnetz-cd: awaiting attended ack run_token=" + pending["run_id"], flush=True)
                 return False
-        # Cold VM provisioning may take longer than the executor's backup ack
-        # window. Prepare before submitting it; still withhold the backup ack
-        # on any outage and independently recheck readiness at backup_ready.
-        if not pending.get("acceptance_startup_checked"):
-            pending["acceptance_startup_checked"] = True
-            if not acceptance_preflight(config, timeout=950):
-                pending["acceptance_infra_unavailable"] = True
-            save_state(config, state)
         if merge_disable(config, state):
             finish(config, state, {**pending, "status": "operator_disabled", "phase": "complete",
                                    "completed_at": now(), "reason": "operator_disabled", "operator_disabled": True})
             return False
         remote(config, "ack-live", pending["nixcfg_rev"], run_id=pending["run_id"], digest=pending["run_id"])
-    if pending.get("acceptance_infra_unavailable"):
-        remote(config, "acceptance", pending["nixcfg_rev"], run_id=pending["run_id"], digest="infra_unavailable")
     pending["phase"] = "executor"
     pending["deadline"] = time.time() + fixture_limit(config, "poll_timeout", POLL_BUDGET)
     if not pending.get("trial"):
@@ -1196,6 +1246,12 @@ def tick_owned(config, child_record):
             finish(config, state, {**pending, "status": "operator_disabled", "phase": "complete",
                                    "completed_at": now(), "reason": "operator_disabled", "operator_disabled": True})
             return
+        if config["mode"] == "live":
+            counter = state.get("post_switch_infra", {})
+            if counter.get("candidate") != expected:
+                state.pop("post_switch_infra", None)
+            if not startup_preflight(config, state):
+                return
         if config["mode"] == "live" and state["attended_remaining"] > 0:
             pending.update(phase="awaiting_ack", attended_required=True, ack_requested_at=time.time(),
                            ack_deadline=time.time() + 60 * config.get("attended_ack_minutes", 30))
