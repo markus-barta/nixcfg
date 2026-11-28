@@ -369,8 +369,8 @@ hausnetz reads only that copy via a supplementary group. Limits: 512M memory, 50
 The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
-The private flake input is pinned to `c182e9740968a0082780563b7b4c911b73df6a7c`
-(`v261128094350.0.0`, HNET pin 85, release sequence 155; OPS-760).
+The private flake input is pinned to `bcdee32176f77f69c13e65e39c14c6efbdbbfd7d`
+(`v261128105422.0.0`, HNET pin 86, release sequence 156; OPS-765).
 Since pin 65, hausnetz reads floors, areas and devices from Home Assistant on
 hsb1 (`services.hausnetz.homeAssistant`, http to the literal LAN IP inside
 `localNetworks`; Markus's go recorded on HNET-556). It authenticates as the
