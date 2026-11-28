@@ -56,14 +56,24 @@ assert host_key in Path('scripts/aeon-pin-gate.py').read_text()
 # Scan every workflow and recursively inspect referenced local scripts/actions.
 # These jobs run standalone expressions/tools, never the repository flake.
 standalone = {
+    # T125 parses modules and evaluates hausnetz-cd-eval.nix with stubbed inputs;
+    # its PATH-fake transactions/mutants never evaluate the repository flake.
+    **{('check.yml', 'pharos-hausnetz-cd-' + mode):
+       'offline PATH-fake tests; local parse/eval with stubbed inputs, no repository flake'
+       for mode in [*(f'transactions-{n}' for n in range(1, 5)), 'mutants']},
+    ('check.yml', 'pharos-hausnetz-cd-coverage'):
+        'pure Python shard inventory; textual T125 expansion includes unused local eval modes',
     ('build.yml', 'build'): 'nix-build of pkgs/nixbit/package.nix via <nixpkgs>',
     ('format-check.yml', 'format-check'): 'formatter packages from devenv.lock, eval --file only',
     ('janus-engine-pin-check.yml', 'pin-check'): 'offline eval --expr of local value-free metadata',
 }
 # These execute mock subprocesses and inspect workflow YAML; expanding their
-# source would mistake fixture strings for actual flake consumers.
+# source would mistake fixture strings for actual flake consumers. T125's CD
+# fixture writes its own T99 stub; the lock fixture copies recipes and replaces
+# every deployment command with PATH fakes. Neither evaluates the repo flake.
 offline = {'tests/T113-paimos-private-inputs.sh', 'tests/test_aeon_pin_gate.py',
-           'tests/test_pharos_ci.py'}
+           'tests/test_pharos_ci.py', 'tests/test_hausnetz_cd.py',
+           'tests/test_hsb0_deploy_lock.py'}
 
 
 def expand(text, seen=None):

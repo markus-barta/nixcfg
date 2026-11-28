@@ -227,7 +227,7 @@ def child_process(argv, **kwargs):
                 record.unlink(missing_ok=True)
 
 
-def run(executable, args, *, timeout=60, data=None, binary=False):
+def run(executable, args, *, timeout=60, data=None, binary=False, return_status=False):
     # Keep the executable separate from data arguments. Production callers
     # select it from literals, the Nix-baked config, or a proved store output.
     # Diagnostics can contain credential-bearing URLs; never return them.
@@ -235,12 +235,12 @@ def run(executable, args, *, timeout=60, data=None, binary=False):
         with child_process([str(executable), *[str(a) for a in args]],
                               stdin=subprocess.PIPE if data is not None else None,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=not binary) as process:
-            return communicate(process, timeout, data)
+            return communicate(process, timeout, data, return_status=return_status)
     except OSError as exc:
         raise Manual("command_unavailable_or_timeout") from exc
 
 
-def communicate(process, timeout, data):
+def communicate(process, timeout, data, *, return_status=False):
     cancelled = False
     try:
         try:
@@ -280,6 +280,8 @@ def communicate(process, timeout, data):
                     # our ends must never wait for that descendant to exit.
                     pass
                 raise Manual("command_unavailable_or_timeout") from exc
+            if return_status:
+                return stdout, process.returncode
             require(process.returncode == 0, "command_failed")
             return stdout
         finally:

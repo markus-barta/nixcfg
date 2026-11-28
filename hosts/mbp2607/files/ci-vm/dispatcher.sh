@@ -116,8 +116,18 @@ picked_up() {
   fi
   printf '0 0\n' >"$state/backoff"
 }
+acceptance_active() {
+  local stamp age
+  [ -f "$state/acceptance-demand" ] && [ ! -L "$state/acceptance-demand" ] || return 1
+  stamp=$(<"$state/acceptance-demand")
+  [[ "$stamp" =~ ^[0-9]{1,10}$ ]] || return 1
+  age=$(($(date +%s) - 10#$stamp))
+  # Bounded crash residue; covers the 30-minute attended wait plus acceptance.
+  [ "$age" -ge 0 ] && [ "$age" -lt 3600 ]
+}
 local_worker_active() {
   local status
+  if acceptance_active; then return 0; fi
   status=$(guest_status 15 worker-active)
   case "$status" in
   worker-busy)
@@ -185,6 +195,10 @@ failed_vm() {
 stop_if_idle() {
   local status
   log "$1"
+  if [ "${2:-false}" != true ] && acceptance_active; then
+    log 'acceptance lease active; retaining ci'
+    return 3
+  fi
   if [ "${2:-false}" != true ] && ! worker_cap_reached; then
     status=$(guest_status 150 drain)
     case "$status" in

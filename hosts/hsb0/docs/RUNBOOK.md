@@ -507,11 +507,16 @@ hosts; hsb0 and hsb1 retain their existing failure behavior. Other mbp2607
 failures still fail the unit and log the last five error lines with URL query
 strings removed.
 
-### Guarded hausnetz CD (OPS-705, design v1.1, dry-run first)
+### Guarded hausnetz CD (OPS-705 / OPS-752 / OPS-753)
 
-`hausnetz-cd-execute` is installed only on hsb0 with `allowLive = false`.
-mbp2607's two-minute launchd agent stays disabled by default
-(`inspr.hausnetzCdOrchestrator.enable = false`). Stop immediately on the Mac:
+The host configuration opts hsb0 into `allowLive = true` and mbp2607's two-minute
+launchd agent into `enable = true`, `mode = "live"`, with the packaged acceptance
+adapter and `acceptanceUrl = "http://192.168.1.99/"`. This is OPS-705 point 4,
+LEAD go 2026-11-27: **host-inert hausnetz pins only; first three live runs attended**.
+These settings become effective only through the reviewed merge and operator
+switch on each host; editing them does not activate CD. Module defaults remain
+`allowLive = false`, orchestrator `enable = false`, `mode = "dry-run"`.
+Stop immediately on the Mac:
 `hausnetz-cd --disable --reason 'operator requested CD stop'`. This works during
 a tick and persists across restarts. A stop observed before backup acknowledgment
 withholds the acknowledgment: the live executor exits before switching with
@@ -553,8 +558,11 @@ TERM cancellation gives adapters up to three seconds before KILL. Descendants
 which create their own session with setsid are outside the tracked group.
 A reused group leader PID remains a fail-closed block requiring inspection.
 Disabling the timer option and applying Home Manager also pauses future ticks. A detached executor finishes its transaction;
-pausing the timer does not interrupt recovery. Live activation remains a
-separate LEAD gate after attended dry-run trials and HNET-570 readiness.
+pausing the timer does not interrupt recovery. Apply live settings only in the
+coordinator's approved order after the attended dry-run/rehearsal evidence and
+HNET-570 readiness are verified: **switch hsb0 first, then mbp2607**. An executor
+`live_disabled` refusal stays retryable with one alarm per pair; it never
+tombstones the pin. The OPS-752 builder does not deploy them.
 
 The gates compare with the **running** `source_revision` from
 `/etc/pharos-deployment/evidence.json`, never a merge parent:
@@ -786,8 +794,8 @@ the same fallback rules, and csb1 Telegram, even while the timer is disabled.
 Confirm receipt at both leads and in Telegram and inspect route-failure logs.
 It does not read/write deployment state, overwrite the persisted alarm, create
 deploy/cache/export paths, or contact the deployment target. It refuses
-`--once`/`--dry-run` combinations. Keep the timer disabled and `allowLive=false`
-until the separate live gate is approved.
+`--once`/`--dry-run` combinations. The separate live gate was approved on
+2026-11-27; preserve the attended policy and verified alarm routes when applying it.
 
 One failed alarm route does not suppress the other routes. The existing hsb0
 hausnetz-bot path is unchanged. A running result with an inactive/unknown
@@ -994,6 +1002,42 @@ aborts rehearsal and latches after a switch under the readback safety rules.
 
 #### Trusted acceptance invocation (gate 3 / HNET-611)
 
+In live mode, the OPS-753 data guard reads `GET <acceptanceUrl>api/site` and
+`GET <acceptanceUrl>api/layout` on the Mac after the backup-ready acceptance
+preflight and before writing the backup acknowledgment. It reads them again
+after the switch and before invoking acceptance. Each response is capped at
+4 MiB with a 10-second read timeout; proxies and redirects are disabled. Bodies
+remain in-process and are reduced to integers: site revision, devices, floors
+and rooms; layout revision and the sum of its levels, zones, nodes and links.
+Omitted layout maps count as zero. Site and layout use their own revisions:
+
+| Case | Comparison for either side                     | Action                                                            |
+| ---- | ---------------------------------------------- | ----------------------------------------------------------------- |
+| 1    | Same revision and equal counts                 | Continue to acceptance.                                           |
+| 2    | Same revision and any count differs            | Reject acceptance, roll back and alarm.                           |
+| 3    | Revision lower or reset                        | Reject acceptance, roll back and alarm.                           |
+| 4    | Revision higher (owner save during the window) | Keep the release, continue acceptance and alarm for human review. |
+
+A case 2 or 3 on either side takes precedence over case 4 on the other. Read
+failure includes non-200 responses, oversized bodies, malformed JSON, missing
+fields, and non-integer revisions (including booleans). Before the switch it
+withholds the backup acknowledgment: no switch, no failed-target tombstone, no
+safety latch, retryable with one infrastructure alarm per outage. After the
+switch it always rejects through the existing acceptance rollback path and
+sets the failed-target tombstone and safety latch. A controller resumed without
+the saved before-read also rejects; it cannot manufacture a baseline.
+
+Alarms identify site/layout, case and the numeric before/after summaries;
+read-failure alarms identify the side and phase without exception text. No
+body or name enters state, the ledger or logs. The checker verdict remains
+separate. Case 4 records `data_guard.outcome = "owner_save"` in state, the
+attempt ledger and the release report, without a failed-target tombstone or
+safety latch from the guard. On that alarm, inspect the numeric differences and
+confirm the owner's save in hausnetz, check that the expected data is present,
+and decide whether recovery or further investigation is needed. A rollback
+does not restore data, so case 4 never triggers automatic rollback; any later
+checker failure still follows normal acceptance recovery.
+
 The checker belongs to hausnetz (HNET-611); nixcfg supplies only the call and
 rollback contract. Configure `acceptanceCommand` as an argv array for the Mac's
 CI-VM adapter, and `acceptanceUrl` as the service URL. Defaults are `[]` and an
@@ -1032,6 +1076,94 @@ chatter, duplicate JSON keys, missing/malformed JSON, missing checker, red,
 nonzero exit or timeout fails closed. `acceptanceTimeout` defaults to 600 s
 and is bounded to 1–600 s by the option and controller (within the executor's
 recovery budget). Coordinate this output contract with HNET-611 before live.
+
+The packaged Mac command is
+`hausnetz-cd-acceptance <trusted_rev> <url> <version> <caps_sha256>`.
+It rejects malformed revisions, calendar coordinates, capability digests and
+any URL other than the exact configured URL with exit 2 and one JSON error.
+It makes **no HTTP requests** to hsb0. Only the trusted hausnetz checker talks
+to the service. Its `scripts/qa-acceptance.mjs` was unavailable in the local
+`~/Code/hausnetz` checkout during OPS-752 implementation, so its precise request
+inventory has not been verified here; inspect that script at the trusted
+revision as part of the attended release evidence. No checker was run by the builder.
+
+On macOS the adapter uses absolute Nix-packaged Colima, Git and `ci-vm` paths,
+profile `ci`, and `COLIMA_HOME=$HOME/.config/colima`. It starts a stopped VM only
+through `ci-vm start --provision-only`, which acquires the shared heavy-CI lock.
+A busy lock returns infrastructure-unavailable; it never bypasses the lock.
+An already-running VM is left running. A VM started by the adapter has a private
+run-scoped lease under the controller cache's `acceptance/` directory. Successful
+`--preflight <url>` leaves it up; the later acceptance or `--release` stops only
+that leased VM through `ci-vm stop`, without `--force`. A failed/deferred stop
+retains the lease for recovery. A fresh host `ci-vm/acceptance-demand` stamp
+counts as active work for dispatcher idle detection and drain; release clears
+it before stopping. Crash residue expires after one hour. Explicit `--force` and
+the unknown-API uptime cap still apply while the stamp is active; the worker
+uptime cap is skipped. Do not remove leases to work around
+a busy guest.
+
+The controller runs startup preflight **before requesting attended ack** and
+before executor submission (cold VM provisioning has a 950-second bound).
+Failure submits no executor and requests no attended ack. Preflight proves SSH
+as `ci-hausnetz`, its home directory and availability of `nix`; `just` comes from
+the trusted hausnetz dev shell. Guest apt dependencies retain their v2 marker.
+Before the backup ack, a second 70-second preflight must fit the executor's
+published 120-second deadline with two 10-second transfers and 10 seconds of
+margin. Insufficient time refuses readiness before ack; copy/ack also recheck
+the remaining budget. Unavailable readiness writes **no backup ack**; a submitted
+executor exits `backup_copy_not_acknowledged`, `switched=false`, without rollback.
+The controller records `acceptance_infra_unavailable`. Pre-switch outages remain
+retryable without a cap, with the normal 30-minute evaluated backoff and one
+durable alarm per outage. Recovery is marked only by an acceptance PASS.
+
+The Mac makes a local Git bundle with one advertised head, exactly `trusted_rev`,
+from the same configured `cache_dir/hausnetz` used by the orchestrator. No fetch
+from an external origin is permitted by the adapter. The bundle streams over
+Colima SSH stdin to `ci-hausnetz` with HOME `/var/lib/ci-runners/hausnetz`.
+The guest clones into a fresh `cd-acceptance/run-<token>/checkout`, detaches at
+the trusted revision, verifies HEAD and an empty `git status --porcelain`, then runs
+`nix develop -c just acceptance <url> <version> <caps_sha256>` with
+PATH `/nix/var/nix/profiles/default/bin:/usr/bin:/bin`. Its checker timeout is
+below the controller's acceptance timeout. Git ignores global/system config,
+hooks and fsmonitor. A flushed checker-start transport marker distinguishes
+setup expiry (infra 75) from post-start expiry (FAIL 1). The transport uses the
+adapter's full remaining budget, rather than checker timeout plus two seconds.
+Run directories are removed afterwards;
+crash residue pruning retains at most three inactive owned run directories and
+never touches unrelated paths, symlinks or active runs.
+
+The last checker JSON object with `schema=hausnetz.acceptance.v1` is the sole
+stdout result; checker chatter and preceding objects go to stderr. Exit 0 plus
+`ok=true` is PASS; a checker FAIL retains its JSON and returns 1. Checker exits
+other than 0/1 normalize to FAIL 1; cleanup errors only reach stderr.
+The guest carries its result and status in an internal zero-exit transport
+envelope because Colima normalizes nonzero guest exits to 1; the Mac unwraps it
+before emitting the public result. A failed SSH transport remains infrastructure
+unavailability, independently of the checker's status.
+Infrastructure failures emit exit 75 and
+`{"schema":"hausnetz-cd.acceptance-adapter.v1","ok":false,"infra":"unavailable","reason":"<closed word>"}`.
+After a switch, exit 75 still forces rollback: a candidate cannot be kept without
+PASS. The first successful infrastructure rollback for a (main, running→candidate)
+pair is retryable with no tombstone or latch; its alarm says rollback succeeded.
+The durable per-pair counter makes the second such outcome tombstone the target
+as failed and alarm once: `acceptance infrastructure failed after switch twice;
+manual`. It does not latch; use the existing manual recovery route. A new
+candidate resets the counter. Real checker FAILs retain failure tombstones,
+while failed/unknown rollback retains the safety latch. Both sides also retire reservations for a proven pre-switch `live_disabled`
+refusal. Otherwise the executor retires its reservation only for proven infrastructure recovery; the controller retires its
+reservation only while that pair remains retryable. `checker_verdict` remains
+separate from forced FAIL.
+
+The guest records its child process group under the run token. SIGTERM/SIGINT
+causes a second Colima SSH command to kill that group, synchronized with PID
+publication, then a nonzero result. Controller release always launches a detached
+process group. Cancellation also hands leased-VM shutdown to an
+isolated `--release` process because the dispatcher's safe drain/stop may exceed
+the controller's three-second TERM grace. A long checker can likewise defer stop
+to preserve the adapter budget. The durable lease survives cleanup interruption;
+`hausnetz-cd-acceptance --release` retries safe shutdown explicitly. If SSH itself
+is unreachable, immediate remote cancellation cannot be confirmed; the guest's
+independent checker timeout bounds its lifetime.
 
 After hsb0's live health passes, its executor holds the deploy lock at
 `acceptance_ready` while the controller runs the trusted invocation with the

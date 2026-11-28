@@ -1,7 +1,7 @@
 """Offline transactions and guard-removal mutants for OPS-705."""
 
 import copy
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 import io
 import fcntl
 from concurrent.futures import ThreadPoolExecutor
@@ -44,6 +44,8 @@ from common import (Manual, EXECUTOR_BUDGET, POLL_BUDGET, POLL_INTERVAL, SSH_RET
                     parse_export, prepare_result, strict_json)
 from orchestrate import REMOTE, ledger, save_state, tick, validate_result
 from execute import execute as execute_transaction, health
+sys.path.insert(0, str(REPO / "tests/fixtures"))
+import hausnetz_cd_http
 
 
 class Fixture:
@@ -136,7 +138,7 @@ class Fixture:
             # timeouts (rollback-readiness cases) on loaded CI runners. Crash cases wait for this deadline, so it
             # must stay well below tick()'s subprocess timeout (36 s).
             "alarm_file": str(root / "local/alarm.json"), "poll_timeout": 24, "poll_interval": 0.02,
-            "ssh_retry_timeout": 0.4,
+            "ssh_retry_timeout": 0.4, "backup_preflight_budget": 0.1, "backup_copy_budget": 0.1, "backup_ack_margin": 0.05,
             "acceptance_command": [str(self.bin / "acceptance"), "{trusted_rev}", "just", "acceptance",
                                    "{url}", "{version}", "{caps_sha256}"],
             "acceptance_url": "http://fixture.invalid", "acceptance_timeout": 2,
@@ -158,6 +160,9 @@ class Fixture:
                               + "sys.path.insert(0, " + repr(str(SOURCE)) + ")\n"
                               + "import common\ncommon.STATE_ROOT = " + repr(str(root / "remote-state")) + "\n"
                               + "import " + module + "\n"
+                              + ("sys.path.insert(0, " + repr(str(REPO / "tests/fixtures")) + ")\n"
+                                 + "import hausnetz_cd_http\nhausnetz_cd_http.install(orchestrate, "
+                                 + repr(str(root)) + ")\n" if module == "orchestrate" else "")
                               + module + ".CONFIG_FILE = " + repr(str(root / settings)) + "\n"
                               + module + ".main()\n")
             target.chmod(0o700)
@@ -317,6 +322,10 @@ class TestCD(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="t125-")
         self.f = Fixture(Path(self.temporary.name))
+        self.http = mock.patch("orchestrate.urllib.request.build_opener",
+                               side_effect=lambda *_: hausnetz_cd_http.opener(self.f.root))
+        self.http.start()
+        self.addCleanup(self.http.stop)
 
     def tearDown(self):
         self.f.stop()
@@ -612,6 +621,26 @@ class TestCD(unittest.TestCase):
         self.assertEqual(self.f.terminal()["status"], "manual")
         self.assertFalse(self.f.events("nix"))
         self.assertFalse(self.f.events("switch"))
+
+    def test_live_disabled_is_retryable_with_one_alarm(self):
+        self.f.executor["allow_live"] = False
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["reason"], "live_disabled")
+        self.assertFalse(self.f.state()["failed"])
+        self.assertFalse(self.f.state()["attempted"])
+        self.assertNotIn("disabled", self.f.state())
+        state = self.f.state()
+        state["evaluated"]["at"] -= 1801
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.tick()
+        self.assertFalse(self.f.state()["failed"])
+        self.assertEqual(len([e for e in self.f.events("mailbox") if "EXECUTOR LIVE DISABLED" in e["text"]]), 2)
+        self.f.executor["allow_live"] = True
+        state = self.f.state()
+        state["evaluated"]["at"] -= 1801
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "succeeded")
 
     def test_missing_independent_alert_refuses_live(self):
         self.f.orchestrator["secondary_telegram_command"] = []
@@ -2273,6 +2302,12 @@ class TestCD(unittest.TestCase):
         self.assertEqual(self.f.terminal()["status"], "rollback_failed")
         self.assertIn("disabled", self.f.state())
         self.assertTrue(self.f.state()["disabled"])
+        # Detached release belongs to the completed transaction. Settle it
+        # before checking that a subsequent disabled tick performs no work.
+        deadline = time.monotonic() + 2
+        while not self.f.events("acceptance-release") and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(self.f.events("acceptance-release"))
         before = self.f.events()
         self.f.tick()
         self.assertEqual(self.f.events(), before)
@@ -2385,6 +2420,189 @@ class TestCD(unittest.TestCase):
         self.assertEqual(self.f.result()["reason"], "attended_ack_missing")
         self.assertFalse(self.f.events("switch"))
 
+    def test_infra_preflight_busy_withholds_ack_and_retries(self):
+        self.attended_setup()
+        self.f.scenario["acceptance_preflight_busy"] = True
+        self.f.tick("live")
+        self.assertIsNone(self.f.state()["pending"])
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "acceptance_infra_unavailable")
+        self.assertEqual(result["reason"], "acceptance_infra_unavailable")
+        self.assertEqual(result["rollback"], "not_required")
+        self.assertIs(result["switched"], False)
+        self.assertFalse(self.f.events("switch"))
+        self.assertFalse(list(Path(self.f.executor["state_dir"]).glob("ack-[0-9a-f]*")))
+        self.assertFalse(list((Path(self.f.executor["state_dir"]) / "attempted").glob("*.json")))
+        state = self.f.state()
+        self.assertFalse(state["failed"])
+        self.assertFalse(state["attempted"])
+        self.assertNotIn("disabled", state)
+        self.assertFalse(list(ledger(self.f.orchestrator, "failed", "unused").parent.glob("*.json")))
+        self.assertFalse(self.f.events("start"))
+        self.assertFalse(any("awaiting attended ack" in e["text"] for e in self.f.events("mailbox")))
+        self.f.auto_ack = True
+        starts = len(self.f.events("start"))
+        self.f.tick()
+        self.assertEqual(len(self.f.events("start")), starts)
+        # A second eligible attempt in the same outage emits no duplicate alarm.
+        for ready in (False, False, False, True):
+            state = self.f.state()
+            state["evaluated"]["at"] -= 1801
+            self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+            self.f.scenario["acceptance_preflight_busy"] = not ready
+            self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "succeeded")
+        self.assertEqual(len(self.f.events("switch")), 1)
+        alarms = [e for e in self.f.events("mailbox") if "ACCEPTANCE INFRA UNAVAILABLE" in e["text"]]
+        self.assertEqual(len(alarms), 2)  # one per outage, two recipients
+
+    def test_infra_after_switch_rolls_back_retryable(self):
+        self.f.scenario.update(acceptance_exit=75, acceptance_output=json.dumps({
+            "schema":"hausnetz-cd.acceptance-adapter.v1", "ok":False,
+            "infra":"unavailable", "reason":"guest_unavailable"}))
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "acceptance_infra_unavailable")
+        self.assertEqual(result["checker_verdict"], "infra_unavailable")
+        self.assertEqual(result["rollback"], "succeeded")
+        self.assertEqual(len(self.f.events("switch")), 2)
+        self.assertFalse(self.f.state()["failed"])
+        self.assertFalse(self.f.state()["attempted"])
+        self.assertNotIn("disabled", self.f.state())
+        self.assertFalse(list((Path(self.f.executor["state_dir"]) / "attempted").glob("*.json")))
+        self.assertIn("rollback succeeded", self.f.events("mailbox")[0]["text"])
+        state = self.f.state()
+        state["evaluated"]["at"] -= 1801
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.scenario.clear()
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "succeeded")
+
+    def test_two_post_switch_infra_failures_tombstone(self):
+        self.f.scenario.update(acceptance_exit=75, acceptance_output=json.dumps({
+            "schema":"hausnetz-cd.acceptance-adapter.v1", "ok":False,
+            "infra":"unavailable", "reason":"guest_unavailable"}))
+        self.f.tick("live")
+        self.assertEqual(self.f.state()["post_switch_infra"]["count"], 1)
+        state = self.f.state()
+        state["evaluated"]["at"] -= 1801
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.tick()
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["reason"], "acceptance_infrastructure_failed_after_switch_twice")
+        self.assertEqual(result["rollback"], "succeeded")
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertEqual(self.f.state()["post_switch_infra"]["count"], 2)
+        self.assertNotIn("disabled", self.f.state())
+        self.f.tick()
+        self.assertEqual(len(self.f.events("switch")), 4)
+        alarms = [e for e in self.f.events("mailbox") if
+                  "acceptance infrastructure failed after switch twice; manual" in e["text"]]
+        self.assertEqual(len(alarms), 2)  # one alarm, two recipients
+
+    def test_post_switch_infra_new_pair_resets_counter(self):
+        from orchestrate import finish
+        state = copy.deepcopy(self.f.live_state)
+        state["post_switch_infra"] = {"run_key":self.f.old_hnet + "-" + "c"*40, "count":1}
+        result = {**self.pending_record(), "status":"failed", "reason":"acceptance_failed_or_timeout",
+                  "switched":True, "rollback":"succeeded", "acceptance_infra_unavailable":True,
+                  "checker_verdict":"infra_unavailable"}
+        with mock.patch("orchestrate.report"), mock.patch("orchestrate.deliver_alarms"), \
+                mock.patch("orchestrate.acceptance_release"):
+            finish(self.f.orchestrator, state, result)
+        self.assertEqual(state["post_switch_infra"]["count"], 1)
+        self.assertFalse(state["failed"])
+
+    def test_post_switch_infra_cap_survives_moving_main(self):
+        self.f.scenario.update(acceptance_exit=75, acceptance_output=json.dumps({
+            "schema":"hausnetz-cd.acceptance-adapter.v1", "ok":False,
+            "infra":"unavailable", "reason":"guest_unavailable"}))
+        self.f.tick("live")
+        self.assertEqual(self.f.state()["post_switch_infra"]["count"], 1)
+        previous_main = self.f.new
+        self.f.pin(self.f.new_hnet, 3)
+        self.f.new = self.f.commit(self.f.repo)
+        self.assertNotEqual(self.f.new, previous_main)
+        self.f.tick()
+        self.assertEqual(self.f.state()["post_switch_infra"]["count"], 2)
+        self.assertEqual(self.f.terminal()["status"], "failed")
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertNotIn("disabled", self.f.state())
+        self.f.tick()
+        self.assertEqual(len(self.f.events("switch")), 4)
+        alarms = [e for e in self.f.events("mailbox") if
+                  "acceptance infrastructure failed after switch twice; manual" in e["text"]]
+        self.assertEqual(len(alarms), 2)  # one manual alarm, two recipients
+
+    def test_clear_failed_resets_post_switch_infra_cap(self):
+        self.test_two_post_switch_infra_failures_tombstone()
+        self.f.tick(args=("--clear-failed", self.f.new_hnet, "--reason", "inspected infrastructure"))
+        self.assertNotIn("post_switch_infra", self.f.state())
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "acceptance_infra_unavailable")
+        self.assertEqual(self.f.state()["post_switch_infra"]["count"], 1)
+        self.assertFalse(self.f.state()["failed"])
+        self.assertFalse(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        state = self.f.state()
+        state["evaluated"]["at"] -= 1801
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "failed")
+        self.assertEqual(self.f.state()["post_switch_infra"]["count"], 2)
+        alarms = [e for e in self.f.events("mailbox") if
+                  "acceptance infrastructure failed after switch twice; manual" in e["text"]]
+        self.assertEqual(len(alarms), 4)  # a fresh manual alarm after operator clear
+
+    def test_checker_fail_is_not_infra_even_with_infra_marker(self):
+        from orchestrate import finish
+        state = copy.deepcopy(self.f.live_state)
+        result = {**self.pending_record(), "status":"failed", "reason":"acceptance_failed_or_timeout",
+                  "switched":True, "rollback":"succeeded", "acceptance_infra_unavailable":True,
+                  "checker_verdict":"fail"}
+        with mock.patch("orchestrate.report"), mock.patch("orchestrate.deliver_alarms"), \
+                mock.patch("orchestrate.acceptance_release"):
+            finish(self.f.orchestrator, state, result)
+        self.assertEqual(result["status"], "failed")
+        self.assertIn(self.f.new_hnet, state["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+
+    def test_infra_marker_does_not_retire_unrelated_executor_failure(self):
+        token = "f" * 32
+        state = Path(self.f.executor["state_dir"])
+        self.f.write(state / ("acceptance-" + token), "infra_unavailable")
+        self.f.write(state / ("ack-live-" + token), token)
+        self.f.write(state / ("ack-" + token), hashlib.sha256(b'{"devices":[]}').hexdigest())
+        self.f.scenario["health_fail"] = True  # failure before checker, rollback succeeds
+        self.f.execute("live")
+        self.assertEqual(self.f.result()["rollback"], "succeeded")
+        self.assertNotEqual(self.f.result()["reason"], "acceptance_failed_or_timeout")
+        self.assertTrue((state / "attempted" / (self.f.new + ".json")).exists())
+
+    def test_infra_marker_no_attended_ack_keeps_reservation(self):
+        token = "f" * 32
+        state = Path(self.f.executor["state_dir"])
+        self.f.write(state / ("acceptance-" + token), "infra_unavailable")
+        self.f.execute("live")
+        self.assertEqual(self.f.result()["reason"], "attended_ack_missing")
+        self.assertTrue((state / "attempted" / (self.f.new + ".json")).exists())
+
+    def test_failed_verdict_keeps_executor_reservation(self):
+        self.acceptance_bad(acceptance_output='{"schema":"hausnetz.acceptance.v1","ok":false}', acceptance_exit=1)
+        self.assertTrue((Path(self.f.executor["state_dir"]) / "attempted" / (self.f.new + ".json")).exists())
+
+    def test_infra_rollback_failure_still_latches(self):
+        self.f.scenario.update(acceptance_exit=75, acceptance_output=json.dumps({
+            "schema":"hausnetz-cd.acceptance-adapter.v1", "ok":False,
+            "infra":"unavailable", "reason":"guest_unavailable"}), rollback_fail=True)
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["rollback"], "failed")
+        self.assertIn("disabled", self.f.state())
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+
+        self.assertTrue((Path(self.f.executor["state_dir"]) / "attempted" / (self.f.new + ".json")).exists())
+
     def test_acceptance_green_runs_trusted_pre_switch_revision(self):
         self.f.tick("live")
         self.assertEqual(self.f.terminal()["status"], "succeeded")
@@ -2408,7 +2626,20 @@ class TestCD(unittest.TestCase):
         self.assertIn("reason=acceptance_failed_or_timeout", self.f.events("mailbox")[0]["text"])
 
     def test_acceptance_red_rolls_back(self):
-        self.acceptance_bad(acceptance_output='{"ok":false}')
+        self.acceptance_bad(acceptance_output='{"schema":"hausnetz.acceptance.v1","ok":false}')
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+
+    def test_checker_timeout_exit_one_tombstones(self):
+        self.acceptance_bad(acceptance_output=json.dumps({"schema":"hausnetz-cd.acceptance-adapter.v1",
+                            "ok":False, "reason":"checker_timeout"}), acceptance_exit=1)
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+
+    def test_real_acceptance_fail_exit_one_tombstones(self):
+        self.acceptance_bad(acceptance_output='{"schema":"hausnetz.acceptance.v1","ok":false}', acceptance_exit=1)
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
 
     def test_acceptance_nonzero_rolls_back(self):
         self.acceptance_bad(acceptance_exit=1)
@@ -2416,11 +2647,15 @@ class TestCD(unittest.TestCase):
     def test_acceptance_timeout_rolls_back(self):
         self.acceptance_bad(acceptance_hang=True)
 
+    def test_schemaless_green_rolls_back(self):
+        self.acceptance_bad(acceptance_output='{"ok":true}')
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+
     def test_acceptance_garbage_rolls_back(self):
         self.acceptance_bad(acceptance_output="garbage")
 
     def test_acceptance_nonstandard_json_rolls_back(self):
-        self.acceptance_bad(acceptance_output='{"ok":true,"invalid":NaN}')
+        self.acceptance_bad(acceptance_output='{"schema":"hausnetz.acceptance.v1","ok":true,"invalid":NaN}')
 
     def test_acceptance_missing_rolls_back(self):
         self.acceptance_bad(acceptance_missing=True)
@@ -2982,7 +3217,8 @@ class TestCD(unittest.TestCase):
         original_run = orchestrate.run
         durations = []
         def timed_run(executable, args, **kwargs):
-            if executable != str(self.f.bin / "acceptance"):
+            if (executable != str(self.f.bin / "acceptance")
+                    or (args and args[0] in {"--preflight", "--release"})):
                 return original_run(executable, args, **kwargs)
             started = time.monotonic()
             try:
@@ -3310,6 +3546,8 @@ class TestCD(unittest.TestCase):
                 "run_id": "a" * 32, "run_key": self.f.key, "phase": "executor",
                 "running_nixcfg_rev": self.f.old, "trusted_hausnetz_rev": self.f.old_hnet,
                 "expected_version": self.f.new_version, "manifest_sha256": self.f.manifest_sha,
+                "data_guard_before": {"site": {"rev": 8, "devices": 1, "floors": 1, "rooms": 1},
+                                      "layout": {"rev": 3, "entities": 0}},
                 "deadline": time.time() + 5}
 
     def test_failed_units_captured_before_and_after_rollback(self):
@@ -3717,24 +3955,40 @@ class TestCD(unittest.TestCase):
                     controller.wait(timeout=3)
 
     def test_controller_normal_and_exception_exit_cancel_children(self):
-        from common import controller_children, child_process, child_group_alive, run
+        from common import controller_children, child_process, child_group_alive, run, cancel_child
         record = self.f.root / "owned-children.json"
         pidfile = self.f.root / "normal-child-pid"
         adapter = self.f.root / "normal-adapter.py"
         adapter.write_text("import subprocess,sys\nfrom pathlib import Path\n"
-                           "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(10)'],"
+                           "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],"
                            "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
                            + "Path(" + repr(str(pidfile)) + ").write_text(str(child.pid))\n")
-        with controller_children(record):
-            run(sys.executable, [str(adapter)])
-        # If cancellation is denied by the host, the record must survive
-        # until the descendant exits; forgetting it would permit overlap.
-        if record.exists():
-            entries = json.loads(record.read_text())
-            self.assertEqual(len(entries), 1)
-            self.assertTrue(child_group_alive(entries[0]))
+        cancellations = []
+        def cancel_normal(process):
+            cancelled = cancel_child(process)
+            cancellations.append((process.pid, cancelled))
+            return cancelled
         child = None
         try:
+            with mock.patch("common.cancel_child", side_effect=cancel_normal):
+                with controller_children(record):
+                    run(sys.executable, [str(adapter)])
+            self.assertEqual(len(cancellations), 1)
+            pid, cancelled = cancellations[0]
+            entry = {"pid": pid, "pgid": pid}
+            if cancelled:
+                self.assertFalse(record.exists(), "successful cancellation must clear ownership")
+                deadline = time.monotonic() + 3
+                while child_group_alive(entry) and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertFalse(child_group_alive(entry), "successful cancellation must stop descendants")
+            else:
+                # A restricted host can deny KILL just as the group exits.
+                # Require ownership after denial, without racing a second
+                # liveness probe against asynchronous process termination.
+                self.assertTrue(record.exists(), "denied cancellation must retain exact ownership")
+                self.assertEqual(json.loads(record.read_text()), [entry],
+                                 "denied cancellation must retain exact ownership")
             with self.assertRaisesRegex(RuntimeError, "fixture exception"), controller_children(record):
                 with child_process([sys.executable, "-c", "import time; time.sleep(30)"]) as child:
                     self.assertTrue(record.exists())
@@ -3781,10 +4035,11 @@ class TestCD(unittest.TestCase):
         from orchestrate import disable_marker
         adapter = self.f.root / "stop-during-acceptance.py"
         marker = disable_marker(self.f.orchestrator)
-        adapter.write_text("import json\nfrom pathlib import Path\n"
+        adapter.write_text("import json, sys\nfrom pathlib import Path\n"
+                           "if sys.argv[1] in ('--preflight','--release'):\n    print('{\"ok\":true}'); sys.exit(0)\n"
                            + "Path(" + repr(str(marker)) + ").write_text(json.dumps({"
                            "'operator':True,'at':'2026-11-27T17:30:34+00:00','reason':'operator stop'}))\n"
-                           "print('{\"ok\":true}')\n")
+                           "print('{\"schema\":\"hausnetz.acceptance.v1\",\"ok\":true}')\n")
         self.f.orchestrator["acceptance_command"] = [sys.executable, str(adapter), "{trusted_rev}", "{url}",
                                                       "{version}", "{caps_sha256}"]
         self.f.tick("live")
@@ -3925,6 +4180,8 @@ class TestCD(unittest.TestCase):
         self.assertNotEqual(first["run_id"], refusal["run_id"])
         self.f.pin(self.f.new_hnet, 3)
         self.f.new = self.f.commit(self.f.repo)
+        # The one-second deadline belonged to the intentional no-ack stop.
+        self.f.executor["backup_ack_timeout"] = 30
         self.f.tick()
         self.assertEqual(self.f.terminal()["status"], "succeeded")
         self.assertEqual(len(self.f.events("switch")), 1)
@@ -4068,14 +4325,319 @@ class TestCD(unittest.TestCase):
         self.assertEqual(self.f.terminal()["status"], "dry-run")
         self.assertTrue(self.f.events("start"))
 
+    def test_release_detached_from_controller_timeout(self):
+        release = self.f.root / "release.py"
+        release.write_text('import os,sys,time\nfrom pathlib import Path\n'
+                           'root = Path(__file__).parent\n'
+                           'assert sys.argv[1:] == ["--release"]\n'
+                           '(root / "release-ready").write_text(str(os.getpid()))\n'
+                           'while not (root / "controller-killed").exists(): time.sleep(0.02)\n'
+                           '(root / "release-done").touch()\n')
+        config = {**self.f.orchestrator, "acceptance_command": [sys.executable, str(release),
+                  "{trusted_rev}", "{url}", "{version}", "{caps_sha256}"]}
+        code = ('import sys,json,time\nsys.path.insert(0, sys.argv[1])\n'
+                'from orchestrate import acceptance_release\n'
+                'acceptance_release(json.loads(sys.argv[2]))\ntime.sleep(20)\n')
+        controller = subprocess.Popen([sys.executable, "-B", "-c", code, str(SOURCE), json.dumps(config)],
+                                      env=self.f.env, start_new_session=True)
+        ready, done = self.f.root / "release-ready", self.f.root / "release-done"
+        try:
+            deadline = time.monotonic() + 5
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(ready.exists())
+            os.killpg(controller.pid, signal.SIGTERM)
+            controller.wait(timeout=3)
+            (self.f.root / "controller-killed").touch()
+            deadline = time.monotonic() + 2
+            while not done.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(done.exists(), "release died with the controller process group")
+        finally:
+            if controller.poll() is None:
+                os.killpg(controller.pid, signal.SIGKILL)
+            controller.wait(timeout=3)
+            if ready.exists():
+                try:
+                    os.kill(int(ready.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def test_data_guard_case1_equal_counts(self):
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["data_guard"]["outcome"], "pass")
+        self.assertEqual(result["data_guard"]["layout"]["before"], {"rev": 3, "entities": 0})
+        self.assertEqual(result["checker_verdict"], "pass")
+        self.assertEqual([(e["phase"], e["side"]) for e in self.f.events("data-read")],
+                         [("before", "site"), ("before", "layout"), ("after", "site"), ("after", "layout")])
+        events = self.f.events()
+        reads = [i for i, e in enumerate(events) if e["kind"] == "data-read"]
+        switch = next(i for i, e in enumerate(events) if e["kind"] == "switch")
+        acceptance = next(i for i, e in enumerate(events) if e["kind"] == "acceptance")
+        self.assertLess(reads[1], switch)
+        self.assertLess(switch, reads[2])
+        self.assertLess(reads[-1], acceptance)
+        self.assertEqual(len(self.f.events("switch")), 1)
+        self.assertFalse(self.f.events("mailbox"))
+
+    def assert_data_guard_rejected(self, side, case):
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["rollback"], "succeeded")
+        self.assertEqual(result["acceptance"], "fail")
+        self.assertNotIn("checker_verdict", result)
+        self.assertEqual(result["data_guard"][side]["case"], case)
+        self.assertEqual(result["data_guard"]["outcome"], "reject")
+        self.assertFalse(self.f.events("acceptance"))
+        self.assertEqual(len(self.f.events("switch")), 2)
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertEqual(self.f.state()["disabled"]["reason"], "data_guard_failed")
+        self.assertIn('"case":' + str(case), self.f.events("alarm")[0]["text"])
+
+    def test_data_guard_case2_site_count_change(self):
+        self.f.scenario["data_after_site"] = {"nodes": {}}
+        self.assert_data_guard_rejected("site", 2)
+
+    def test_data_guard_case2_layout_only_count_change(self):
+        self.f.scenario["data_after_layout"] = {"links": {"l": {}}}
+        self.assert_data_guard_rejected("layout", 2)
+        self.assertEqual(self.f.terminal()["data_guard"]["site"]["case"], 1)
+
+    def test_data_guard_case3_reset(self):
+        self.f.scenario["data_after_site"] = {"rev": 0}
+        self.assert_data_guard_rejected("site", 3)
+
+    def test_data_guard_case3_layout_lower_overrides_site_save(self):
+        self.f.scenario["data_after_site"] = {"rev": 9}
+        self.f.scenario["data_after_layout"] = {"rev": 2}
+        self.assert_data_guard_rejected("layout", 3)
+        self.assertEqual(self.f.terminal()["data_guard"]["site"]["case"], 4)
+
+    def test_data_guard_case4_owner_save_keeps_release(self):
+        self.f.scenario["data_after_site"] = {"rev": 9, "nodes": {}}
+        self.f.scenario["data_after_layout"] = {"rev": 4, "nodes": {"n": {}}}
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["rollback"], "not_required")
+        self.assertEqual(result["data_guard"]["outcome"], "owner_save")
+        self.assertEqual([result["data_guard"][s]["case"] for s in ("site", "layout")], [4, 4])
+        self.assertEqual(len(self.f.events("switch")), 1)
+        self.assertEqual(result["checker_verdict"], "pass")
+        self.assertFalse(self.f.state()["failed"])
+        self.assertNotIn("disabled", self.f.state())
+        receipt = json.loads(ledger(self.f.orchestrator, "attempted", self.f.key).read_text())
+        self.assertEqual(receipt["data_guard"]["outcome"], "owner_save")
+        self.assertIn("DATA GUARD OWNER SAVE", self.f.events("alarm")[0]["text"])
+        self.assertIn('"rev":9', self.f.events("alarm")[0]["text"])
+        self.assertIn('data_guard={"outcome":"owner_save"', self.f.events("ticket")[0]["text"])
+
+    def test_data_guard_before_failure_no_ack_retryable(self):
+        self.f.scenario["data_read_fail"] = "before-layout"
+        self.f.executor["backup_ack_timeout"] = 0.8
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "acceptance_infra_unavailable")
+        self.assertEqual(result["data_guard"], {"outcome": "before_read_failed", "side": "layout"})
+        self.assertFalse(self.f.events("switch"))
+        self.assertFalse(self.f.events("acceptance"))
+        self.assertFalse(list(Path(self.f.executor["state_dir"]).glob("ack-[0-9a-f]*")))
+        self.assertFalse(self.f.state()["attempted"])
+        self.assertFalse(self.f.state()["failed"])
+        self.assertNotIn("disabled", self.f.state())
+        self.assertFalse(ledger(self.f.orchestrator, "attempted", self.f.key).exists())
+        self.assertFalse(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertEqual(len(self.f.events("alarm")), 1)
+        state = self.f.state()
+        state["evaluated"]["at"] = 0
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.tick()
+        self.assertEqual(len(self.f.events("alarm")), 1)  # one alarm per outage
+        self.f.scenario.pop("data_read_fail")
+        self.f.executor["backup_ack_timeout"] = 30
+        state = self.f.state()
+        state["evaluated"]["at"] = 0
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "succeeded")
+
+    def test_data_guard_after_failure_rolls_back(self):
+        self.f.scenario["data_read_fail"] = "after-site"
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["acceptance"], "fail")
+        self.assertEqual(result["rollback"], "succeeded")
+        self.assertEqual(result["data_guard"], {"outcome": "after_read_failed", "side": "site"})
+        self.assertNotIn("checker_verdict", result)
+        self.assertFalse(self.f.events("acceptance"))
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertIn("disabled", self.f.state())
+
+    def test_data_guard_after_layout_failure_rolls_back(self):
+        self.f.scenario["data_read_fail"] = "after-layout"
+        result = self.f.tick("live")
+        self.assertEqual(self.f.terminal()["status"], "failed")
+        self.assertEqual(self.f.terminal()["data_guard"], {"outcome": "after_read_failed", "side": "layout"})
+        self.assertEqual(self.f.terminal()["rollback"], "succeeded")
+        self.assertNotIn(hausnetz_cd_http.PRIVATE_NAME, result.stderr + result.stdout)
+        self.assertNotIn(hausnetz_cd_http.PRIVATE_NAME, Path(self.f.orchestrator["alarm_file"]).read_text())
+
+    def test_data_guard_rejection_survives_alarm_crash(self):
+        import orchestrate
+        self.f.orchestrator["mode"] = "live"
+        self.f.scenario["data_after_site"] = {"nodes": {}}
+        self.f.save()
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(self.f.live_state))
+        original = orchestrate.save_state
+        def save_then_crash(config, state):
+            original(config, state)
+            if any(key.endswith("-data-guard") for key in state.get("pending_alarms", {})):
+                raise RuntimeError("crash after guard decision saved")
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.save_state", side_effect=save_then_crash):
+            with self.assertRaisesRegex(RuntimeError, "guard decision"):
+                tick(self.f.orchestrator)
+        self.assertEqual(self.f.state()["pending"]["acceptance"], "fail")
+        self.assertTrue(self.f.state()["pending"]["data_guard_failed"])
+        # A later read would look safe, but the saved rejection is final.
+        self.f.scenario.pop("data_after_site")
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "failed")
+        self.assertEqual(self.f.terminal()["rollback"], "succeeded")
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertEqual(len(self.f.events("alarm")), 1)
+
+    def test_data_guard_real_failure_not_excused_by_stop(self):
+        from orchestrate import finish
+        state = copy.deepcopy(self.f.live_state)
+        result = {**self.pending_record(), "status": "failed", "operator_disabled": True,
+                  "reason": "acceptance_failed_or_timeout", "rollback": "succeeded",
+                  "data_guard_failed": True, "disable_reason": "data_guard_failed"}
+        with mock.patch("orchestrate.comment"), mock.patch("orchestrate.acceptance_release"):
+            finish(self.f.orchestrator, state, result)
+        self.assertIn(self.f.new_hnet, state["failed"])
+        self.assertIn("disabled", state)
+
+    def test_data_guard_missing_baseline_rejects(self):
+        from orchestrate import data_guard
+        state = copy.deepcopy(self.f.live_state)
+        pending = self.pending_record()
+        pending.pop("data_guard_before")
+        self.assertTrue(data_guard(self.f.orchestrator, state, pending))
+        self.assertEqual(pending["acceptance"], "fail")
+        self.assertTrue(pending["data_guard_failed"])
+
+    def test_data_guard_privacy(self):
+        self.f.scenario["data_after_site"] = {"nodes": {}}
+        result = self.f.tick("live")
+        self.assertEqual(self.f.terminal()["data_guard"]["outcome"], "reject")
+        persisted = [Path(self.f.orchestrator["state_file"]), Path(self.f.orchestrator["alarm_file"]),
+                     self.f.root / "events", self.f.root / "executor.log"]
+        persisted.extend((Path(self.f.orchestrator["state_file"]).parent / "hausnetz-cd-ledger").rglob("*.json"))
+        for path in persisted:
+            self.assertNotIn(hausnetz_cd_http.PRIVATE_NAME, path.read_text(), str(path))
+        self.assertNotIn(hausnetz_cd_http.PRIVATE_NAME, result.stderr + result.stdout)
+
+    def test_data_guard_http_fail_closed(self):
+        import orchestrate
+        valid = {"site": {"rev": 1, "nodes": {}, "building": {"levels": {}, "zones": {}}}}
+        invalid = [b'not-json', b'{"site":{}}', b'{"site":{"rev":true}}',
+                   b'{"site":{"rev":1.5}}', b'{"site":{"rev":-1}}', b'{"site":{"rev":"1"}}',
+                   b'{"site":{"rev":1,"rev":2}}',
+                   json.dumps({"site": {**valid["site"], "nodes": None}}).encode(),
+                   b'x' * (orchestrate.DATA_READ_LIMIT + 1)]
+        for body in invalid:
+            response = hausnetz_cd_http.Response(body)
+            opener = mock.Mock()
+            opener.open.return_value = response
+            with self.subTest(body_size=len(body)), mock.patch("orchestrate.urllib.request.build_opener", return_value=opener):
+                with self.assertRaises(orchestrate.DataReadUnavailable):
+                    orchestrate.data_snapshot(self.f.orchestrator)
+        for code in (201, 301, 403, 500):
+            opener = mock.Mock()
+            opener.open.return_value = hausnetz_cd_http.Response(json.dumps(valid).encode(), status=code)
+            with self.subTest(status=code), mock.patch("orchestrate.urllib.request.build_opener", return_value=opener):
+                with self.assertRaises(orchestrate.DataReadUnavailable):
+                    orchestrate.data_snapshot(self.f.orchestrator)
+        for url in ("file:///etc/passwd", "http://user:pass@host/", "http://host/?query", "http://host/#frag",
+                    "http://host:99999/", "http://host/\nheader", "http://host/../other"):
+            with self.subTest(url=url), mock.patch("orchestrate.urllib.request.build_opener") as build:
+                with self.assertRaises(orchestrate.DataReadUnavailable):
+                    orchestrate.data_snapshot({"acceptance_url": url})
+                build.assert_not_called()
+        handler = orchestrate.NoDataRedirect()
+        self.assertIsNone(handler.redirect_request(None, None, 302, "", {}, "http://other.invalid/"))
+        for error in (orchestrate.http.client.IncompleteRead(hausnetz_cd_http.PRIVATE_NAME.encode()),
+                      TimeoutError(hausnetz_cd_http.PRIVATE_NAME)):
+            opener = mock.Mock()
+            opener.open.side_effect = error
+            with mock.patch("orchestrate.urllib.request.build_opener", return_value=opener):
+                with self.assertRaises(orchestrate.DataReadUnavailable) as caught:
+                    orchestrate.data_snapshot(self.f.orchestrator)
+                self.assertNotIn(hausnetz_cd_http.PRIVATE_NAME, str(caught.exception))
+
+    def test_data_guard_dry_run_makes_no_reads(self):
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "dry-run")
+        self.assertFalse(self.f.events("data-read"))
+
+    def test_backup_ready_preflight_can_fail_after_startup(self):
+        self.f.scenario["acceptance_preflight_busy"] = [False, True]
+        self.f.executor["backup_ack_timeout"] = 0.8
+        self.f.tick("live")
+        self.assertEqual(len(self.f.events("acceptance-preflight")), 2)
+        self.assertEqual(self.f.terminal()["status"], "acceptance_infra_unavailable")
+        self.assertFalse(self.f.events("switch"))
+        self.assertFalse(self.f.events("acceptance"))
+        self.assertFalse(list(Path(self.f.executor["state_dir"]).glob("ack-[0-9a-f]*")))
+
+    def test_copy_export_deadline_guards(self):
+        from orchestrate import copy_export
+        result = {**self.pending_record(), "backup_ack_deadline":100,
+                  "export_sha256":"a"*64, "export_format":"json"}
+        for phase, readings in (("before export", [99.95, 99.95]), ("before ack", [99, 99.99])):
+            with self.subTest(phase=phase), mock.patch("orchestrate.time.time", side_effect=readings), \
+                    mock.patch("orchestrate.remote", return_value=b'{"devices":[]}') as remote, \
+                    mock.patch("orchestrate.parse_export", return_value=("json", "a"*64)):
+                copied = copy_export(self.f.orchestrator, result)
+            self.assertIs(copied, False)
+            actions = [call.args[1] for call in remote.call_args_list]
+            self.assertEqual(actions, [] if phase == "before export" else ["export"])
+
+    def test_backup_preflight_budget_insufficient_withholds_ack(self):
+        self.f.orchestrator["backup_preflight_budget"] = 100
+        # The fixture's 30s backup window cannot contain the real 70s preflight.
+        self.f.executor["backup_ack_timeout"] = 0.5
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["status"], "acceptance_infra_unavailable")
+        self.assertFalse(self.f.events("switch"))
+        self.assertFalse(self.f.state()["failed"])
+        self.assertFalse(list(Path(self.f.executor["state_dir"]).glob("ack-[0-9a-f]*")))
+        self.assertEqual(len(self.f.events("acceptance-preflight")), 1)  # startup only
+
+    def test_startup_preflight_precedes_attended_alarm(self):
+        self.attended_setup()
+        self.f.tick("live")
+        events = self.f.events()
+        preflight = next(i for i, e in enumerate(events) if e["kind"] == "acceptance-preflight")
+        attended = next(i for i, e in enumerate(events) if e["kind"] == "mailbox" and "awaiting attended ack" in e["text"])
+        self.assertLess(preflight, attended)
+        self.assertFalse(self.f.events("start"))
+
     def test_start_pending_checks_stop_before_remote_work(self):
         from orchestrate import start_pending
         state = {**copy.deepcopy(self.f.live_state), "pending": self.pending_record()}
         self.operator_stop()
-        with mock.patch("orchestrate.remote") as remote, mock.patch("orchestrate.report"):
+        with mock.patch("orchestrate.remote") as remote, mock.patch("orchestrate.report"), \
+                mock.patch("orchestrate.acceptance_preflight", return_value=True) as preflight:
             result = start_pending(self.f.orchestrator, state)
         self.assertFalse(result)
         self.assertEqual(remote.call_count, 0)
+        preflight.assert_not_called()
         self.assertIsNone(state["pending"])
 
     def test_stop_before_attended_request_sends_no_ack_alarm(self):
@@ -4089,8 +4651,10 @@ class TestCD(unittest.TestCase):
             self.operator_stop()  # lands during preparation, before requesting ack
             return result
         with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.gate_g2", side_effect=prepared), \
-                mock.patch("orchestrate.queue_alarm", wraps=orchestrate.queue_alarm) as queue:
+                mock.patch("orchestrate.queue_alarm", wraps=orchestrate.queue_alarm) as queue, \
+                mock.patch("orchestrate.acceptance_preflight", wraps=orchestrate.acceptance_preflight) as preflight:
             tick(self.f.orchestrator)
+        preflight.assert_not_called()  # an existing stop must avoid VM startup too
         self.assertEqual(self.f.terminal()["status"], "operator_disabled")
         self.assertFalse(self.f.events("start"))
         self.assertFalse(any("awaiting attended ack" in e["text"] for e in self.f.events("mailbox")))
@@ -4393,6 +4957,57 @@ class TestAlertSender(unittest.TestCase):
         self.assertIn("config.age.secrets.csb1-watchtower-env.path", source)
         self.assertNotIn("age.secrets.csb1-watchtower-env =", source)
         self.assertIn("./hausnetz-cd-alert.nix", (REPO / "hosts/csb1/configuration.nix").read_text())
+
+
+# These targets assert short deadlines or process-handshake windows. Run all
+# mutants targeting them sequentially after the pool so CPU contention cannot
+# turn an unrelated timing assertion into a false kill.
+TIMING_WINDOW_TARGETS = frozenset({
+    "test_once_requires_both_flags_and_refuses_live_pending",
+    "test_acceptance_orphan_pipe_timeout_rolls_back",
+    "test_timeout_pipe_from_escaped_descendant_is_bounded",
+    "test_controller_term_and_int_kill_descendant_group",
+    "test_release_detached_from_controller_timeout",
+})
+
+# CI runners are budgeted at 2.5x local wall time. The longest measured mutant
+# took ~28s locally; 120s leaves room for ~70s in CI while bounding every child.
+MUTANT_TIMEOUT_SECONDS = 120
+TRANSACTION_SHARDS = 4
+
+
+def check_mutant(case):
+    started = time.monotonic()
+    label, file, edits, test = case
+    with tempfile.TemporaryDirectory(prefix="t125-mutant-", dir="/tmp") as temporary:
+        source = Path(temporary)
+        for path in SOURCE.glob("*"):
+            if path.suffix in {".py", ".sh"}:
+                shutil.copyfile(path, source / path.name)
+        for path in (REPO / "tests/fixtures/hausnetz-cd-command.py", REPO / "hosts/csb1/hausnetz-cd-alert.py"):
+            shutil.copyfile(path, source / path.name)
+        text = (source / file).read_text()
+        for before, after in edits:
+            if text.count(before) != 1:
+                raise AssertionError("Mutant no longer matches exactly once: " + label)
+            text = text.replace(before, after, 1)
+        (source / file).write_text(text)
+        target = test if "." in test else "TestCD." + test
+        result = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()), target],
+                                env=dict(os.environ, HAUSNETZ_CD_SOURCE=source.name),
+                                capture_output=True, text=True, timeout=MUTANT_TIMEOUT_SECONDS, check=False)
+        if result.returncode == 0:
+            raise AssertionError("SURVIVED guard-removal mutant: " + label)
+        # Do not count a syntax/import/fixture setup failure as a killed
+        # mutant. The selected behavior assertion itself must fail.
+        if "FAIL: " not in result.stderr:
+            raise AssertionError("Invalid mutant run: " + label + "\n" + result.stderr)
+        elapsed = time.monotonic() - started
+        timed_label = f"{label} ({elapsed:.3f}s)"
+        if label.startswith(("OPS752", "OPS753")):
+            assertion = next(line for line in result.stderr.splitlines() if line.startswith("AssertionError:"))
+            return timed_label + " — " + assertion
+        return timed_label
 
 
 def mutants(only=None, start_after=None):
@@ -4706,8 +5321,8 @@ def mutants(only=None, start_after=None):
          [('            operator_disabled = merge_disable(config, state)', '            operator_disabled = False')],
          "test_reconcile_operator_stop_refuses_live_and_dry_pass"),
         ("R2 start pending stop removed", "orchestrate.py",
-         [('    if merge_disable(config, state):\n        finish(config, state, {**pending,',
-           '    if False:\n        finish(config, state, {**pending,')],
+         [('def start_pending(config, state):\n    pending = state["pending"]\n    if merge_disable(config, state):',
+           'def start_pending(config, state):\n    pending = state["pending"]\n    if False:')],
          "test_start_pending_checks_stop_before_remote_work"),
         ("R2 rehearsal start stop removed", "orchestrate.py",
          [('            if merge_disable(config, state):\n                return\n            running = evidence',
@@ -4744,8 +5359,8 @@ def mutants(only=None, start_after=None):
            'if result["status"] not in {"fetch_failed", "vm_test_wait", "preflight_refused"} and')],
          "test_stopped_pair_retries_after_clear"),
         ("R2 attended ack requested while stopped", "orchestrate.py",
-         [('        if merge_disable(config, state):\n            finish(config, state, {**pending,',
-           '        if False:\n            finish(config, state, {**pending,')],
+         [('        state["pending"] = pending\n        if merge_disable(config, state):\n            finish(config, state, {**pending,',
+           '        state["pending"] = pending\n        if False:\n            finish(config, state, {**pending,')],
          "test_stop_before_attended_request_sends_no_ack_alarm"),
         ("R2 child block episode reset not saved", "orchestrate.py",
          [('        if state.pop("child_blocked", None) is not None:\n            save_state(config, state)',
@@ -4767,70 +5382,144 @@ def mutants(only=None, start_after=None):
          [('retryable_stop = stop_caused or stopped_revision_refusal', 'retryable_stop = False')],
          "test_stop_before_backup_never_acks_or_switches"),
         ("R3 checker verdict ignored", "orchestrate.py",
-         [('result.get("checker_verdict") != "fail"', 'True')],
+         [('or (result.get("reason") == "acceptance_failed_or_timeout"\n                and result.get("checker_verdict") != "fail")',
+           'or (result.get("reason") == "acceptance_failed_or_timeout"\n                and True)')],
          "test_checker_fail_then_stop_keeps_failed_target"),
         ("R3 copy_export marker recheck removed", "orchestrate.py",
          [('if read_disable(config) is None:\n        remote(config, "ack",',
            'if True:\n        remote(config, "ack",')],
          "test_stop_during_copy_export_withholds_ack"),
     ]
+    cases.extend([
+        ("OPS752 preflight skipped", "orchestrate.py",
+         [('ready = acceptance_preflight(config, timeout=950)', 'ready = True')],
+         "test_infra_preflight_busy_withholds_ack_and_retries"),
+        ("OPS752 infra tombstoned", "orchestrate.py",
+         [('infra_caused = (result.get("acceptance_infra_unavailable") is True',
+           'infra_caused = (False')], "test_infra_after_switch_rolls_back_retryable"),
+        ("OPS752 infra accepted", "orchestrate.py",
+         [('return "infra_unavailable"', 'return "pass"')],
+         "test_infra_after_switch_rolls_back_retryable"),
+    ])
+    cases.extend([
+        ("OPS752 moving main resets infra cap", "orchestrate.py",
+         [('pair = {"run_key": key}', 'pair = {"run_key": key, "main": result["nixcfg_rev"]}')],
+         "test_post_switch_infra_cap_survives_moving_main"),
+        ("OPS752 clear failed leaves infra cap", "orchestrate.py",
+         [('if matches_attempt(state.get("post_switch_infra", {}).get("run_key", "")):\n                state.pop("post_switch_infra", None)',
+           'if False:\n                state.pop("post_switch_infra", None)')],
+         "test_clear_failed_resets_post_switch_infra_cap"),
+        ("OPS752 cleared cap alarm receipt reused", "orchestrate.py",
+         [('key + "-infra-manual-" + result["run_id"]', 'key + "-infra-manual"')],
+         "test_clear_failed_resets_post_switch_infra_cap"),
+        ("OPS752 backup ready preflight recheck removed", "orchestrate.py",
+         [('and acceptance_preflight(config))', 'and True)')],
+         "test_backup_ready_preflight_can_fail_after_startup"),
+        ("OPS752 copy export initial deadline guard removed", "orchestrate.py",
+         [('if deadline is not None and deadline - time.time() < fixture_limit(config, "backup_copy_budget", 25):',
+           'if False:')], "test_copy_export_deadline_guards"),
+        ("OPS752 copy export ack deadline guard removed", "orchestrate.py",
+         [('if deadline is not None and deadline - time.time() < fixture_limit(config, "backup_ack_margin", 15):',
+           'if False:')], "test_copy_export_deadline_guards"),
+        ("OPS752 post-switch cap removed", "orchestrate.py",
+         [('if counter["count"] >= 2:', 'if False:')], "test_two_post_switch_infra_failures_tombstone"),
+        ("OPS752 checker verdict infra guard removed", "orchestrate.py",
+         [('and not result.get("disable_reason") and result.get("checker_verdict") != "fail"',
+           'and not result.get("disable_reason")')], "test_checker_fail_is_not_infra_even_with_infra_marker"),
+        ("OPS752 schema check removed", "orchestrate.py",
+         [('require(value.get("schema") == "hausnetz.acceptance.v1", "acceptance_schema")', 'pass')],
+         "test_schemaless_green_rolls_back"),
+        ("OPS752 executor reservation without infra decision", "execute.py",
+         [('and decision.read_text().strip() == "infra_unavailable"', 'and True')],
+         "test_failed_verdict_keeps_executor_reservation"),
+        ("OPS752 executor reservation unrelated failure", "execute.py",
+         [('or (result.get("reason") == "acceptance_failed_or_timeout"', 'or (True')],
+         "test_infra_marker_does_not_retire_unrelated_executor_failure"),
+        ("OPS752 executor reservation rollback failure", "execute.py",
+         [('and result.get("rollback") == "succeeded")))', 'and True)))')],
+         "test_infra_rollback_failure_still_latches"),
+        ("OPS752 live disabled tombstone", "orchestrate.py",
+         [('live_disabled = (result.get("reason") == "live_disabled" and not result.get("switched")',
+           'live_disabled = (False')], "test_live_disabled_is_retryable_with_one_alarm"),
+        ("OPS752 release process group", "orchestrate.py",
+         [('stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)',
+           'stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=False)')],
+         "test_release_detached_from_controller_timeout"),
+        ("OPS753 before read skipped", "orchestrate.py",
+         [('pending["data_guard_before"] = data_snapshot(config)',
+           'pending["data_guard_before"] = {"site": {"rev": 8, "devices": 1, "floors": 1, "rooms": 1}, "layout": {"rev": 3, "entities": 0}}')],
+         "test_data_guard_case1_equal_counts"),
+        ("OPS753 count difference passes", "orchestrate.py",
+         [('elif new != old:', 'elif False:')], "test_data_guard_case2_site_count_change"),
+        ("OPS753 higher revision rolls back", "orchestrate.py",
+         [('case = 4', 'case = 3')], "test_data_guard_case4_owner_save_keeps_release"),
+        ("OPS753 after read failure passes", "orchestrate.py",
+         [('pending["data_guard"] = {"outcome": "after_read_failed", "side": exc.side}\n        rejected = True',
+           'pending["data_guard"] = {"outcome": "after_read_failed", "side": exc.side}\n        rejected = False')],
+         "test_data_guard_after_failure_rolls_back"),
+        ("OPS753 layout comparison dropped", "orchestrate.py",
+         [('for side in ("site", "layout"):\n            old, new', 'for side in ("site",):\n            old, new')],
+         "test_data_guard_case2_layout_only_count_change"),
+    ])
     if only is not None:
         cases = [case for case in cases if case[0].startswith(only)]
     if start_after is not None:
         cases = cases[[case[0] for case in cases].index(start_after) + 1:]
 
-    def check_mutant(case):
-        label, file, edits, test = case
-        with tempfile.TemporaryDirectory(prefix="t125-mutant-", dir="/tmp") as temporary:
-            source = Path(temporary)
-            for path in SOURCE.glob("*"):
-                if path.suffix in {".py", ".sh"}:
-                    shutil.copyfile(path, source / path.name)
-            for path in (REPO / "tests/fixtures/hausnetz-cd-command.py", REPO / "hosts/csb1/hausnetz-cd-alert.py"):
-                shutil.copyfile(path, source / path.name)
-            text = (source / file).read_text()
-            for before, after in edits:
-                if text.count(before) != 1:
-                    raise AssertionError("Mutant no longer matches exactly once: " + label)
-                text = text.replace(before, after, 1)
-            (source / file).write_text(text)
-            target = test if "." in test else "TestCD." + test
-            result = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()), target],
-                                    env=dict(os.environ, HAUSNETZ_CD_SOURCE=source.name),
-                                    capture_output=True, text=True, timeout=45, check=False)
-            if result.returncode == 0:
-                raise AssertionError("SURVIVED guard-removal mutant: " + label)
-            # Do not count a syntax/import/fixture setup failure as a killed
-            # mutant. The selected behavior assertion itself must fail.
-            if "FAIL: " not in result.stderr:
-                raise AssertionError("Invalid mutant run: " + label + "\n" + result.stderr)
-            return label
-    for case in cases:
+    # map yields in case order and re-raises every worker exception. A
+    # survivor, invalid run or per-mutant subprocess timeout fails the CLI.
+    pooled = [case for case in cases if case[3] not in TIMING_WINDOW_TARGETS]
+    sequential = [case for case in cases if case[3] in TIMING_WINDOW_TARGETS]
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        for result in workers.map(check_mutant, pooled):
+            print("must-fail mutant killed: " + result, flush=True)
+    print(f"T125: {len(pooled)} pooled mutants killed; {len(sequential)} timing-window mutants next", flush=True)
+    for case in sequential:
         print("must-fail mutant killed: " + check_mutant(case), flush=True)
     print("T125: " + str(len(cases)) + " guard-removal mutants killed", flush=True)
 
 
-def parallel_cases():
-    names = unittest.defaultTestLoader.getTestCaseNames(TestCD)
-    groups = [names[index::4] for index in range(4)]
-    def check_group(group):
-        return subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()),
-                               *("TestCD." + name for name in group)],
-                              capture_output=True, text=True, timeout=600, check=False)
-    with ThreadPoolExecutor(max_workers=4) as workers:
-        results = list(workers.map(check_group, groups))
-    for result in results:
-        print(result.stdout, end="", flush=True)
-        print(result.stderr, end="", file=sys.stderr, flush=True)
-    if any(result.returncode for result in results):
-        raise SystemExit("T125: transaction shard failed")
-    print("T125: " + str(len(names)) + " transaction cases passed (4 bounded subprocesses)", flush=True)
+def transaction_names():
+    """Discover every local TestCase, including future classes and methods."""
+    return sorted(
+        f"{name}.{method}"
+        for name, cls in globals().items()
+        if isinstance(cls, type) and issubclass(cls, unittest.TestCase)
+        and cls.__module__ == __name__
+        for method in unittest.defaultTestLoader.getTestCaseNames(cls)
+    )
+
+
+def transaction_shard(name):
+    """One-based assignment, independent of discovery order and Python hash seed."""
+    return int.from_bytes(hashlib.sha256(name.encode("utf-8")).digest(), "big") % TRANSACTION_SHARDS + 1
+
+
+def shard_names(shard):
+    if shard not in range(1, TRANSACTION_SHARDS + 1):
+        raise ValueError("invalid transaction shard")
+    return [name for name in transaction_names() if transaction_shard(name) == shard]
+
+
+def run_transaction_shard(shard):
+    names = shard_names(shard)
+    if not names:
+        raise SystemExit("T125: empty transaction shard")
+    print(f"T125: transaction shard {shard}/{TRANSACTION_SHARDS}: {len(names)} cases", flush=True)
+    # One process, standard unittest runner: no threads or concurrent cases.
+    suite = unittest.defaultTestLoader.loadTestsFromNames(names, module=sys.modules[__name__])
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    raise SystemExit(0 if result.wasSuccessful() else 1)
+
+
+def main():
+    if sys.argv[1:] == ["--mutants"]:
+        mutants()
+    elif sys.argv[1:2] == ["--shard"] and len(sys.argv) == 3:
+        run_transaction_shard(int(sys.argv[2]))
+    else:
+        unittest.main(verbosity=2)
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["--mutants"]:
-        mutants()
-    elif sys.argv[1:] == ["--parallel"]:
-        parallel_cases()
-    else:
-        unittest.main(verbosity=2)
+    main()

@@ -91,8 +91,18 @@ in
   };
   # Public fleet endpoints only; renders ~/.config/inspr/fleet.conf.
   inspr.cli.enable = true;
-  # OPS-705: result lines reference HNET-570; mailbox alarms reference OPS-705. The
-  # orchestrator itself stays disabled (enable = false) until LEAD's separate go-live decision.
+  # OPS-752 / OPS-705 point 4: LEAD go 2026-11-27, host-inert pins only.
+  # Effective after the reviewed merge + switch; first three live runs attended.
+  inspr.hausnetzCdOrchestrator.enable = true;
+  inspr.hausnetzCdOrchestrator.mode = "live";
+  inspr.hausnetzCdOrchestrator.acceptanceCommand = [
+    "${config.inspr.hausnetzCdOrchestrator.acceptancePackage}/bin/hausnetz-cd-acceptance"
+    "{trusted_rev}"
+    "{url}"
+    "{version}"
+    "{caps_sha256}"
+  ];
+  inspr.hausnetzCdOrchestrator.acceptanceUrl = "http://192.168.1.99/";
   inspr.hausnetzCdOrchestrator.releaseTicket = "HNET-570";
   inspr.hausnetzCdOrchestrator.alarmTicket = "OPS-705";
   # mbp2607-personal-userkey minted 2026-07-03, registered on markus-barta

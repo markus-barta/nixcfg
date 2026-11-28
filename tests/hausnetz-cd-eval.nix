@@ -1,11 +1,13 @@
 # Offline module-contract evaluation only; no inputs fetched or derivations built.
 let
   lib = {
+    max = a: b: if a > b then a else b;
     mkOption = value: value;
     mkEnableOption = _: { default = false; };
     mkIf = condition: value: if condition then value else { };
     escapeShellArg = value: value;
     types = {
+      package = null;
       bool = null;
       str = null;
       port = null;
@@ -32,6 +34,7 @@ let
           value = name;
         })
         [
+          "colima"
           "coreutils"
           "curl"
           "git"
@@ -70,6 +73,7 @@ let
       nix.package = "selected-nix";
       home.homeDirectory = "/fixture/home";
       home.profileDirectory = "/fixture/profile";
+      services.ciVm.package = "/fixture/ci-vm";
       inspr.hausnetzCdOrchestrator = defaults orchestrator.options.inspr.hausnetzCdOrchestrator;
     };
   };
@@ -85,8 +89,19 @@ let
   home = import ../hosts/mbp2607/home.nix {
     pkgs = { };
     lib = { };
-    config = { };
+    config.inspr.hausnetzCdOrchestrator.acceptancePackage = "/fixture/runner";
     inputs = { };
+  };
+  live = import ../hosts/mbp2607/hausnetz-cd.nix {
+    inherit lib pkgs;
+    config = {
+      nix.package = "selected-nix";
+      home.homeDirectory = "/fixture/home";
+      home.profileDirectory = "/fixture/profile";
+      services.ciVm.package = "/fixture/ci-vm";
+      inspr.hausnetzCdOrchestrator =
+        (defaults live.options.inspr.hausnetzCdOrchestrator) // home.inspr.hausnetzCdOrchestrator;
+    };
   };
 in
 assert builtins.elem "f /run/hsb0-deploy.lock 0644 root root -"
@@ -108,6 +123,20 @@ assert builtins.elem "f /run/hsb0-deploy.lock 0644 root root -"
   hostSettings = host.inspr.hausnetzCd;
   hostImports = map toString host.imports;
   homeImports = map toString home.imports;
+  homeSettings = home.inspr.hausnetzCdOrchestrator;
+  adapterRunner =
+    let
+      runner = builtins.elemAt orchestrator.config.home.packages 1;
+    in
+    {
+      inherit (runner) text runtimeInputs;
+      settings = runner.derivationArgs.passthru.settings.text;
+      entrypoint = runner.derivationArgs.passthru.entrypoint.text;
+    };
+  liveAgent = live.config.launchd.agents.hausnetz-cd;
+  liveSettings = (builtins.head live.config.home.packages).derivationArgs.passthru.settings.text;
+  liveAdapterSettings =
+    (builtins.elemAt live.config.home.packages 1).derivationArgs.passthru.settings.text;
   homeAlarmTicket = home.inspr.hausnetzCdOrchestrator.alarmTicket;
   homeReleaseTicket = home.inspr.hausnetzCdOrchestrator.releaseTicket;
   alarmTicketChecks =
@@ -130,7 +159,9 @@ assert builtins.elem "f /run/hsb0-deploy.lock 0644 root root -"
         705
       ];
     };
-  orchestratorDefaults = defaults orchestrator.options.inspr.hausnetzCdOrchestrator;
+  orchestratorDefaults =
+    builtins.removeAttrs (defaults orchestrator.options.inspr.hausnetzCdOrchestrator)
+      [ "acceptancePackage" ];
   agent = orchestrator.config.launchd.agents.hausnetz-cd;
   orchestratorRunner =
     let

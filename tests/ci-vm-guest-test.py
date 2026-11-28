@@ -340,6 +340,7 @@ result, base = dependencies_contract(dependencies)
 assert result.returncode == 0 and (base / "cache/ubuntu-dependencies-v2").exists(), result.stderr
 calls = (base / "calls").read_text()
 assert calls.index("dpkg --configure -a") < calls.index(" install ")
+assert " git jq sudo " in calls, "required guest tools missing"
 mutant = dependencies.replace("timeout 300 dpkg --configure -a", ":")
 assert mutant != dependencies and dependencies_contract(mutant)[0].returncode != 0, "interrupted-dpkg mutant survived"
 result, base = dependencies_contract(dependencies, DPKG_FAIL="1")

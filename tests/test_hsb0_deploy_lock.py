@@ -307,18 +307,24 @@ else:
     def test_ci_and_runbook_contracts_and_mutants(self):
         workflow = (REPO / ".github/workflows/check.yml").read_text()
         def check_ci(text):
-            self.assertIn('nix-shell -p bash git python3 just --run "bash tests/T125-hausnetz-cd.sh"', text)
+            for mode in ("transactions-1", "transactions-2", "transactions-3", "transactions-4", "mutants"):
+                self.assertIn('nix-shell -p bash git python3 just --run "bash tests/T125-hausnetz-cd.sh ' + mode + '"', text)
         check_ci(workflow)
         with self.assertRaises(AssertionError):
             check_ci(workflow.replace('bash git python3 just --run', 'bash git python3 --run'))
         print("must-fail mutant killed: CI must provide just", flush=True)
+        for mode in ("transactions-1", "transactions-2", "transactions-3", "transactions-4", "mutants"):
+            with self.subTest(mode=mode), self.assertRaises(AssertionError):
+                check_ci(workflow.replace('T125-hausnetz-cd.sh ' + mode, 'T125-hausnetz-cd.sh omitted'))
+            print("must-fail mutant killed: CI must retain T125 " + mode, flush=True)
         runner = (REPO / "tests/T125-hausnetz-cd.sh").read_text()
         def check_runner(text):
             self.assertIn('test_hausnetz_cd.py"\n', text)
             self.assertNotIn('test_hausnetz_cd.py" --parallel', text)
+            self.assertIn('test_hausnetz_cd.py" --shard "${mode##*-}"', text)
             self.assertIn('test_hausnetz_cd.py" --mutants', text)
         check_runner(runner)
-        for flag in ('test_hausnetz_cd.py"\n', '--mutants'):
+        for flag in ('test_hausnetz_cd.py"\n', '--shard', '--mutants'):
             with self.subTest(removed=flag), self.assertRaises(AssertionError):
                 check_runner(runner.replace(flag, ''))
             print("must-fail mutant killed: T125 must retain " + flag, flush=True)

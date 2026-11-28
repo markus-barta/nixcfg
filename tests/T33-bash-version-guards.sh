@@ -73,6 +73,7 @@ done
 
 # OPS-434: inspect executable steps, not comments or incidental workflow text.
 # Every contract must run exactly once, including across parallel shards.
+# T125 partitions transactions, mutants and coverage; each CI mode has one owner.
 # Ruby/Psych is already required by T27's action-pin guard.
 ruby - "$repo_root/.github/workflows" "${checked[@]}" <<'RUBY'
 require "psych"
@@ -85,9 +86,15 @@ specialized = {
   "T16-pharos-host-removal.sh" => "pharos-host-removal.yml",
 }
 locations = Hash.new { |hash, name| hash[name] = [] }
+t125_modes = []
 ["check.yml", *specialized.values].each do |filename|
   Psych.load_file(File.join(workflow_dir, filename)).fetch("jobs").each do |job_id, job|
     job.fetch("steps", []).each_with_index do |step, index|
+      if filename == "check.yml"
+        step.fetch("run", "").scan(%r{\btests/T125-hausnetz-cd\.sh\b(?:\s+([a-z0-9-]+))?}).each do |mode|
+          t125_modes << [job_id, mode.first]
+        end
+      end
       # T91 is executed and then shellchecked in the same run block. Count
       # wiring once per step, so lint arguments are not duplicate executions.
       step.fetch("run", "").scan(%r{\btests/(T[\w.-]+\.(?:sh|py|mjs))\b}).flatten.uniq.each do |name|
@@ -100,6 +107,12 @@ locations = Hash.new { |hash, name| hash[name] = [] }
 end
 failures = ARGV.map do |name|
   wired = locations[name]
+  if name == "T125-hausnetz-cd.sh"
+    expected = %w[transactions-1 transactions-2 transactions-3 transactions-4 mutants coverage].map { |mode| ["pharos-hausnetz-cd-#{mode}", mode] }
+    next if wired.length == 6 && t125_modes.sort == expected.sort
+
+    next "#{name}: expected one invocation of each transaction shard, mutants and coverage in their dedicated jobs, found #{t125_modes.inspect}"
+  end
   next if wired.length == 1
 
   "#{name}: expected exactly one #{specialized.fetch(name, 'check.yml')} step, found #{wired.length} (#{wired.join(', ')})"

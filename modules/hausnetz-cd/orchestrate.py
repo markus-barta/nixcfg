@@ -3,15 +3,20 @@
 import argparse
 import datetime
 import fcntl
+import http.client
 import ipaddress
 import json
 import os
 from pathlib import Path
 import re
 import shlex
+import subprocess
 import sys
 import time
 import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 
 from common import (ACCEPTANCE_TIMEOUT, EXECUTOR_TERMINAL, Manual, POLL_BUDGET, POLL_INTERVAL, RESULT_SCHEMA, SSH_RETRY_TIMEOUT,
@@ -50,7 +55,7 @@ case "$action" in
     sudo -n chmod 0600 "$state/ack-live-$run_id"
     ;;
   acceptance)
-    [[ "$digest" == pass || "$digest" == fail ]] || exit 2
+    [[ "$digest" == pass || "$digest" == fail || "$digest" == infra_unavailable ]] || exit 2
     temporary=$(sudo -n mktemp "$state/.acceptance-$run_id.XXXXXX")
     printf '%s\n' "$digest" | sudo -n tee "$temporary" >/dev/null
     sudo -n chmod 0600 "$temporary"
@@ -112,12 +117,12 @@ esac
 
 
 def remote(config, action, rev="", expected="", mode="", digest="", run_id="",
-           version="", manifest_sha="", running="", variant="", one_shot="", binary=False):
+           version="", manifest_sha="", running="", variant="", one_shot="", binary=False, timeout=45):
     args = [action, rev, expected, mode, digest, run_id, version, manifest_sha, running, variant, one_shot]
     command = "bash -s -- " + " ".join(shlex.quote(value) for value in args)
     return run("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
                 "-o", "StrictHostKeyChecking=yes", config["target"], command],
-               data=REMOTE.encode() if binary else REMOTE, binary=binary, timeout=45)
+               data=REMOTE.encode() if binary else REMOTE, binary=binary, timeout=timeout)
 
 
 def log_line(result):
@@ -133,6 +138,7 @@ def log_line(result):
             + " problems=" + json.dumps(diagnostics(result.get("problems", [])), separators=(",", ":"))
             + " removed_stale_boot_entries=" + json.dumps(result.get("removed_stale_boot_entries", []), separators=(",", ":"))
             + " acceptance=" + result.get("acceptance", "not_run")
+            + " data_guard=" + json.dumps(result.get("data_guard", {}), separators=(",", ":"))
             + " failed_units_after_activation=" + json.dumps(diagnostics(result.get("failed_units_after_activation", [])), separators=(",", ":"))
             + " memory_peak_bytes=" + str(result.get("memory_peak_bytes") or "unknown")
             + " mode=" + result["mode"] + " status=" + result["status"]
@@ -285,6 +291,7 @@ def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False
                + " generation=" + str(result.get("generation") or "unknown")[:200]
                + " reason=" + str(result.get("reason") or "unknown")[:200])
     message += " failed_units_after_activation=" + json.dumps(diagnostics(result.get("failed_units_after_activation", [])), separators=(",", ":"))
+    message += " data_guard=" + json.dumps(result.get("data_guard", {}), separators=(",", ":"))
     if result.get("ack_command"):
         message += " run_token=" + result["run_id"] + " ack_command=" + result["ack_command"]
     if result.get("alarm_id"):
@@ -334,7 +341,11 @@ def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False
 
 
 def copy_export(config, result):
-    data = remote(config, "export", result["nixcfg_rev"], run_id=result["run_id"], binary=True)
+    deadline = result.get("backup_ack_deadline") if result.get("mode") == "live" else None
+    if deadline is not None and deadline - time.time() < fixture_limit(config, "backup_copy_budget", 25):
+        return False
+    data = remote(config, "export", result["nixcfg_rev"], run_id=result["run_id"], binary=True,
+                  timeout=10 if deadline is not None else 45)
     export_format, digest = parse_export(data)
     require(digest == result["export_sha256"] and export_format == result["export_format"],
             "offhost_backup_mismatch")
@@ -345,10 +356,13 @@ def copy_export(config, result):
     for path in sorted(owned, key=lambda p: p.stat().st_mtime_ns, reverse=True)[20:]:
         path.unlink()
     # A stop may have arrived during the export read/copy. A stop during the
-    # up-to-45-second ack SSH write can still let one switch through; the next
+    # bounded ack SSH write can still let one switch through; the next
     # poll sends FAIL and the executor rolls back.
+    if deadline is not None and deadline - time.time() < fixture_limit(config, "backup_ack_margin", 15):
+        return False
     if read_disable(config) is None:
-        remote(config, "ack", result["nixcfg_rev"], digest=digest, run_id=result["run_id"])
+        remote(config, "ack", result["nixcfg_rev"], digest=digest, run_id=result["run_id"],
+               timeout=10 if deadline is not None else 45)
 
 
 def validate_result(result, pending):
@@ -505,21 +519,58 @@ def finish(config, state, result):
              and result.get("rollback", "not_required") == "not_required")
             or (result.get("reason") == "acceptance_failed_or_timeout"
                 and result.get("checker_verdict") != "fail")))))
+    stop_caused = stop_caused and not result.get("data_guard_failed")
     stopped_revisions = state.setdefault("operator_stopped_revisions", [])
     stopped_revision_refusal = (result["status"] == "manual"
                                 and result.get("reason") == "revision_already_attempted"
                                 and result["nixcfg_rev"] in stopped_revisions)
     retryable_stop = stop_caused or stopped_revision_refusal
+    infra_caused = (result.get("acceptance_infra_unavailable") is True
+        and not result.get("disable_reason") and result.get("checker_verdict") != "fail"
+        and ((result.get("reason") == "backup_copy_not_acknowledged" and not result.get("switched")
+              and result.get("rollback", "not_required") == "not_required")
+             or (result.get("reason") == "acceptance_failed_or_timeout"
+                 and result.get("rollback") == "succeeded")))
+    live_disabled = (result.get("reason") == "live_disabled" and not result.get("switched")
+                     and result.get("rollback", "not_required") == "not_required")
+    if live_disabled:
+        retryable_stop = True
+        running = result.get("running_nixcfg_rev") or (state.get("pending") or {}).get("running_nixcfg_rev")
+        state["evaluated"] = {"main": result["nixcfg_rev"], "running": running,
+                              "at": time.time(), "check_running": True}
+        queue_alarm(config, state, key + "-live-disabled", result, "EXECUTOR LIVE DISABLED; retryable")
+    if infra_caused:
+        result.update(status="acceptance_infra_unavailable", reason="acceptance_infra_unavailable")
+        running = result.get("running_nixcfg_rev") or (state.get("pending") or {}).get("running_nixcfg_rev")
+        state["evaluated"] = {"main": result["nixcfg_rev"], "running": running,
+                              "at": time.time(), "check_running": True}
+        outage = state.setdefault("acceptance_infra_outage", {"alarm_id": uuid.uuid4().hex + "-infra"})
+        queue_alarm(config, state, outage["alarm_id"], result,
+                    "ACCEPTANCE INFRA UNAVAILABLE; retryable; " +
+                    ("rollback succeeded" if result.get("rollback") == "succeeded" else "no switch"))
+        retryable_stop = True
+        if result.get("switched"):
+            pair = {"run_key": key}
+            counter = state.get("post_switch_infra", {})
+            count = counter.get("count", 0) if all(counter.get(k) == v for k, v in pair.items()) else 0
+            counter = state["post_switch_infra"] = {**pair, "count": count + 1}
+            if counter["count"] >= 2:
+                retryable_stop = False
+                result.update(status="failed", reason="acceptance_infrastructure_failed_after_switch_twice")
+                queue_alarm(config, state, key + "-infra-manual-" + result["run_id"], result,
+                            "acceptance infrastructure failed after switch twice; manual")
     if stop_caused:
         state["operator_stopped_revisions"] = (list(dict.fromkeys(
             [*stopped_revisions, result["nixcfg_rev"]]))[-200:])
     if retryable_stop:
-        # The executor still refuses this main revision; a new main may retry.
+        # Operator stops still reserve the executor revision; infrastructure
+        # recovery retires both reservations after proving a safe outcome.
         state["attempted"].pop(key, None)
         ledger(config, "attempted", key).unlink(missing_ok=True)
     if not retryable_stop and result["status"] not in {"operator_disabled", "fetch_failed", "vm_test_wait", "preflight_refused"} and not result.get("trial") and not result.get("rehearsal"):
         state["attempted"][key] = {"status": result["status"], "order": order}
-        atomic_json(ledger(config, "attempted", key), {"status": result["status"], "at": now()})
+        atomic_json(ledger(config, "attempted", key), {"status": result["status"], "at": now(),
+                                                      "data_guard": result.get("data_guard", {})})
     if (result["status"] == "rollback_failed" or (result["status"] == "unknown" and result["mode"] != "dry-run")
             or result.get("rollback") == "failed" or result.get("disable_reason")):
         print("hausnetz-cd: disabled latch set after " + result["status"], flush=True)
@@ -542,6 +593,10 @@ def finish(config, state, result):
     state["reports"][key] = {"result": result, "ticket": False, "alarm": False, "order": order}
     save_state(config, state)
     report(config, state, key)
+    if infra_caused or live_disabled:
+        deliver_alarms(config, state)
+    if result["mode"] == "live":
+        acceptance_release(config)
 
 
 def fixture_limit(config, name, default):
@@ -591,6 +646,13 @@ def reconcile(config, state):
                     result["operator_disabled"] = True
                 if "checker_verdict" in pending:
                     result["checker_verdict"] = pending["checker_verdict"]
+                if pending.get("acceptance_infra_unavailable"):
+                    result["acceptance_infra_unavailable"] = True
+                for name in ("data_guard", "data_guard_before", "data_guard_failed"):
+                    if name in pending:
+                        result[name] = pending[name]
+                if pending.get("data_guard_failed"):
+                    result["disable_reason"] = "data_guard_failed"
                 if pending.get("rehearsal"):
                     require(result.get("rehearsal") == pending["rehearsal"], "rehearsal_result_variant")
                     result["rehearsal_reason"] = pending.get("rehearsal_reason")
@@ -617,15 +679,51 @@ def reconcile(config, state):
                 # Never acknowledge a backup once stopped: the executor's
                 # backup_copy_not_acknowledged path exits without switching.
                 if not pending.get("operator_disabled") and not merge_disable(config, state):
-                    copy_export(config, result)
+                    if pending["mode"] == "live" and "acceptance_preflight" not in pending:
+                        # Reserve readiness time; copy_export rechecks the
+                        # transfer/ack budget after the two capped data reads.
+                        deadline = result.get("backup_ack_deadline", 0)
+                        budget = fixture_limit(config, "backup_preflight_budget", 100)
+                        pending["acceptance_preflight"] = (deadline - time.time() >= budget
+                                                           and acceptance_preflight(config))
+                        if not pending["acceptance_preflight"]:
+                            pending["acceptance_infra_unavailable"] = True
+                        save_state(config, state)
+                    if (pending["mode"] == "live" and not pending.get("acceptance_infra_unavailable")
+                            and "data_guard_before" not in pending):
+                        try:
+                            pending["data_guard_before"] = data_snapshot(config)
+                        except DataReadUnavailable as exc:
+                            pending["data_guard"] = {"outcome": "before_read_failed", "side": exc.side}
+                            pending["acceptance_infra_unavailable"] = True
+                        save_state(config, state)
+                    if not pending.get("acceptance_infra_unavailable"):
+                        if copy_export(config, result) is False:
+                            pending["acceptance_infra_unavailable"] = True
+                            save_state(config, state)
+                            remote(config, "acceptance", pending["nixcfg_rev"],
+                                   run_id=pending["run_id"], digest="infra_unavailable")
+                    else:
+                        # FAIL-equivalent, with retry permitted only after the
+                        # executor independently confirms safe recovery.
+                        remote(config, "acceptance", pending["nixcfg_rev"],
+                               run_id=pending["run_id"], digest="infra_unavailable")
                 else:
                     pending["operator_disabled"] = True
                     save_state(config, state)
             if matching and result.get("phase") == "acceptance_ready":
                 if "acceptance" not in pending:
-                    pending["checker_verdict"] = acceptance(config, pending)
-                    pending["acceptance"] = pending["checker_verdict"]
-                    if pending["acceptance"] != "pass":
+                    rejected = pending["mode"] == "live" and data_guard(config, state, pending)
+                    if rejected:
+                        pending["acceptance"] = "fail"
+                    else:
+                        pending["checker_verdict"] = acceptance(config, pending)
+                        pending["acceptance"] = pending["checker_verdict"]
+                    if pending.get("checker_verdict") == "pass":
+                        state.pop("acceptance_infra_outage", None)
+                    if pending.get("checker_verdict") == "infra_unavailable":
+                        pending["acceptance_infra_unavailable"] = True
+                    if pending["acceptance"] == "fail" and not pending.get("data_guard_failed"):
                         queue_alarm(config, state, pending["run_id"] + "-acceptance",
                                     {**pending, "reason": "acceptance_failed_or_timeout"}, "ACCEPTANCE FAILED")
                     save_state(config, state)
@@ -648,6 +746,101 @@ def reconcile(config, state):
     unknown("executor_pending_timeout")
 
 
+class DataReadUnavailable(Exception):
+    def __init__(self, side):
+        self.side = side
+        super().__init__("data_guard_read_unavailable")
+
+
+class NoDataRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Refuse every redirect, including cross-host and scheme changes.
+        return None
+
+
+DATA_READ_LIMIT = 4 * 1024 * 1024
+DATA_READ_TIMEOUT = 10
+
+
+def data_snapshot(config):
+    """Reduce private response bodies to integers before crossing any boundary."""
+    snapshot = {}
+    for side in ("site", "layout"):
+        try:
+            base = config["acceptance_url"]
+            require(isinstance(base, str) and re.fullmatch(
+                r"https?://[A-Za-z0-9.-]+(?::[0-9]{1,5})?(?:/[A-Za-z0-9_/-]*)?", base),
+                "invalid_data_guard_url")
+            parsed = urllib.parse.urlsplit(base)
+            require(parsed.hostname and (parsed.port is None or 1 <= parsed.port <= 65535),
+                    "invalid_data_guard_url")
+            # Only the validated operator URL and these two fixed paths can
+            # reach urllib. No proxy or redirect can select a different host.
+            url = base.rstrip("/") + ("/api/site" if side == "site" else "/api/layout")
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoDataRedirect())
+            with opener.open(urllib.request.Request(url, method="GET"), timeout=DATA_READ_TIMEOUT) as response:
+                require(response.status == 200, "data_guard_http_status")
+                body = response.read(DATA_READ_LIMIT + 1)
+            require(len(body) <= DATA_READ_LIMIT, "data_guard_response_too_large")
+            value = strict_json(body)[side]
+            require(isinstance(value, dict) and type(value.get("rev")) is int and value["rev"] >= 0,
+                    "data_guard_revision_invalid")
+
+            def count(mapping):
+                require(isinstance(mapping, (dict, list)), "data_guard_map_invalid")
+                return len(mapping)
+
+            numbers = {"rev": value["rev"]}
+            if side == "site":
+                numbers.update(devices=count(value["nodes"]), floors=count(value["building"]["levels"]),
+                               rooms=count(value["building"]["zones"]))
+            else:
+                numbers["entities"] = sum(count(value.get(name, {})) for name in ("levels", "zones", "nodes", "links"))
+            snapshot[side] = numbers
+        except (Manual, OSError, http.client.HTTPException, UnicodeError, KeyError, TypeError, ValueError, RecursionError):
+            # Never retain an exception: HTTP and JSON errors may include a
+            # URL, header, response body, or a private name.
+            raise DataReadUnavailable(side) from None
+    return snapshot
+
+
+def data_guard(config, state, pending):
+    """Reject loss; a concurrent owner save keeps the release for human review."""
+    try:
+        after = data_snapshot(config)
+        before = pending.get("data_guard_before")
+        if before is None:
+            raise DataReadUnavailable("site")
+        comparisons = {}
+        for side in ("site", "layout"):
+            old, new = before[side], after[side]
+            if new["rev"] < old["rev"]:
+                case = 3
+            elif new["rev"] > old["rev"]:
+                case = 4
+            elif new != old:
+                case = 2
+            else:
+                case = 1
+            comparisons[side] = {"case": case, "before": old, "after": new}
+        rejected = any(item["case"] in {2, 3} for item in comparisons.values())
+        changed = any(item["case"] == 4 for item in comparisons.values())
+        pending["data_guard"] = {"outcome": "reject" if rejected else "owner_save" if changed else "pass",
+                                 **comparisons}
+    except DataReadUnavailable as exc:
+        pending["data_guard"] = {"outcome": "after_read_failed", "side": exc.side}
+        rejected = True
+        changed = False
+    if rejected:
+        pending["data_guard_failed"] = True
+        pending["acceptance"] = "fail"
+    if rejected or changed:
+        queue_alarm(config, state, pending["run_id"] + "-data-guard", pending,
+                    "DATA GUARD REJECTED" if rejected else "DATA GUARD OWNER SAVE; release kept; inspect data")
+    save_state(config, state)
+    return rejected
+
+
 def acceptance_settings(config):
     command = config.get("acceptance_command", [])
     require(isinstance(command, list) and command and all(isinstance(a, str) for a in command), "acceptance_unset")
@@ -656,6 +849,29 @@ def acceptance_settings(config):
     require(all("{" + name + "}" in " ".join(command)
                 for name in ("trusted_rev", "url", "version", "caps_sha256")), "acceptance_contract_unset")
     return command
+
+
+def acceptance_preflight(config, timeout=70):
+    """Readiness is infrastructure, never a checker verdict or backup ack."""
+    try:
+        command = acceptance_settings(config)
+        prefix = command[:next(i for i, arg in enumerate(command) if "{trusted_rev}" in arg)]
+        value = strict_json(run(prefix[0], [*prefix[1:], "--preflight", config["acceptance_url"]], timeout=timeout))
+        return isinstance(value, dict) and value.get("ok") is True
+    except (Manual, OSError, KeyError, TypeError, ValueError):
+        return False
+
+
+def acceptance_release(config):
+    try:
+        command = acceptance_settings(config)
+        prefix = command[:next(i for i, arg in enumerate(command) if "{trusted_rev}" in arg)]
+        # Detached from the controller's tracked group and 3s TERM grace.
+        # The adapter serializes this child with any active acceptance run.
+        subprocess.Popen([prefix[0], *prefix[1:], "--release"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except (Manual, OSError, KeyError, TypeError, ValueError):
+        pass  # Durable adapter lease remains available to explicit --release.
 
 
 def acceptance(config, pending):
@@ -669,11 +885,38 @@ def acceptance(config, pending):
                   "caps_sha256": pending["manifest_sha256"]}
         require(all("{" + name + "}" in " ".join(command) for name in values), "acceptance_contract_unset")
         argv = [arg.format_map(values) for arg in command]
-        value = strict_json(run(argv[0], argv[1:], timeout=config.get("acceptance_timeout", ACCEPTANCE_TIMEOUT)))
+        output, code = run(argv[0], argv[1:], timeout=config.get("acceptance_timeout", ACCEPTANCE_TIMEOUT), return_status=True)
+        value = strict_json(output)
+        if (code == 75 and isinstance(value, dict)
+                and value.get("schema") == "hausnetz-cd.acceptance-adapter.v1"
+                and value.get("ok") is False and value.get("infra") == "unavailable"):
+            return "infra_unavailable"
+        require(code == 0, "acceptance_exit")
         require(isinstance(value, dict) and value.get("ok") is True, "acceptance_red_or_schema")
+        require(value.get("schema") == "hausnetz.acceptance.v1", "acceptance_schema")
         return "pass"
     except (Manual, OSError, KeyError, TypeError, ValueError):
         return "fail"
+
+
+def startup_preflight(config, state):
+    pending = state["pending"]
+    if pending.get("acceptance_startup_checked"):
+        return True
+    ready = acceptance_preflight(config, timeout=950)
+    if merge_disable(config, state):
+        finish(config, state, {**pending, "status": "operator_disabled", "phase": "complete",
+                               "completed_at": now(), "reason": "operator_disabled", "operator_disabled": True})
+        return False
+    if not ready:
+        # No attended request, ack or executor build on startup failure.
+        finish(config, state, {**pending, "status": "manual", "phase": "complete", "completed_at": now(),
+                               "reason": "backup_copy_not_acknowledged", "switched": False,
+                               "rollback": "not_required", "acceptance_infra_unavailable": True})
+        return False
+    pending["acceptance_startup_checked"] = True
+    save_state(config, state)
+    return True
 
 
 def start_pending(config, state):
@@ -683,6 +926,8 @@ def start_pending(config, state):
                                "completed_at": now(), "reason": "operator_disabled", "operator_disabled": True})
         return False
     if pending["mode"] == "live":
+        if not startup_preflight(config, state):
+            return False
         ack = Path(config["state_file"]).parent / ("ack-live-" + pending["run_id"])
         if pending.get("attended_required"):
             valid_ack = (ack.is_file() and not ack.is_symlink()
@@ -700,6 +945,10 @@ def start_pending(config, state):
             if not valid_ack:
                 print("hausnetz-cd: awaiting attended ack run_token=" + pending["run_id"], flush=True)
                 return False
+        if merge_disable(config, state):
+            finish(config, state, {**pending, "status": "operator_disabled", "phase": "complete",
+                                   "completed_at": now(), "reason": "operator_disabled", "operator_disabled": True})
+            return False
         remote(config, "ack-live", pending["nixcfg_rev"], run_id=pending["run_id"], digest=pending["run_id"])
     pending["phase"] = "executor"
     pending["deadline"] = time.time() + fixture_limit(config, "poll_timeout", POLL_BUDGET)
@@ -899,6 +1148,8 @@ def tick_owned(config, child_record):
             state["failed"] = [rev for rev in state["failed"] if rev != target]
             state["attempted"] = {key: entry for key, entry in state["attempted"].items()
                                   if not matches_attempt(key)}
+            if matches_attempt(state.get("post_switch_infra", {}).get("run_key", "")):
+                state.pop("post_switch_infra", None)
             state.pop("evaluated", None)
             state.setdefault("failed_cleared", []).append({"at": now(), "rev": target, "reason": config["clear_reason"]})
             state["failed_cleared"] = state["failed_cleared"][-200:]
@@ -1117,6 +1368,12 @@ def tick_owned(config, child_record):
             finish(config, state, {**pending, "status": "operator_disabled", "phase": "complete",
                                    "completed_at": now(), "reason": "operator_disabled", "operator_disabled": True})
             return
+        if config["mode"] == "live":
+            counter = state.get("post_switch_infra", {})
+            if counter.get("run_key") != key:
+                state.pop("post_switch_infra", None)
+            if not startup_preflight(config, state):
+                return
         if config["mode"] == "live" and state["attended_remaining"] > 0:
             pending.update(phase="awaiting_ack", attended_required=True, ack_requested_at=time.time(),
                            ack_deadline=time.time() + 60 * config.get("attended_ack_minutes", 30))

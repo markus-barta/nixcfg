@@ -25,6 +25,11 @@ def yaml(path):
     ]))
 
 
+# OPS-764: tests/T125-hausnetz-cd.sh coverage is pure Python (shard inventory);
+# it is the one required job that runs without the pharos-nix setup.
+NIX_FREE_JOB = "pharos-hausnetz-cd-coverage"
+
+
 class CacheBoundaryFixtures(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -32,14 +37,60 @@ class CacheBoundaryFixtures(unittest.TestCase):
         cls.action = yaml(ROOT / ".github/actions/pharos-nix/action.yml")
 
     def test_every_shard_prepares_before_tests_and_only_private_shard_writes(self):
+        self.check_shard_preparations(self.workflow)
+
+    def test_nix_free_exemption_is_exact_and_must_fail(self):
+        # OPS-764: only the pure-Python shard-coverage job may skip the Nix setup.
+        broken = []
+        no_setup = copy.deepcopy(self.workflow)
+        steps = no_setup["jobs"]["pharos-hausnetz-cd-transactions-1"]["steps"]
+        steps[:] = [s for s in steps if s.get("uses") != "./.github/actions/pharos-nix"]
+        broken.append(("another job without setup", no_setup))
+        # Each control trips exactly one detector: a Nix token, or a flake reference.
+        for name, part, value in [
+                ("nix command", "steps", {"run": "nix-instantiate --eval --expr 1"}),
+                ("bare nix-build", "steps", {"run": "nix-build"}),
+                ("nix store path", "steps", {"run": "/nix/var/nix/profiles/default/bin/nix --version"}),
+                ("nix installer", "steps", {"uses": "cachix/install-nix-action@v31"}),
+                ("nix step env", "steps", {"run": "true", "env": {"NIX_CONFIG": "x"}}),
+                ("nix job env", "env", {"NIX_PATH": "x"}),
+                ("flake reference only", "steps", {"run": "just check .#checks"})]:
+            mutated = copy.deepcopy(self.workflow)
+            job = mutated["jobs"][NIX_FREE_JOB]
+            if part == "steps":
+                job["steps"].append(value)
+            else:
+                job[part] = value
+            broken.append((name, mutated))
+        dropped = copy.deepcopy(self.workflow)
+        dropped["jobs"]["pharos-rollout"]["needs"].remove(NIX_FREE_JOB)
+        broken.append(("exempt job not required", dropped))
+        for name, workflow in broken:
+            with self.subTest(control=name), self.assertRaises((AssertionError, ValueError)):
+                self.check_shard_preparations(workflow)
+
+    def check_shard_preparations(self, workflow):
         writers = []
-        for shard in self.workflow["jobs"]["pharos-rollout"]["needs"]:
-            job = self.workflow["jobs"][shard]
+        nix_free = []
+        for shard in workflow["jobs"]["pharos-rollout"]["needs"]:
+            job = workflow["jobs"][shard]
             self.assertEqual(job["permissions"], {"contents": "read"})
             self.assertNotIn("needs", job)  # No new serial prepare-job barrier.
             steps = job["steps"]
             preparations = [(i, step) for i, step in enumerate(steps)
                             if step.get("uses") == "./.github/actions/pharos-nix"]
+            if shard == NIX_FREE_JOB:
+                nix_free.append(shard)
+                self.assertEqual(preparations, [])
+                # The whole job definition (steps, uses, run, env, with, shell):
+                # no Nix token anywhere and no flake reference.
+                definition = json.dumps(job, sort_keys=True)
+                self.assertNotIn("nix", definition.lower())
+                self.assertNotIn(".#", definition)
+                for step in steps:
+                    self.assertNotIn("cache", step.get("if", ""))
+                    self.assertNotIn("continue-on-error", step)
+                continue
             (index, preparation), = preparations
             self.assertEqual(index, 2)  # Immediately after checkout/classification.
             self.assertEqual(preparation["if"], "steps.pin.outputs.pin_only != 'true'")
@@ -49,8 +100,9 @@ class CacheBoundaryFixtures(unittest.TestCase):
                 # Cache hits never control test execution, even in the writer.
                 self.assertNotIn("cache", step.get("if", ""))
                 self.assertNotIn("continue-on-error", step)
+        self.assertEqual(nix_free, [NIX_FREE_JOB])
         writer, = writers
-        writer_steps = self.workflow["jobs"][writer]["steps"]
+        writer_steps = workflow["jobs"][writer]["steps"]
         snapshot_index, = [i for i, step in enumerate(writer_steps)
                            if step.get("uses") == "./.github/actions/pharos-nix"]
         private_index, = [i for i, step in enumerate(writer_steps)

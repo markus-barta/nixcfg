@@ -232,10 +232,6 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: bash tests/T99-hausnetz-hsb0.sh
 
-      - name: Verify offline hausnetz CD guards and must-fail mutants (OPS-705)
-        if: steps.pin.outputs.pin_only != 'true'
-        run: nix-shell -p bash git python3 just --run "bash tests/T125-hausnetz-cd.sh"
-
       - name: Verify CI guest nix-daemon delegates no cpuset (OPS-719)
         if: steps.pin.outputs.pin_only != 'true'
         run: bash tests/T126-ci-vm-cgroup-delegation.sh
@@ -826,8 +822,192 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T122-hausv-pause.sh
 
+  # OPS-764: separate sequential transactions from mutants for CI headroom.
+  pharos-hausnetz-cd-transactions-1:
+    name: Pharos hausnetz CD contracts — transactions-1
+    runs-on: ubuntu-latest
+    # Bounded jobs target <=6 min locally, <=15 min with a conservative 2.5x CI allowance.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      # Exact Aeon pin replacements skip expensive steps; the job still
+      # reports success to the required aggregate check.
+      - name: Classify the Aeon pin diff
+        id: pin
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          python3 scripts/aeon-pin-gate.py classify > "$RUNNER_TEMP/aeon-pin-classify.out"
+          cat "$RUNNER_TEMP/aeon-pin-classify.out"
+          grep -E '^pin_only=(true|false)$' "$RUNNER_TEMP/aeon-pin-classify.out" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/pharos-nix
+        if: steps.pin.outputs.pin_only != 'true'
+
+      - name: Verify offline hausnetz CD transactions-1 (OPS-705)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash git python3 just --run "bash tests/T125-hausnetz-cd.sh transactions-1"
+
+  pharos-hausnetz-cd-transactions-2:
+    name: Pharos hausnetz CD contracts — transactions-2
+    runs-on: ubuntu-latest
+    # Bounded jobs target <=6 min locally, <=15 min with a conservative 2.5x CI allowance.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      # Exact Aeon pin replacements skip expensive steps; the job still
+      # reports success to the required aggregate check.
+      - name: Classify the Aeon pin diff
+        id: pin
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          python3 scripts/aeon-pin-gate.py classify > "$RUNNER_TEMP/aeon-pin-classify.out"
+          cat "$RUNNER_TEMP/aeon-pin-classify.out"
+          grep -E '^pin_only=(true|false)$' "$RUNNER_TEMP/aeon-pin-classify.out" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/pharos-nix
+        if: steps.pin.outputs.pin_only != 'true'
+
+      - name: Verify offline hausnetz CD transactions-2 (OPS-705)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash git python3 just --run "bash tests/T125-hausnetz-cd.sh transactions-2"
+
+  pharos-hausnetz-cd-transactions-3:
+    name: Pharos hausnetz CD contracts — transactions-3
+    runs-on: ubuntu-latest
+    # Bounded jobs target <=6 min locally, <=15 min with a conservative 2.5x CI allowance.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      # Exact Aeon pin replacements skip expensive steps; the job still
+      # reports success to the required aggregate check.
+      - name: Classify the Aeon pin diff
+        id: pin
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          python3 scripts/aeon-pin-gate.py classify > "$RUNNER_TEMP/aeon-pin-classify.out"
+          cat "$RUNNER_TEMP/aeon-pin-classify.out"
+          grep -E '^pin_only=(true|false)$' "$RUNNER_TEMP/aeon-pin-classify.out" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/pharos-nix
+        if: steps.pin.outputs.pin_only != 'true'
+
+      - name: Verify offline hausnetz CD transactions-3 (OPS-705)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash git python3 just --run "bash tests/T125-hausnetz-cd.sh transactions-3"
+
+  pharos-hausnetz-cd-transactions-4:
+    name: Pharos hausnetz CD contracts — transactions-4
+    runs-on: ubuntu-latest
+    # Bounded jobs target <=6 min locally, <=15 min with a conservative 2.5x CI allowance.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      # Exact Aeon pin replacements skip expensive steps; the job still
+      # reports success to the required aggregate check.
+      - name: Classify the Aeon pin diff
+        id: pin
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          python3 scripts/aeon-pin-gate.py classify > "$RUNNER_TEMP/aeon-pin-classify.out"
+          cat "$RUNNER_TEMP/aeon-pin-classify.out"
+          grep -E '^pin_only=(true|false)$' "$RUNNER_TEMP/aeon-pin-classify.out" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/pharos-nix
+        if: steps.pin.outputs.pin_only != 'true'
+
+      - name: Verify offline hausnetz CD transactions-4 (OPS-705)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash git python3 just --run "bash tests/T125-hausnetz-cd.sh transactions-4"
+
+  pharos-hausnetz-cd-mutants:
+    name: Pharos hausnetz CD contracts — mutants
+    runs-on: ubuntu-latest
+    # Bounded jobs target <=6 min locally, <=15 min with a conservative 2.5x CI allowance.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      # Exact Aeon pin replacements skip expensive steps; the job still
+      # reports success to the required aggregate check.
+      - name: Classify the Aeon pin diff
+        id: pin
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          python3 scripts/aeon-pin-gate.py classify > "$RUNNER_TEMP/aeon-pin-classify.out"
+          cat "$RUNNER_TEMP/aeon-pin-classify.out"
+          grep -E '^pin_only=(true|false)$' "$RUNNER_TEMP/aeon-pin-classify.out" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/pharos-nix
+        if: steps.pin.outputs.pin_only != 'true'
+
+      - name: Verify offline hausnetz CD mutants (OPS-705)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash git python3 just --run "bash tests/T125-hausnetz-cd.sh mutants"
+
+  pharos-hausnetz-cd-coverage:
+    name: Pharos hausnetz CD contracts — coverage
+    runs-on: ubuntu-latest
+    # Bounded jobs target <=6 min locally, <=15 min with a conservative 2.5x CI allowance.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      # Exact Aeon pin replacements skip expensive steps; the job still
+      # reports success to the required aggregate check.
+      - name: Classify the Aeon pin diff
+        id: pin
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          python3 scripts/aeon-pin-gate.py classify > "$RUNNER_TEMP/aeon-pin-classify.out"
+          cat "$RUNNER_TEMP/aeon-pin-classify.out"
+          grep -E '^pin_only=(true|false)$' "$RUNNER_TEMP/aeon-pin-classify.out" >> "$GITHUB_OUTPUT"
+
+      - name: Verify offline hausnetz CD coverage (OPS-705)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: bash tests/T125-hausnetz-cd.sh coverage
+
   # Keep the branch-protection context stable, including failed, skipped or
-  # cancelled shards. A skipped required job would otherwise permit merging.
+  # cancelled contract jobs. A skipped required job would otherwise permit merging.
   pharos-rollout:
     name: Pharos fleet release compatibility
     needs:
@@ -836,19 +1016,25 @@ jobs:
         pharos-contracts-2,
         pharos-contracts-3,
         pharos-contracts-4,
+        pharos-hausnetz-cd-transactions-1,
+        pharos-hausnetz-cd-transactions-2,
+        pharos-hausnetz-cd-transactions-3,
+        pharos-hausnetz-cd-transactions-4,
+        pharos-hausnetz-cd-mutants,
+        pharos-hausnetz-cd-coverage,
       ]
     if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - name: Assert every contract shard succeeded
+      - name: Assert every contract job succeeded
         env:
-          SHARD_RESULTS: ${{ join(needs.*.result, ' ') }}
+          CONTRACT_RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "contract shard results: $SHARD_RESULTS"
-          if [ "$SHARD_RESULTS" != 'success success success success' ]; then
-            echo '::error::every contract shard must succeed'
+          echo "contract job results: $CONTRACT_RESULTS"
+          if [ "$CONTRACT_RESULTS" != 'success success success success success success success success success success' ]; then
+            echo '::error::every contract job must succeed'
             exit 1
           fi
 

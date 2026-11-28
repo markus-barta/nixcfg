@@ -392,6 +392,17 @@ elif command in {"alarm", "secondary-telegram"}:
 elif command == "bootctl":
     assert args == ["--json=short", "list"]
     print(json.dumps([{"id": "nixos-generation-1.conf", "isDefault": True}]))
+elif command == "acceptance" and args[:1] == ["--preflight"]:
+    event("acceptance-preflight", args=args)
+    assert args == ["--preflight", "http://fixture.invalid"]
+    busy = scenario.get("acceptance_preflight_busy")
+    if isinstance(busy, list):
+        busy = busy[min(occurrence("acceptance-preflight") - 1, len(busy) - 1)]
+    print(json.dumps({"ok": not busy}))
+    raise SystemExit(75 if busy else 0)
+elif command == "acceptance" and args == ["--release"]:
+    event("acceptance-release", args=args)
+    print('{"ok":true}')
 elif command == "acceptance":
     event("acceptance", args=args)
     assert len(args) == 6 and args[1:3] == ["just", "acceptance"]
@@ -404,7 +415,7 @@ elif command == "acceptance":
         time.sleep(10)
     if scenario.get("acceptance_missing"):
         raise SystemExit(127)
-    print(scenario.get("acceptance_output", '{"ok":true}'))
+    print(scenario.get("acceptance_output", '{"schema":"hausnetz.acceptance.v1","ok":true}'))
     raise SystemExit(scenario.get("acceptance_exit", 0))
 elif command == "gh":
     event("vm-test", args=args)

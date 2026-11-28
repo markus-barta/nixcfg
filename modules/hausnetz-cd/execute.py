@@ -268,7 +268,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
         "gates": {"G1": "not_run", "G2": "not_run", "G3": "not_run", "G4": "not_run"},
         "health": "not_run", "rollback": "not_required", "rollback_health": "not_run",
         "backup": "not_run", "telegram": "not_required", "reason": None,
-        "memory_peak_bytes": None, "acceptance": "not_run",
+        "memory_peak_bytes": None, "acceptance": "not_run", "switched": False,
         "rehearsal": rehearsal,
     }
 
@@ -444,8 +444,10 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                     export_format, digest = parse_export(data)
                     atomic_bytes(state / "export", data)
                     result.update(backup="ready", export_sha256=digest, export_format=export_format)
+                    ack_budget = min(config.get("backup_ack_timeout", ACK_TIMEOUT), ACK_TIMEOUT)
+                    result["backup_ack_deadline"] = time.time() + ack_budget
+                    deadline = time.monotonic() + ack_budget
                     save("backup_ready")
-                    deadline = time.monotonic() + min(config.get("backup_ack_timeout", ACK_TIMEOUT), ACK_TIMEOUT)
                     ack = state_path(state / ("ack-" + run_token))
                     while not ack.exists() and time.monotonic() < deadline:
                         time.sleep(min(1, max(0, deadline - time.monotonic())))
@@ -465,6 +467,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                 # Set this before invoking switch: a nonzero switch can have
                 # partially activated the new generation and needs recovery.
                 switched = True
+                result["switched"] = True
                 if mode != "rehearse":
                     run("nix-env", ["--profile", config["system_profile"], "--set", new_system])
                 switching = True
@@ -565,7 +568,16 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                 result.update(status="rehearsal_aborted", reason=result.get("reason") or "rehearsal_readback_changed_or_unavailable")
                 if switched:
                     result["disable_reason"] = "rehearsal_post_switch_readback_drift_or_unavailable"
-        if result["status"] == "preflight_refused" and not trial:
+        decision = state_path(state / ("acceptance-" + run_token))
+        infra_retry = (mode == "live" and decision.is_file()
+                       and decision.read_text().strip() == "infra_unavailable"
+                       and not result.get("disable_reason")
+                       and ((not switched and result.get("reason") == "backup_copy_not_acknowledged")
+                            or (result.get("reason") == "acceptance_failed_or_timeout"
+                                and result.get("rollback") == "succeeded")))
+        live_refused = (mode == "live" and not switched and result.get("reason") == "live_disabled"
+                        and result.get("rollback", "not_required") == "not_required")
+        if (result["status"] == "preflight_refused" or infra_retry or live_refused) and not trial:
             attempt.unlink(missing_ok=True)
         if mode == "dry-run":
             try:
