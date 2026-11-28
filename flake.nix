@@ -66,12 +66,13 @@
       url = "github:markus-barta/hostdash/7e4896dcedbe083db8aa96e82587e4da28c2c8cd";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 83: v261128051818.0.0 (sequence 153; hausnetz main bcbc5013; annotated tag). Since 82: the Inbox shows
-    # scan results (HNET-635; release HNET-638); tests, a QA script, version/history data. Host-inert against 82: web/src/app.ts only;
-    # no Go, nix/, flake, dependency, capability manifest (1a85d9dd…) or acceptance-script change (OPS-751).
-    # Rollback: previous generation (pin 82); a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 84: v261128075822.0.0 (hausnetz main e74995b0; annotated tag). Since 83: the acceptance checker
+    # accepts every view's steady state only when it is consistent with the server (HNET-639; data-missing guard), a
+    # Devices view fix, QA/test changes, version data. NOT host-inert: scripts/qa-acceptance.mjs and web/src changed;
+    # no Go, nix/, flake, dependency or capability-manifest change. Manual switch (OPS-755, release HNET-641).
+    # Rollback: previous generation (pin 83); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=bcbc5013126c1e4c27db21a8ed4de63cb8927cd8";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=e74995b0cf062293f71b9cc6467fe91308894ff6";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
