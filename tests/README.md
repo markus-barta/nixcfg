@@ -82,7 +82,18 @@ Offline executor/orchestrator transactions use fixture Git repositories and
 PATH fakes for SSH, systemd, Nix, HTTP, switching and notifications. No network,
 NixOS evaluation/build or fleet access. Each core safety contract also runs
 against a guard-removal mutant that must fail. This `T*.sh` entry is included
-by the general runner above and the hsb0 CI shard alongside T99.
+by the general runner above and the dedicated `pharos-hausnetz-cd` CI job
+(45-minute timeout). The always-run `Pharos fleet release compatibility` check
+requires this job and all four contract shards to succeed, including when a
+job fails, is cancelled or is skipped.
+
+Transaction cases stay sequential. Transaction mutants run in a pool
+of four workers, each with its own temporary source tree and subprocess. Output
+stays in case order; survivors, invalid runs, worker exceptions and the existing
+45-second per-mutant timeout fail the suite. The 14 adapter mutants stay
+sequential because their baseline takes only 14 seconds. T125 also exercises
+surviving, crashing, timed-out and invalid pool controls through the real
+`--mutants` entry point, and prints elapsed seconds for every phase.
 
 ## CI guest cgroup delegation (T126 / OPS-719)
 
@@ -215,7 +226,8 @@ python3 -m unittest discover -s tests -p 'test_aeon_pin_gate.py' -v
 
 ## Pharos shared public Nix cache (OPS-453)
 
-The four contract shards use `.github/actions/pharos-nix` immediately after
+The four contract shards and the dedicated hausnetz CD job use
+`.github/actions/pharos-nix` immediately after
 diff classification. It installs Nix without downloading a mutable channel,
 restores one shared store snapshot, verifies the public nixpkgs source against
 `flake.lock`'s NAR hash, and sets `NIX_PATH` to that same source for `nix-shell`.
@@ -233,10 +245,10 @@ Only shard 1 writes the cache, synchronously **before any contract test or
 private input access**. The restore-only/save-only actions have no post-job
 save. This boundary matters: T38 subsequently puts a private source in that
 runner's store. Never move the snapshot after tests or replace it with an
-action that saves the final store. The other shards restore the same public
+action that saves the final store. The other contract jobs restore the same public
 snapshot without competing uploads. Existing private-key cleanup, exact
-pin-only classification, T33's exactly-once guard, and the always-run
-four-result aggregator retain their behavior.
+pin-only classification and T33's exactly-once guard remain in place. The
+always-run aggregate requires all five contract jobs to succeed.
 
 The brief supplies a 19.9 runner-minute baseline and a 23% M1 increase:
 

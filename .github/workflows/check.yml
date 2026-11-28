@@ -232,10 +232,6 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: bash tests/T99-hausnetz-hsb0.sh
 
-      - name: Verify offline hausnetz CD guards and must-fail mutants (OPS-705)
-        if: steps.pin.outputs.pin_only != 'true'
-        run: nix-shell -p bash git python3 just --run "bash tests/T125-hausnetz-cd.sh"
-
       - name: Verify CI guest nix-daemon delegates no cpuset (OPS-719)
         if: steps.pin.outputs.pin_only != 'true'
         run: bash tests/T126-ci-vm-cgroup-delegation.sh
@@ -822,8 +818,41 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T122-hausv-pause.sh
 
+  # OPS-764: sequential transaction cases plus four-way mutants need their
+  # own budget; keep this job mandatory in the aggregate below.
+  pharos-hausnetz-cd:
+    name: Pharos hausnetz CD contracts
+    runs-on: ubuntu-latest
+    # Local T125 is ~25 minutes; allow CI's ~1.5x cost plus setup margin.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      # Exact Aeon pin replacements skip expensive steps; the job still
+      # reports success to the required aggregate check.
+      - name: Classify the Aeon pin diff
+        id: pin
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          python3 scripts/aeon-pin-gate.py classify > "$RUNNER_TEMP/aeon-pin-classify.out"
+          cat "$RUNNER_TEMP/aeon-pin-classify.out"
+          grep -E '^pin_only=(true|false)$' "$RUNNER_TEMP/aeon-pin-classify.out" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/pharos-nix
+        if: steps.pin.outputs.pin_only != 'true'
+
+      - name: Verify offline hausnetz CD guards and must-fail mutants (OPS-705)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash git python3 just --run "bash tests/T125-hausnetz-cd.sh"
+
   # Keep the branch-protection context stable, including failed, skipped or
-  # cancelled shards. A skipped required job would otherwise permit merging.
+  # cancelled contract jobs. A skipped required job would otherwise permit merging.
   pharos-rollout:
     name: Pharos fleet release compatibility
     needs:
@@ -832,19 +861,20 @@ jobs:
         pharos-contracts-2,
         pharos-contracts-3,
         pharos-contracts-4,
+        pharos-hausnetz-cd,
       ]
     if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - name: Assert every contract shard succeeded
+      - name: Assert every contract job succeeded
         env:
-          SHARD_RESULTS: ${{ join(needs.*.result, ' ') }}
+          CONTRACT_RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "contract shard results: $SHARD_RESULTS"
-          if [ "$SHARD_RESULTS" != 'success success success success' ]; then
-            echo '::error::every contract shard must succeed'
+          echo "contract job results: $CONTRACT_RESULTS"
+          if [ "$CONTRACT_RESULTS" != 'success success success success success' ]; then
+            echo '::error::every contract job must succeed'
             exit 1
           fi
 

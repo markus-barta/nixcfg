@@ -411,15 +411,28 @@ class WorkflowFixtures(unittest.TestCase):
         self.assertEqual(job["if"], "always()")
         shards = {name for name in self.workflow["jobs"] if name.startswith("pharos-contracts-")}
         self.assertEqual(len(shards), 4)
-        self.assertEqual(set(job["needs"]), shards)
+        required = shards | {"pharos-hausnetz-cd"}
+        self.assertEqual(set(job["needs"]), required)
         step, = job["steps"]
-        self.assertEqual(step["env"]["SHARD_RESULTS"], "${{ join(needs.*.result, ' ') }}")
+        self.assertEqual(step["env"]["CONTRACT_RESULTS"], "${{ join(needs.*.result, ' ') }}")
         # Execute the actual gate for every possible terminal result tuple.
         import itertools
-        for results in itertools.product(("success", "failure", "cancelled", "skipped"), repeat=4):
+        for results in itertools.product(("success", "failure", "cancelled", "skipped"), repeat=len(required)):
             result = subprocess.run(["bash", "-e", "-c", step["run"]],
-                                    env={"SHARD_RESULTS": " ".join(results)}, capture_output=True)
+                                    env={"CONTRACT_RESULTS": " ".join(results)}, capture_output=True)
             self.assertEqual(result.returncode == 0, all(value == "success" for value in results), results)
+
+    def test_hausnetz_cd_has_one_dedicated_required_budget(self):
+        jobs = self.workflow["jobs"]
+        job = jobs["pharos-hausnetz-cd"]
+        self.assertEqual(job["timeout-minutes"], 45)
+        self.assertIn("pharos-hausnetz-cd", jobs["pharos-rollout"]["needs"])
+        owners = [name for name, config in jobs.items()
+                  for step in config.get("steps", [])
+                  if "tests/T125-hausnetz-cd.sh" in step.get("run", "")]
+        self.assertEqual(owners, ["pharos-hausnetz-cd"])
+        self.assertNotIn("hausnetz-input", str(job))
+        self.assertNotIn("continue-on-error", str(job))
 
     def test_shards_keep_job_local_prerequisites(self):
         shards = [self.workflow["jobs"][name]["steps"]

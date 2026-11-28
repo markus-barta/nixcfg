@@ -3,11 +3,23 @@
 set -euo pipefail
 started=$SECONDS
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+phase_started=$SECONDS
+phase_done() {
+  printf 'T125 phase %s: %s seconds\n' "$1" "$((SECONDS - phase_started))"
+  phase_started=$SECONDS
+}
 python3 -B "$repo/tests/test_hausnetz_cd_adapter.py"
+phase_done adapter-tests
 python3 -B "$repo/tests/test_hausnetz_cd_adapter.py" --mutants
+phase_done adapter-mutants
 python3 -B "$repo/tests/test_hsb0_deploy_lock.py"
+phase_done deploy-lock-tests
 python3 -B "$repo/tests/test_hausnetz_cd.py"
+phase_done transaction-cases
 python3 -B "$repo/tests/test_hausnetz_cd.py" --mutants
+phase_done transaction-mutants
+python3 -B "$repo/tests/test_hausnetz_cd_mutant_pool.py"
+phase_done mutant-pool-controls
 for source in "$repo/modules/hausnetz-cd/default.nix" "$repo/hosts/mbp2607/hausnetz-cd.nix" "$repo/hosts/csb1/hausnetz-cd-alert.nix" "$repo/hosts/mbp2607/ci-vm.nix"; do
   nix-instantiate --parse "$source" >/dev/null
 done
@@ -85,5 +97,6 @@ for name in ("executorRunner", "orchestratorRunner"):
     compile(c[name]["entrypoint"], name, "exec")
 print("T125 Nix module contracts: safe module defaults, live host opt-ins, packaged adapter, selected Nix passed")
 '
+phase_done nix-checks
 printf 'T125 hausnetz CD: offline transactions and mutants passed\n'
 printf 'T125 elapsed: %s seconds\n' "$((SECONDS - started))"

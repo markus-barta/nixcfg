@@ -5428,8 +5428,11 @@ def mutants(only=None, start_after=None):
                 assertion = next(line for line in result.stderr.splitlines() if line.startswith("AssertionError:"))
                 return label + " — " + assertion
             return label
-    for case in cases:
-        print("must-fail mutant killed: " + check_mutant(case), flush=True)
+    # map yields in case order and re-raises every worker exception. A
+    # survivor, invalid run or 45-second subprocess timeout fails the CLI.
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        for result in workers.map(check_mutant, cases):
+            print("must-fail mutant killed: " + result, flush=True)
     print("T125: " + str(len(cases)) + " guard-removal mutants killed", flush=True)
 
 
