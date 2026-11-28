@@ -3,11 +3,21 @@
 # Replace: Pi and Grok global AGENTS.md.
 # Marker: Codex AGENTS.md and Claude user CLAUDE.md (keep personal text).
 # extraSources: studio private kernel. No force on replace slots.
-
-{ inputs, ... }:
+# OPS-737: opting into aeonOperatorMac replaces Claude's inline marker payload
+# with two single-source imports. The default retains the four-CLI behavior.
 
 {
-  imports = [ inputs.inspr-modules.homeManagerModules.agent-kernel ];
+  config,
+  inputs,
+  lib,
+  ...
+}:
+
+{
+  imports = [
+    inputs.inspr-modules.homeManagerModules.agent-kernel
+    ./aeon-operator-mac.nix
+  ];
 
   inspr.agent-kernel = {
     enable = true;
@@ -18,6 +28,8 @@
     };
     markerHarnesses = {
       codex = ".codex/AGENTS.md";
+    }
+    // lib.optionalAttrs (!config.inspr.aeonOperatorMac.enable) {
       claude = ".claude/CLAUDE.md";
     };
   };
