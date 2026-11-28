@@ -1,6 +1,6 @@
 # OPS-754: regular-file doctrine for Cowork and existing Codex worker homes.
-# Only mbp2607 opts in. pi/grok share this payload; marker harnesses retain
-# their upstream kernel-only payload and preserve personal text outside it.
+# Only mbp2607 opts in. pi/grok share this payload; the Codex marker harness
+# gets canonical personal text after its upstream-owned kernel block.
 # Creates ~/Claude when absent: it is the configured Cowork workspace.
 # Disabling leaves generated files in place. Edits retaining the marker are
 # overwritten without a backup; foreign entries are preserved before replacement.
@@ -23,6 +23,9 @@ let
       marker + "\n\n" + lib.concatStringsSep "\n\n" (map builtins.readFile (sources ++ agreements))
     );
   standard = generate "personal" [ ./personal-agreements.md ];
+  codexPersonal = pkgs.writeText "inspr-doctrine-codex-personal.md" (
+    marker + "\n\n" + builtins.readFile ./personal-agreements.md
+  );
   # Preserve the complete existing builder-home agreements, including their
   # older approval policy and worker baseline; canonical personal text is absent.
   worker = generate "worker" [ ./builder-home-agreements.md ];
@@ -49,6 +52,11 @@ let
     builtins.toJSON {
       inherit marker;
       targets = [
+        {
+          path = ".codex/AGENTS.md";
+          source = codexPersonal;
+          personalSection = true;
+        }
         {
           path = "Claude/CLAUDE.md";
           source = standard;
@@ -77,15 +85,21 @@ in
       ".pi/agent/AGENTS.md".source = standard;
       ".grok/AGENTS.md".source = standard;
     };
-    home.activation.insprDoctrineCopies = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
-      # Supported by the pinned Home Manager; DRY_RUN_CMD is deprecated.
-      if [[ -v DRY_RUN ]]; then
-        printf '%s\n' 'Would update INSPR doctrine copies (Cowork and existing Codex homes).'
-      else
-        if ! ${pkgs.python3}/bin/python3 ${installer} "$HOME" ${targets}; then
-          printf '%s\n' 'WARNING: doctrine copy installer failed; continuing Home Manager activation.' >&2
-        fi
-      fi
-    '';
+    home.activation.insprDoctrineCopies =
+      lib.hm.dag.entryAfter
+        [
+          "linkGeneration"
+          "insprAgentKernelMarkers"
+        ]
+        ''
+          # Supported by the pinned Home Manager; DRY_RUN_CMD is deprecated.
+          if [[ -v DRY_RUN ]]; then
+            printf '%s\n' 'Would update INSPR doctrine copies (Cowork and existing Codex homes).'
+          else
+            if ! ${pkgs.python3}/bin/python3 ${installer} "$HOME" ${targets}; then
+              printf '%s\n' 'WARNING: doctrine copy installer failed; continuing Home Manager activation.' >&2
+            fi
+          fi
+        '';
   };
 }

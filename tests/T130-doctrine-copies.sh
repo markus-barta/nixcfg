@@ -4,6 +4,8 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PYTHONDONTWRITEBYTECODE=1
 # The Python test invokes constant "bash"; resolve it to this runner's interpreter.
-runner_bin="$(dirname "${BASH}")"
+runner_bin="$(mktemp -d)"
+trap 'unlink "${runner_bin}/bash"; rmdir "${runner_bin}"' EXIT
+ln -s "${BASH}" "${runner_bin}/bash"
 export PATH="${runner_bin}:${PATH}"
 python3 "${repo}/tests/test_doctrine_copies.py"
