@@ -732,6 +732,26 @@ exports are `~/.local/share/ops-qa/hsb0-hausnetz-exports/` (newest 20).
 attempts are keyed by running→new hausnetz rev, and failed target revs stay
 blocked even if another nixcfg commit pins them again.
 
+Every completed acceptance adapter invocation keeps sanitised JSON at
+`<cache_dir>/acceptance-evidence/<run-id>.json` (the Mac's configured cache),
+written by same-directory atomic rename with directory 0700 and file 0600;
+symlinked cache/evidence directories and destination files are refused. Only
+the newest 20 run JSON files by mtime are retained. Checker fields are kept:
+schema, verdict/readiness, versions/capability hashes, server counts, view
+states, CSP directive names, error counts/text, request diagnostics and timing,
+or the adapter's infrastructure object. At every level, keys containing
+cookie, authorization, token, secret, password or header (case/punctuation
+insensitive) are dropped; query/fragment suffixes and URL userinfo are stripped
+from strings and keys. Strings/keys are capped at 500 characters, arrays and
+objects at 50 entries, nesting at 16 and traversal at 2000 values (excess values
+become `[truncated]`). Unparsable stdout keeps only `unparsable`, its UTF-8 byte
+count and SHA-256, never raw bytes. The controller result and per-run
+`hausnetz-cd-ledger/acceptance-evidence/<run-id>.json` record the path or
+`not_stored: <closed reason>` and `evidence_not_stored` warning. Evidence or
+ledger failures never change pass/fail/infra decisions; a ledger failure is
+reported as `ledger_unavailable` in the result, with any stored path retained.
+An adapter killed before returning stdout records `not_stored: no_stdout`.
+
 Live mode requires a parsed, nonempty local `/api/export` backup (JSON or ZIP),
 copied and checksum-acknowledged by the Mac. Before switching, the executor
 records OLD and NEW binary store paths and package versions from each system's

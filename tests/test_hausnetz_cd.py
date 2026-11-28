@@ -2630,6 +2630,50 @@ class TestCD(unittest.TestCase):
         self.assertIn(self.f.new_hnet, self.f.state()["failed"])
         self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
 
+    def check_acceptance_evidence(self, value, code, verdict):
+        self.f.scenario.update(acceptance_output=json.dumps(value), acceptance_exit=code)
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["checker_verdict"], verdict)
+        path = Path(self.f.orchestrator["cache_dir"]) / "acceptance-evidence" / (result["run_id"] + ".json")
+        self.assertEqual(result.get("acceptance_evidence"), str(path))
+        self.assertEqual(json.loads(path.read_text()), value)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(path.parent.stat().st_mode & 0o777, 0o700)
+        record = json.loads(ledger(self.f.orchestrator, "acceptance-evidence", result["run_id"]).read_text())
+        self.assertEqual(record, {"run_id": result["run_id"], "acceptance_evidence": str(path)})
+
+    def test_acceptance_evidence_red_transaction(self):
+        self.check_acceptance_evidence({"schema": "hausnetz.acceptance.v1", "ok": False,
+            "server": {"devices": 7, "floors": 2, "scan": "finished"},
+            "version": {"expected": self.f.new_version, "actual": self.f.new_version, "ok": True},
+            "views": {"plan": {"ok": False, "reason": "settle:timeout", "consoleErrors": 0,
+                                  "csp": [{"directive": "connect-src", "blocked": "blob:"}]}}}, 1, "fail")
+
+    def test_acceptance_evidence_pass_transaction(self):
+        self.check_acceptance_evidence({"schema": "hausnetz.acceptance.v1", "ok": True}, 0, "pass")
+
+    def test_acceptance_evidence_infra_transaction(self):
+        self.check_acceptance_evidence({"schema": "hausnetz-cd.acceptance-adapter.v1", "ok": False,
+                                       "infra": "unavailable", "reason": "guest_unavailable"}, 75, "infra_unavailable")
+
+    def test_acceptance_evidence_symlink_warning_transaction(self):
+        cache = Path(self.f.orchestrator["cache_dir"])
+        cache.mkdir()
+        outside = self.f.root / "evidence-outside"
+        outside.mkdir()
+        (cache / "acceptance-evidence").symlink_to(outside, target_is_directory=True)
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertEqual(result["checker_verdict"], "pass")
+        self.assertEqual(result["status"], "succeeded")
+        self.assertTrue(result["acceptance_evidence"].startswith("not_stored: "))
+        self.assertIn("evidence_not_stored", result)
+        record = json.loads(ledger(self.f.orchestrator, "acceptance-evidence", result["run_id"]).read_text())
+        self.assertEqual(record["evidence_not_stored"], result["evidence_not_stored"])
+        self.assertEqual(record["acceptance_evidence"], result["acceptance_evidence"])
+        self.assertFalse(list(outside.iterdir()))
+
     def test_checker_timeout_exit_one_tombstones(self):
         self.acceptance_bad(acceptance_output=json.dumps({"schema":"hausnetz-cd.acceptance-adapter.v1",
                             "ok":False, "reason":"checker_timeout"}), acceptance_exit=1)
@@ -2646,6 +2690,11 @@ class TestCD(unittest.TestCase):
 
     def test_acceptance_timeout_rolls_back(self):
         self.acceptance_bad(acceptance_hang=True)
+        result = self.f.terminal()
+        self.assertEqual(result.get("acceptance_evidence"), "not_stored: no_stdout")
+        self.assertEqual(result.get("evidence_not_stored"), "no_stdout")
+        record = json.loads(ledger(self.f.orchestrator, "acceptance-evidence", result["run_id"]).read_text())
+        self.assertEqual(record["evidence_not_stored"], "no_stdout")
 
     def test_schemaless_green_rolls_back(self):
         self.acceptance_bad(acceptance_output='{"ok":true}')
@@ -4895,6 +4944,171 @@ class TestCD(unittest.TestCase):
 
 
 
+class TestAcceptanceEvidence(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="t125-evidence-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.cache = self.root / "cache"
+        self.cache.mkdir()
+        self.config = {"cache_dir": str(self.cache), "state_file": str(self.root / "state.json"),
+            "acceptance_command": ["checker", "{trusted_rev}", "{url}", "{version}", "{caps_sha256}"],
+            "acceptance_url": "http://fixture.invalid"}
+        self.pending = {"run_id": "a" * 32, "trusted_hausnetz_rev": "b" * 40,
+                        "expected_version": "261128180000.0.0", "manifest_sha256": "c" * 64}
+
+    def accept(self, output, code=0, pending=None):
+        from orchestrate import acceptance
+        with mock.patch("orchestrate.run", return_value=(output, code)):
+            return acceptance(self.config, self.pending if pending is None else pending)
+
+    def test_verdict_invariant_under_evidence_failures(self):
+        for output, code, expected in (
+            ('{"schema":"hausnetz.acceptance.v1","ok":true}', 0, "pass"),
+            ('{"schema":"hausnetz.acceptance.v1","ok":false}', 1, "fail"),
+            ('{"schema":"hausnetz-cd.acceptance-adapter.v1","ok":false,"infra":"unavailable"}', 75, "infra_unavailable"),
+            ("garbage", 0, "fail"),
+        ):
+            baseline = self.accept(output, code, self.pending.copy())
+            self.assertEqual(baseline, expected)
+            for failure in (PermissionError(), TypeError(), RuntimeError()):
+                with self.subTest(expected=expected, failure=type(failure).__name__):
+                    pending = self.pending.copy()
+                    with mock.patch("orchestrate.write_acceptance_evidence", side_effect=failure):
+                        try:
+                            verdict = self.accept(output, code, pending)
+                        except Exception:
+                            self.fail("evidence failure escaped the acceptance decision")
+                    self.assertEqual(verdict, baseline, "evidence failure changed the verdict")
+                    self.assertIn("evidence_not_stored", pending)
+                    self.assertTrue(pending["acceptance_evidence"].startswith("not_stored: "))
+                    record = json.loads(ledger(self.config, "acceptance-evidence", pending["run_id"]).read_text())
+                    self.assertEqual(record["evidence_not_stored"], pending["evidence_not_stored"])
+
+    def test_evidence_sanitisation(self):
+        from orchestrate import write_acceptance_evidence
+        value = {"schema": "hausnetz.acceptance.v1", "ok": False, "views": {"plan": {
+            "reason": "settle:timeout", "url": "https://fixture.invalid/path?q=private#fragment",
+            "message": "request https://user:credential@fixture.invalid/path?q=private#fragment failed",
+            "relative": "/api/site?private#fragment", "protocolRelative": "//user:credential@fixture.invalid/?private#fragment",
+            "long": "x" * 1000, "errors": list(range(70)),
+            "nested": [{key: "private" for key in ("Cookie", "AUTHORIZATION", "access_token", "client-secret",
+                        "password", "Set-Cookie", "requestHeaders", "header", "headers")}],
+            "csp": [{"directive": "img-src"}], "consoleErrors": 2}}}
+        path = write_acceptance_evidence(self.config, self.pending, json.dumps(value))
+        stored = json.loads(Path(path).read_text())
+        view = stored["views"]["plan"]
+        self.assertEqual(view["url"], "https://fixture.invalid/path")
+        self.assertEqual(view["message"], "request https://fixture.invalid/path failed")
+        self.assertEqual(view["relative"], "/api/site")
+        self.assertEqual(view["protocolRelative"], "//fixture.invalid/")
+        self.assertEqual(view["nested"], [{}])
+        self.assertEqual(view["long"], "x" * 500)
+        self.assertEqual(view["errors"], list(range(50)))
+        self.assertEqual(view["reason"], "settle:timeout")
+        self.assertEqual(view["csp"], [{"directive": "img-src"}])
+        self.assertNotIn("private", Path(path).read_text())
+        self.assertNotIn("credential", Path(path).read_text())
+
+    def test_evidence_unparsable_envelope(self):
+        for raw in ('garbage\N{SNOWMAN}', '{"ok":NaN}', '{"ok":true,"ok":false}'):
+            with self.subTest(raw=raw):
+                self.assertEqual(self.accept(raw), "fail")
+                stored = json.loads(Path(self.pending["acceptance_evidence"]).read_text())
+                self.assertEqual(stored, {"unparsable": True, "bytes": len(raw.encode()),
+                    "sha256": hashlib.sha256(raw.encode()).hexdigest()})
+
+    def test_evidence_prunes_newest_n_only(self):
+        from orchestrate import ACCEPTANCE_EVIDENCE_KEEP, write_acceptance_evidence
+        directory = self.cache / "acceptance-evidence"
+        directory.mkdir()
+        for index in range(ACCEPTANCE_EVIDENCE_KEEP + 4):
+            path = directory / (f"{index:032x}" + ".json")
+            path.write_text("{}")
+            os.utime(path, (1000 + index, 1000 + index))
+        unrelated = directory / "operator-note.json"
+        unrelated.write_text("keep")
+        outside = self.root / "outside.json"
+        outside.write_text("keep")
+        link = directory / ("f" * 32 + ".json")
+        link.symlink_to(outside)
+        write_acceptance_evidence(self.config, self.pending, '{"ok":true}')
+        expected = {f"{i:032x}.json" for i in range(5, ACCEPTANCE_EVIDENCE_KEEP + 4)} | {"a" * 32 + ".json"}
+        actual = {p.name for p in directory.iterdir() if re.fullmatch(r"[0-9a-f]{32}\.json", p.name) and not p.is_symlink()}
+        self.assertEqual(actual, expected, "pruning must retain exactly the newest N run files")
+        self.assertEqual(unrelated.read_text(), "keep")
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(outside.read_text(), "keep")
+
+    def test_evidence_atomic_private_write(self):
+        from orchestrate import write_acceptance_evidence
+        replace = os.replace
+        observed = []
+        def inspect_replace(source, destination, **kwargs):
+            directory = self.cache / "acceptance-evidence"
+            temporary = directory / source
+            self.assertEqual(temporary.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(temporary.read_text()), {"ok": True})
+            self.assertFalse((directory / destination).exists())
+            self.assertEqual(kwargs["src_dir_fd"], kwargs["dst_dir_fd"])
+            observed.append(source)
+            replace(source, destination, **kwargs)
+        with mock.patch("orchestrate.os.replace", side_effect=inspect_replace):
+            path = write_acceptance_evidence(self.config, self.pending, '{"ok":true}')
+        self.assertTrue(observed)
+        self.assertEqual(Path(path).stat().st_mode & 0o777, 0o600)
+        self.assertEqual(Path(path).parent.stat().st_mode & 0o777, 0o700)
+        self.assertFalse(list(Path(path).parent.glob(".evidence-*")))
+
+    def test_evidence_refuses_symlink_file_and_invalid_run_id(self):
+        directory = self.cache / "acceptance-evidence"
+        directory.mkdir()
+        outside = self.root / "outside.json"
+        outside.write_text("untouched")
+        (directory / (self.pending["run_id"] + ".json")).symlink_to(outside)
+        self.assertEqual(self.accept('{"schema":"hausnetz.acceptance.v1","ok":true}'), "pass")
+        self.assertEqual(self.pending["evidence_not_stored"], "unsafe_path")
+        self.assertEqual(outside.read_text(), "untouched")
+        from orchestrate import write_acceptance_evidence
+        for run_id in ("../outside", "A" * 32, "b" * 33):
+            with self.subTest(run_id=run_id), self.assertRaises(Manual):
+                write_acceptance_evidence(self.config, {**self.pending, "run_id": run_id}, "{}")
+
+    def test_evidence_unwritable_cache(self):
+        self.cache.chmod(0o500)
+        self.addCleanup(self.cache.chmod, 0o700)
+        self.assertEqual(self.accept('{"schema":"hausnetz.acceptance.v1","ok":true}'), "pass")
+        self.assertEqual(self.pending.get("evidence_not_stored"), "permission_denied")
+        self.assertFalse((self.cache / "acceptance-evidence").exists())
+
+    def test_evidence_serialisation_error(self):
+        with mock.patch("orchestrate.sanitise_acceptance_evidence", return_value=object()):
+            self.assertEqual(self.accept('{"schema":"hausnetz.acceptance.v1","ok":true}'), "pass")
+        self.assertEqual(self.pending.get("evidence_not_stored"), "serialization_failed")
+        record = json.loads(ledger(self.config, "acceptance-evidence", self.pending["run_id"]).read_text())
+        self.assertEqual(record["evidence_not_stored"], "serialization_failed")
+
+    def test_evidence_rename_failure_keeps_previous_file(self):
+        from orchestrate import write_acceptance_evidence
+        path = Path(write_acceptance_evidence(self.config, self.pending, '{"ok":false}'))
+        replace = os.replace
+        def fail_evidence_replace(source, destination, **kwargs):
+            if "src_dir_fd" in kwargs:
+                raise OSError("deliberate disk failure")
+            return replace(source, destination, **kwargs)
+        with mock.patch("orchestrate.os.replace", side_effect=fail_evidence_replace):
+            self.assertEqual(self.accept('{"schema":"hausnetz.acceptance.v1","ok":true}'), "pass")
+        self.assertEqual(self.pending.get("evidence_not_stored"), "io_error")
+        self.assertEqual(json.loads(path.read_text()), {"ok": False})
+        self.assertFalse(list(path.parent.glob(".evidence-*")))
+
+    def test_evidence_ledger_failure_preserves_path_and_verdict(self):
+        with mock.patch("orchestrate.atomic_json", side_effect=OSError()):
+            self.assertEqual(self.accept('{"schema":"hausnetz.acceptance.v1","ok":true}'), "pass")
+        self.assertEqual(self.pending.get("evidence_not_stored"), "ledger_unavailable")
+        self.assertTrue(Path(self.pending["acceptance_evidence"]).is_file())
+
+
 class TestAlertSender(unittest.TestCase):
     def setUp(self):
         import types
@@ -5004,7 +5218,7 @@ def check_mutant(case):
             raise AssertionError("Invalid mutant run: " + label + "\n" + result.stderr)
         elapsed = time.monotonic() - started
         timed_label = f"{label} ({elapsed:.3f}s)"
-        if label.startswith(("OPS752", "OPS753")):
+        if label.startswith(("OPS752", "OPS753", "OPS770")):
             assertion = next(line for line in result.stderr.splitlines() if line.startswith("AssertionError:"))
             return timed_label + " — " + assertion
         return timed_label
@@ -5014,6 +5228,20 @@ def mutants(only=None, start_after=None):
     # Run the same behavioral assertions against real source copies. A zero
     # exit means a guard-removal survived and this entire test must fail.
     cases = [
+        ("OPS770 evidence not written", "orchestrate.py",
+         [('        record_acceptance_evidence(config, pending, output)', '        pass')],
+         "test_acceptance_evidence_red_transaction"),
+        ("OPS770 evidence failure changes verdict", "orchestrate.py",
+         [('    except Exception as exc:\n        # Closed reasons only:',
+           '    except Exception as exc:\n        raise\n        # Closed reasons only:')],
+         "TestAcceptanceEvidence.test_verdict_invariant_under_evidence_failures"),
+        ("OPS770 sanitisation removed", "orchestrate.py",
+         [('json.dumps(sanitise_acceptance_evidence(value), allow_nan=False, sort_keys=True)',
+           'json.dumps(value, allow_nan=False, sort_keys=True)')],
+         "TestAcceptanceEvidence.test_evidence_sanitisation"),
+        ("OPS770 pruning removed", "orchestrate.py",
+         [('sorted(entries, reverse=True)[ACCEPTANCE_EVIDENCE_KEEP:]', 'sorted(entries, reverse=True)[len(entries):]')],
+         "TestAcceptanceEvidence.test_evidence_prunes_newest_n_only"),
         ("G1 extra file", "common.py", [('require(len(parts) == 2 and parts[0] == "M" and parts[1] in allowed,', 'require(True,')], "test_g1_extra_file"),
         ("G1 executable mode change", "common.py", [('require(tree_mode(repo, old, parts[1]) == tree_mode(repo, new, parts[1]),', 'require(True,')], "test_g1_mode_change_rejected"),
         ("G1 flake lines", "common.py", [('require(mask_flake(blob(repo, old, "flake.nix"), a)', 'require(True or mask_flake(blob(repo, old, "flake.nix"), a)')], "test_g1_same_file_extra_line"),

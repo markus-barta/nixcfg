@@ -189,8 +189,8 @@ class MutantPoolTests(unittest.TestCase):
         self.assertEqual(len(sequential), 5)
         labels = [case[0] for case in pooled + sequential]
         self.assertEqual(len(labels), len(set(labels)))
-        self.assertEqual(len(labels), 276)
-        self.assertIn("T125: 276 guard-removal mutants killed", out.getvalue())
+        self.assertEqual(len(labels), 280)
+        self.assertIn("T125: 280 guard-removal mutants killed", out.getvalue())
         for failure in (RuntimeError("sequential crash"), subprocess.TimeoutExpired("fixture", 45)):
             def fail_sequential(case):
                 if case[3] in expected:

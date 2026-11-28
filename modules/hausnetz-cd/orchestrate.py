@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import fcntl
+import hashlib
 import http.client
 import ipaddress
 import json
@@ -10,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import time
@@ -138,6 +140,8 @@ def log_line(result):
             + " problems=" + json.dumps(diagnostics(result.get("problems", [])), separators=(",", ":"))
             + " removed_stale_boot_entries=" + json.dumps(result.get("removed_stale_boot_entries", []), separators=(",", ":"))
             + " acceptance=" + result.get("acceptance", "not_run")
+            + " acceptance_evidence=" + json.dumps(result.get("acceptance_evidence", "not_run"))
+            + " evidence_not_stored=" + result.get("evidence_not_stored", "none")
             + " data_guard=" + json.dumps(result.get("data_guard", {}), separators=(",", ":"))
             + " failed_units_after_activation=" + json.dumps(diagnostics(result.get("failed_units_after_activation", [])), separators=(",", ":"))
             + " memory_peak_bytes=" + str(result.get("memory_peak_bytes") or "unknown")
@@ -648,7 +652,8 @@ def reconcile(config, state):
                     result["checker_verdict"] = pending["checker_verdict"]
                 if pending.get("acceptance_infra_unavailable"):
                     result["acceptance_infra_unavailable"] = True
-                for name in ("data_guard", "data_guard_before", "data_guard_failed"):
+                for name in ("data_guard", "data_guard_before", "data_guard_failed",
+                             "acceptance_evidence", "evidence_not_stored"):
                     if name in pending:
                         result[name] = pending[name]
                 if pending.get("data_guard_failed"):
@@ -718,6 +723,8 @@ def reconcile(config, state):
                         pending["acceptance"] = "fail"
                     else:
                         pending["checker_verdict"] = acceptance(config, pending)
+                        if "acceptance_evidence" not in pending:
+                            record_acceptance_evidence(config, pending, None)
                         pending["acceptance"] = pending["checker_verdict"]
                     if pending.get("checker_verdict") == "pass":
                         state.pop("acceptance_infra_outage", None)
@@ -874,6 +881,115 @@ def acceptance_release(config):
         pass  # Durable adapter lease remains available to explicit --release.
 
 
+ACCEPTANCE_EVIDENCE_KEEP = 20
+
+
+def sanitise_acceptance_evidence(value):
+    """Keep checker diagnostics, with bounded structure and no URL credentials."""
+    budget = 2000
+
+    def text(value):
+        value = re.sub(r"[?#][^\s<>\"']*", "", value)
+        value = re.sub(r"//[^/\s]*@", "//", value)
+        return value[:500]
+
+    def visit(item, depth=0):
+        nonlocal budget
+        budget -= 1
+        if budget < 0 or depth > 16:
+            return "[truncated]"
+        if isinstance(item, dict):
+            return {text(key): visit(child, depth + 1) for key, child in list(item.items())[:50]
+                    if not re.search(r"cookie|authorization|token|secret|password|header",
+                                     re.sub(r"[^a-z0-9]", "", key.lower()))}
+        if isinstance(item, list):
+            return [visit(child, depth + 1) for child in item[:50]]
+        return text(item) if isinstance(item, str) else item
+
+    return visit(value)
+
+
+def write_acceptance_evidence(config, pending, output):
+    """All writes/pruning are relative to a pinned, non-symlink directory FD."""
+    run_id = pending["run_id"]
+    require(isinstance(run_id, str) and re.fullmatch(r"[0-9a-f]{32}", run_id), "unsafe_evidence_path")
+    cache = os.path.abspath(config["cache_dir"])
+    directory = os.path.normpath(os.path.join(cache, "acceptance-evidence"))
+    path = os.path.normpath(os.path.join(directory, run_id + ".json"))
+    require(directory.startswith(cache + os.sep) and path.startswith(directory + os.sep), "unsafe_evidence_path")
+    try:
+        value = strict_json(output)
+    except (ValueError, Manual):
+        raw = output.encode("utf-8")
+        value = {"unparsable": True, "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+    payload = (json.dumps(sanitise_acceptance_evidence(value), allow_nan=False, sort_keys=True) + "\n").encode("utf-8")
+    # Do not follow even a dangling symlink at either directory boundary.
+    cache_fd = os.open(cache, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        try:
+            os.mkdir("acceptance-evidence", mode=0o700, dir_fd=cache_fd)
+        except FileExistsError:
+            pass
+        directory_fd = os.open("acceptance-evidence", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=cache_fd)
+    finally:
+        os.close(cache_fd)
+    temporary = ".evidence-" + uuid.uuid4().hex
+    try:
+        os.fchmod(directory_fd, 0o700)
+        name = os.path.basename(path)
+        try:
+            require(stat.S_ISREG(os.stat(name, dir_fd=directory_fd, follow_symlinks=False).st_mode), "unsafe_evidence_path")
+        except FileNotFoundError:
+            pass
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory_fd)
+        with os.fdopen(fd, "wb") as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+        entries = []
+        for entry in os.listdir(directory_fd):
+            if re.fullmatch(r"[0-9a-f]{32}\.json", entry):
+                info = os.stat(entry, dir_fd=directory_fd, follow_symlinks=False)
+                if stat.S_ISREG(info.st_mode):
+                    entries.append((info.st_mtime_ns, entry))
+        for _, entry in sorted(entries, reverse=True)[ACCEPTANCE_EVIDENCE_KEEP:]:
+            os.unlink(entry, dir_fd=directory_fd)
+        return path
+    finally:
+        try:
+            os.unlink(temporary, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+        finally:
+            os.close(directory_fd)
+
+
+def record_acceptance_evidence(config, pending, output):
+    """Evidence is observational: never let its failures affect the verdict."""
+    try:
+        if output is None:
+            pending["acceptance_evidence"] = "not_stored: no_stdout"
+            pending["evidence_not_stored"] = "no_stdout"
+        else:
+            pending["acceptance_evidence"] = write_acceptance_evidence(config, pending, output)
+    except Exception as exc:
+        # Closed reasons only: exception messages can contain adapter content.
+        reason = ("unsafe_path" if isinstance(exc, Manual) else
+                  "permission_denied" if isinstance(exc, PermissionError) else
+                  "io_error" if isinstance(exc, OSError) else
+                  "serialization_failed" if isinstance(exc, (TypeError, ValueError)) else "evidence_error")
+        pending["acceptance_evidence"] = "not_stored: " + reason
+        pending["evidence_not_stored"] = reason
+    try:
+        atomic_json(ledger(config, "acceptance-evidence", pending["run_id"]),
+                    {name: pending[name] for name in ("run_id", "acceptance_evidence", "evidence_not_stored")
+                     if name in pending})
+    except Exception:
+        pending["evidence_not_stored"] = "ledger_unavailable"
+
+
 def acceptance(config, pending):
     """Only an operator-configured CI-VM invocation may run the trusted checker."""
     try:
@@ -886,6 +1002,7 @@ def acceptance(config, pending):
         require(all("{" + name + "}" in " ".join(command) for name in values), "acceptance_contract_unset")
         argv = [arg.format_map(values) for arg in command]
         output, code = run(argv[0], argv[1:], timeout=config.get("acceptance_timeout", ACCEPTANCE_TIMEOUT), return_status=True)
+        record_acceptance_evidence(config, pending, output)
         value = strict_json(output)
         if (code == 75 and isinstance(value, dict)
                 and value.get("schema") == "hausnetz-cd.acceptance-adapter.v1"
