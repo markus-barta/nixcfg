@@ -52,6 +52,8 @@ in
   # Enabled 2026-07-03 (NIX-215): markus@mbp2607 user key in the markus
   # aggregate + host key on agents/shared/* — rekeyed in c1c34ef3.
   inspr.secrets.agents.enable = true;
+  # OPS-754: Cowork regular file + existing Codex homes; pi/grok agreements.
+  inspr.doctrineCopies.enable = true;
   # OPS-231 / NIX-584: ppm routing is Aeon. `paimos` is the Aeon client.
   inspr.cli.fleet.paimosUrl = lib.mkForce "https://aeon.barta.cm";
 
