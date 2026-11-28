@@ -3,5 +3,7 @@
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PYTHONDONTWRITEBYTECODE=1
-export OPS754_TEST_BASH="${BASH}"
+# The Python test invokes constant "bash"; resolve it to this runner's interpreter.
+runner_bin="$(dirname "${BASH}")"
+export PATH="${runner_bin}:${PATH}"
 python3 "${repo}/tests/test_doctrine_copies.py"

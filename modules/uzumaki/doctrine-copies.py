@@ -57,14 +57,25 @@ def install(destination, source, marker):
 
 
 def main():
-    home = Path(sys.argv[1])
-    manifest = json.loads(Path(sys.argv[2]).read_text())
+    home = os.path.realpath(sys.argv[1])
+    # Nix writeText assets share the store root; test assets share a fixture directory.
+    asset_root = os.path.dirname(os.path.realpath(__file__))
+    manifest_path = os.path.realpath(sys.argv[2])
+    if not manifest_path.startswith(asset_root + os.sep):
+        raise ValueError("refusing doctrine manifest outside the installer asset root")
+    manifest = json.loads(Path(manifest_path).read_text())
     for target in manifest["targets"]:
-        destination = home / target["path"]
+        destination = os.path.normpath(os.path.join(home, target["path"]))
         try:
+            if not destination.startswith(home + os.sep):
+                raise ValueError("refusing doctrine target outside home")
+            destination = Path(destination)
             required = target.get("requiredDirectory")
-            if required and not (home / required).is_dir():
-                print(f"WARNING: skipping doctrine copy; Codex home does not exist: {home / required}", file=sys.stderr)
+            required_path = os.path.normpath(os.path.join(home, required or "."))
+            if required and not required_path.startswith(home + os.sep):
+                raise ValueError("refusing required doctrine directory outside home")
+            if required and not Path(required_path).is_dir():
+                print(f"WARNING: skipping doctrine copy; Codex home does not exist: {required_path}", file=sys.stderr)
                 continue
             install(destination, Path(target["source"]), manifest["marker"].encode())
         except Exception as error:

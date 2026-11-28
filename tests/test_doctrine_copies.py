@@ -20,7 +20,7 @@ GROK = ".grok/AGENTS.md"
 COWORK = "Claude/CLAUDE.md"
 WORKERS = [f".local/share/inspr/codex/{name}/AGENTS.md" for name in ("markus", "admin", "agentone")]
 GATE = WORKERS[-1]
-BASH = os.environ.get("OPS754_TEST_BASH", "bash")
+BASH = "bash"
 ASSET = re.compile(r"OPS737_ASSET_([^\n]+?)_BEGIN\n(.*?)OPS737_ASSET_\1_END", re.S)
 
 
@@ -145,7 +145,7 @@ def run_activation(cfg, home, assets, dry_run=False, installer_suffix=""):
 
 def verify_installation(cfg):
     with tempfile.TemporaryDirectory(prefix="ops754-homes-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve()
         home, assets = root / "home", root / "assets"
         assets.mkdir()
         # Real live layout: markus/admin have 1458 B; agentone has no AGENTS.md.
@@ -318,7 +318,7 @@ def verify_failure_safety(cfg):
 
 def verify_continuation(cfg):
     with tempfile.TemporaryDirectory(prefix="ops754-continue-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve()
         assets = root / "assets"
         assets.mkdir()
         home = root / "home"
@@ -416,7 +416,7 @@ with tempfile.TemporaryDirectory(prefix="ops754-mutants-", dir=REPO / "tests") a
         ("foreign file overwritten without backup", "doctrine-copies.py", "os.link(destination, backup)", "pass  # mutant discards the foreign file", verify_installation, True),
         ("option enabled by default", "doctrine-copies.nix", 'lib.mkEnableOption "doctrine copies for Cowork, Codex workers, pi and grok"', '(lib.mkEnableOption "doctrine copies for Cowork, Codex workers, pi and grok") // { default = true; }', verify_disabled, None),
         ("dry-run guard removed", "doctrine-copies.nix", "if [[ -v DRY_RUN ]]; then", "if false; then", verify_installation, True),
-        ("missing-home skip removed", "doctrine-copies.py", 'if required and not (home / required).is_dir():', 'if False and required and not (home / required).is_dir():', verify_installation, True),
+        ("missing-home skip removed", "doctrine-copies.py", 'if required and not Path(required_path).is_dir():', 'if False and required and not Path(required_path).is_dir():', verify_installation, True),
         ("idempotent early return removed", "doctrine-copies.py", "                return\n", "                pass  # mutant rewrites identical files\n", verify_installation, True),
         ("generated file backed up again", "doctrine-copies.py", "if exists and not generated:", "if exists:", verify_installation, True),
         ("non-file refusal removed", "doctrine-copies.py", 'raise ValueError(f"refusing to replace non-file doctrine target: {destination}")', "pass  # mutant permits non-file targets", verify_failure_safety, True),
