@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import fcntl
+import http.client
 import ipaddress
 import json
 import os
@@ -13,6 +14,9 @@ import subprocess
 import sys
 import time
 import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 
 from common import (ACCEPTANCE_TIMEOUT, EXECUTOR_TERMINAL, Manual, POLL_BUDGET, POLL_INTERVAL, RESULT_SCHEMA, SSH_RETRY_TIMEOUT,
@@ -134,6 +138,7 @@ def log_line(result):
             + " problems=" + json.dumps(diagnostics(result.get("problems", [])), separators=(",", ":"))
             + " removed_stale_boot_entries=" + json.dumps(result.get("removed_stale_boot_entries", []), separators=(",", ":"))
             + " acceptance=" + result.get("acceptance", "not_run")
+            + " data_guard=" + json.dumps(result.get("data_guard", {}), separators=(",", ":"))
             + " failed_units_after_activation=" + json.dumps(diagnostics(result.get("failed_units_after_activation", [])), separators=(",", ":"))
             + " memory_peak_bytes=" + str(result.get("memory_peak_bytes") or "unknown")
             + " mode=" + result["mode"] + " status=" + result["status"]
@@ -286,6 +291,7 @@ def alarm(config, result, label="ROLLBACK FAILED", *, pre_pair=False, test=False
                + " generation=" + str(result.get("generation") or "unknown")[:200]
                + " reason=" + str(result.get("reason") or "unknown")[:200])
     message += " failed_units_after_activation=" + json.dumps(diagnostics(result.get("failed_units_after_activation", [])), separators=(",", ":"))
+    message += " data_guard=" + json.dumps(result.get("data_guard", {}), separators=(",", ":"))
     if result.get("ack_command"):
         message += " run_token=" + result["run_id"] + " ack_command=" + result["ack_command"]
     if result.get("alarm_id"):
@@ -513,6 +519,7 @@ def finish(config, state, result):
              and result.get("rollback", "not_required") == "not_required")
             or (result.get("reason") == "acceptance_failed_or_timeout"
                 and result.get("checker_verdict") != "fail")))))
+    stop_caused = stop_caused and not result.get("data_guard_failed")
     stopped_revisions = state.setdefault("operator_stopped_revisions", [])
     stopped_revision_refusal = (result["status"] == "manual"
                                 and result.get("reason") == "revision_already_attempted"
@@ -562,7 +569,8 @@ def finish(config, state, result):
         ledger(config, "attempted", key).unlink(missing_ok=True)
     if not retryable_stop and result["status"] not in {"operator_disabled", "fetch_failed", "vm_test_wait", "preflight_refused"} and not result.get("trial") and not result.get("rehearsal"):
         state["attempted"][key] = {"status": result["status"], "order": order}
-        atomic_json(ledger(config, "attempted", key), {"status": result["status"], "at": now()})
+        atomic_json(ledger(config, "attempted", key), {"status": result["status"], "at": now(),
+                                                      "data_guard": result.get("data_guard", {})})
     if (result["status"] == "rollback_failed" or (result["status"] == "unknown" and result["mode"] != "dry-run")
             or result.get("rollback") == "failed" or result.get("disable_reason")):
         print("hausnetz-cd: disabled latch set after " + result["status"], flush=True)
@@ -640,6 +648,11 @@ def reconcile(config, state):
                     result["checker_verdict"] = pending["checker_verdict"]
                 if pending.get("acceptance_infra_unavailable"):
                     result["acceptance_infra_unavailable"] = True
+                for name in ("data_guard", "data_guard_before", "data_guard_failed"):
+                    if name in pending:
+                        result[name] = pending[name]
+                if pending.get("data_guard_failed"):
+                    result["disable_reason"] = "data_guard_failed"
                 if pending.get("rehearsal"):
                     require(result.get("rehearsal") == pending["rehearsal"], "rehearsal_result_variant")
                     result["rehearsal_reason"] = pending.get("rehearsal_reason")
@@ -667,13 +680,21 @@ def reconcile(config, state):
                 # backup_copy_not_acknowledged path exits without switching.
                 if not pending.get("operator_disabled") and not merge_disable(config, state):
                     if pending["mode"] == "live" and "acceptance_preflight" not in pending:
-                        # 70s readiness + two 10s transfers + 10s margin must
-                        # fit before the executor's published backup deadline.
+                        # Reserve readiness time; copy_export rechecks the
+                        # transfer/ack budget after the two capped data reads.
                         deadline = result.get("backup_ack_deadline", 0)
                         budget = fixture_limit(config, "backup_preflight_budget", 100)
                         pending["acceptance_preflight"] = (deadline - time.time() >= budget
                                                            and acceptance_preflight(config))
                         if not pending["acceptance_preflight"]:
+                            pending["acceptance_infra_unavailable"] = True
+                        save_state(config, state)
+                    if (pending["mode"] == "live" and not pending.get("acceptance_infra_unavailable")
+                            and "data_guard_before" not in pending):
+                        try:
+                            pending["data_guard_before"] = data_snapshot(config)
+                        except DataReadUnavailable as exc:
+                            pending["data_guard"] = {"outcome": "before_read_failed", "side": exc.side}
                             pending["acceptance_infra_unavailable"] = True
                         save_state(config, state)
                     if not pending.get("acceptance_infra_unavailable"):
@@ -692,13 +713,17 @@ def reconcile(config, state):
                     save_state(config, state)
             if matching and result.get("phase") == "acceptance_ready":
                 if "acceptance" not in pending:
-                    pending["checker_verdict"] = acceptance(config, pending)
-                    pending["acceptance"] = pending["checker_verdict"]
-                    if pending["checker_verdict"] == "pass":
+                    rejected = pending["mode"] == "live" and data_guard(config, state, pending)
+                    if rejected:
+                        pending["acceptance"] = "fail"
+                    else:
+                        pending["checker_verdict"] = acceptance(config, pending)
+                        pending["acceptance"] = pending["checker_verdict"]
+                    if pending.get("checker_verdict") == "pass":
                         state.pop("acceptance_infra_outage", None)
-                    if pending["checker_verdict"] == "infra_unavailable":
+                    if pending.get("checker_verdict") == "infra_unavailable":
                         pending["acceptance_infra_unavailable"] = True
-                    if pending["acceptance"] == "fail":
+                    if pending["acceptance"] == "fail" and not pending.get("data_guard_failed"):
                         queue_alarm(config, state, pending["run_id"] + "-acceptance",
                                     {**pending, "reason": "acceptance_failed_or_timeout"}, "ACCEPTANCE FAILED")
                     save_state(config, state)
@@ -719,6 +744,101 @@ def reconcile(config, state):
                 return
         time.sleep(min(interval, max(0, pending["deadline"] - time.time())))
     unknown("executor_pending_timeout")
+
+
+class DataReadUnavailable(Exception):
+    def __init__(self, side):
+        self.side = side
+        super().__init__("data_guard_read_unavailable")
+
+
+class NoDataRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Refuse every redirect, including cross-host and scheme changes.
+        return None
+
+
+DATA_READ_LIMIT = 4 * 1024 * 1024
+DATA_READ_TIMEOUT = 10
+
+
+def data_snapshot(config):
+    """Reduce private response bodies to integers before crossing any boundary."""
+    snapshot = {}
+    for side in ("site", "layout"):
+        try:
+            base = config["acceptance_url"]
+            require(isinstance(base, str) and re.fullmatch(
+                r"https?://[A-Za-z0-9.-]+(?::[0-9]{1,5})?(?:/[A-Za-z0-9_/-]*)?", base),
+                "invalid_data_guard_url")
+            parsed = urllib.parse.urlsplit(base)
+            require(parsed.hostname and (parsed.port is None or 1 <= parsed.port <= 65535),
+                    "invalid_data_guard_url")
+            # Only the validated operator URL and these two fixed paths can
+            # reach urllib. No proxy or redirect can select a different host.
+            url = base.rstrip("/") + ("/api/site" if side == "site" else "/api/layout")
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoDataRedirect())
+            with opener.open(urllib.request.Request(url, method="GET"), timeout=DATA_READ_TIMEOUT) as response:
+                require(response.status == 200, "data_guard_http_status")
+                body = response.read(DATA_READ_LIMIT + 1)
+            require(len(body) <= DATA_READ_LIMIT, "data_guard_response_too_large")
+            value = strict_json(body)[side]
+            require(isinstance(value, dict) and type(value.get("rev")) is int and value["rev"] >= 0,
+                    "data_guard_revision_invalid")
+
+            def count(mapping):
+                require(isinstance(mapping, (dict, list)), "data_guard_map_invalid")
+                return len(mapping)
+
+            numbers = {"rev": value["rev"]}
+            if side == "site":
+                numbers.update(devices=count(value["nodes"]), floors=count(value["building"]["levels"]),
+                               rooms=count(value["building"]["zones"]))
+            else:
+                numbers["entities"] = sum(count(value.get(name, {})) for name in ("levels", "zones", "nodes", "links"))
+            snapshot[side] = numbers
+        except (Manual, OSError, http.client.HTTPException, UnicodeError, KeyError, TypeError, ValueError, RecursionError):
+            # Never retain an exception: HTTP and JSON errors may include a
+            # URL, header, response body, or a private name.
+            raise DataReadUnavailable(side) from None
+    return snapshot
+
+
+def data_guard(config, state, pending):
+    """Reject loss; a concurrent owner save keeps the release for human review."""
+    try:
+        after = data_snapshot(config)
+        before = pending.get("data_guard_before")
+        if before is None:
+            raise DataReadUnavailable("site")
+        comparisons = {}
+        for side in ("site", "layout"):
+            old, new = before[side], after[side]
+            if new["rev"] < old["rev"]:
+                case = 3
+            elif new["rev"] > old["rev"]:
+                case = 4
+            elif new != old:
+                case = 2
+            else:
+                case = 1
+            comparisons[side] = {"case": case, "before": old, "after": new}
+        rejected = any(item["case"] in {2, 3} for item in comparisons.values())
+        changed = any(item["case"] == 4 for item in comparisons.values())
+        pending["data_guard"] = {"outcome": "reject" if rejected else "owner_save" if changed else "pass",
+                                 **comparisons}
+    except DataReadUnavailable as exc:
+        pending["data_guard"] = {"outcome": "after_read_failed", "side": exc.side}
+        rejected = True
+        changed = False
+    if rejected:
+        pending["data_guard_failed"] = True
+        pending["acceptance"] = "fail"
+    if rejected or changed:
+        queue_alarm(config, state, pending["run_id"] + "-data-guard", pending,
+                    "DATA GUARD REJECTED" if rejected else "DATA GUARD OWNER SAVE; release kept; inspect data")
+    save_state(config, state)
+    return rejected
 
 
 def acceptance_settings(config):

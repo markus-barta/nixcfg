@@ -507,7 +507,7 @@ hosts; hsb0 and hsb1 retain their existing failure behavior. Other mbp2607
 failures still fail the unit and log the last five error lines with URL query
 strings removed.
 
-### Guarded hausnetz CD (OPS-705 / OPS-752)
+### Guarded hausnetz CD (OPS-705 / OPS-752 / OPS-753)
 
 The host configuration opts hsb0 into `allowLive = true` and mbp2607's two-minute
 launchd agent into `enable = true`, `mode = "live"`, with the packaged acceptance
@@ -1001,6 +1001,42 @@ failed rollback health or mismatched readbacks is a real rollback failure;
 aborts rehearsal and latches after a switch under the readback safety rules.
 
 #### Trusted acceptance invocation (gate 3 / HNET-611)
+
+In live mode, the OPS-753 data guard reads `GET <acceptanceUrl>api/site` and
+`GET <acceptanceUrl>api/layout` on the Mac after the backup-ready acceptance
+preflight and before writing the backup acknowledgment. It reads them again
+after the switch and before invoking acceptance. Each response is capped at
+4 MiB with a 10-second read timeout; proxies and redirects are disabled. Bodies
+remain in-process and are reduced to integers: site revision, devices, floors
+and rooms; layout revision and the sum of its levels, zones, nodes and links.
+Omitted layout maps count as zero. Site and layout use their own revisions:
+
+| Case | Comparison for either side                     | Action                                                            |
+| ---- | ---------------------------------------------- | ----------------------------------------------------------------- |
+| 1    | Same revision and equal counts                 | Continue to acceptance.                                           |
+| 2    | Same revision and any count differs            | Reject acceptance, roll back and alarm.                           |
+| 3    | Revision lower or reset                        | Reject acceptance, roll back and alarm.                           |
+| 4    | Revision higher (owner save during the window) | Keep the release, continue acceptance and alarm for human review. |
+
+A case 2 or 3 on either side takes precedence over case 4 on the other. Read
+failure includes non-200 responses, oversized bodies, malformed JSON, missing
+fields, and non-integer revisions (including booleans). Before the switch it
+withholds the backup acknowledgment: no switch, no failed-target tombstone, no
+safety latch, retryable with one infrastructure alarm per outage. After the
+switch it always rejects through the existing acceptance rollback path and
+sets the failed-target tombstone and safety latch. A controller resumed without
+the saved before-read also rejects; it cannot manufacture a baseline.
+
+Alarms identify site/layout, case and the numeric before/after summaries;
+read-failure alarms identify the side and phase without exception text. No
+body or name enters state, the ledger or logs. The checker verdict remains
+separate. Case 4 records `data_guard.outcome = "owner_save"` in state, the
+attempt ledger and the release report, without a failed-target tombstone or
+safety latch from the guard. On that alarm, inspect the numeric differences and
+confirm the owner's save in hausnetz, check that the expected data is present,
+and decide whether recovery or further investigation is needed. A rollback
+does not restore data, so case 4 never triggers automatic rollback; any later
+checker failure still follows normal acceptance recovery.
 
 The checker belongs to hausnetz (HNET-611); nixcfg supplies only the call and
 rollback contract. Configure `acceptanceCommand` as an argv array for the Mac's
