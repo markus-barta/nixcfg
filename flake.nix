@@ -66,13 +66,13 @@
       url = "github:markus-barta/hostdash/7e4896dcedbe083db8aa96e82587e4da28c2c8cd";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 84: v261128075822.0.0 (hausnetz main e74995b0; annotated tag). Since 83: the acceptance checker
-    # accepts every view's steady state only when it is consistent with the server (HNET-639; data-missing guard), a
-    # Devices view fix, QA/test changes, version data. NOT host-inert: scripts/qa-acceptance.mjs and web/src changed;
-    # no Go, nix/, flake, dependency or capability-manifest change. Manual switch (OPS-755, release HNET-641).
-    # Rollback: previous generation (pin 83); a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 86: v261128105422.0.0 (sequence 156; hausnetz main bcdee321; annotated tag). Since 85: UX sweep 2 in
+    # Activity, Overview, Settings and the Inbox (HNET-643; web/src), new smoke baselines, a QA script, release data.
+    # Host-inert against 85: no Go, nix/, flake, dependency, capability-manifest or acceptance-checker change.
+    # Manual switch (OPS-765, release HNET-648; the CD go-live window moved to 11-29).
+    # Rollback: previous generation (pin 85); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=e74995b0cf062293f71b9cc6467fe91308894ff6";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=bcdee32176f77f69c13e65e39c14c6efbdbbfd7d";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
@@ -121,6 +121,8 @@
     # INSPR-483: keep this input synchronized with the doctrine gitlink.
     # Rollback: previous pair 9eedb7f8 (v261008075622.0.0) resolves only while
     # the archive is reachable under this name (INSPR-299 runbook).
+    # Bump the agm-nixcfg agent-kernel pin (its inspr-modules flake input) in the
+    # same change window; its gate-time check compares the two pins (OPS-759).
     inspr-modules.url = "github:inspr-at/inspr-modules/4b3c7ef3bba1c45055a7a31a21121d6dbef1216f"; # v261009132555.0.0
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };

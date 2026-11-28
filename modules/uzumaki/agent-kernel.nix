@@ -17,12 +17,13 @@
   imports = [
     inputs.inspr-modules.homeManagerModules.agent-kernel
     ./aeon-operator-mac.nix
+    ./doctrine-copies.nix
   ];
 
   inspr.agent-kernel = {
     enable = true;
     extraSources = [ ./agent-kernel-private.md ];
-    harnesses = {
+    harnesses = lib.optionalAttrs (!config.inspr.doctrineCopies.enable) {
       pi = ".pi/agent/AGENTS.md";
       grok = ".grok/AGENTS.md";
     };

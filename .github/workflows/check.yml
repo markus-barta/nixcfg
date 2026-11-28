@@ -414,9 +414,9 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash python3 --run "bash tests/T84-pi-inspr-kernel.sh"
 
-      # T129 evaluates offline against the exact locked sources and never
+      # T129/T130 evaluate offline against the exact locked sources and never
       # fetches; materialise them first and prove each hash against flake.lock.
-      - name: Prefetch the locked public sources T129 evaluates (OPS-737)
+      - name: Prefetch the locked public sources T129/T130 evaluate (OPS-737, OPS-754)
         if: steps.pin.outputs.pin_only != 'true'
         run: |
           set -euo pipefail
@@ -430,6 +430,10 @@ jobs:
       - name: Verify opt-in AEON operator Mac kernel and mutants (OPS-737)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash python3 --run "nice -n 10 bash tests/T129-aeon-operator-mac.sh"
+
+      - name: Verify opt-in doctrine copies and mutants (OPS-754)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash python3 --run "nice -n 10 bash tests/T130-doctrine-copies.sh"
 
       - name: Verify JoeDesk production host gates at exact source pins (OPS-354)
         if: steps.pin.outputs.pin_only != 'true'
