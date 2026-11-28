@@ -66,13 +66,12 @@
       url = "github:markus-barta/hostdash/7e4896dcedbe083db8aa96e82587e4da28c2c8cd";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 82: v261128042859.0.0 (sequence 152; hausnetz main d09257ee; annotated tag). Since 81: Undo keeps
-    # other edits (site-patch, HNET-637), scan view and HA-link fixes, timing/QA guards, acceptance-script changes.
-    # NOT host-inert: flake.nix npmHash and nix/bundle-inputs* changed (2 dev-only package-lock entries); capability
-    # manifest unchanged (1a85d9dd…); no non-test Go change. Manual switch (OPS-750; cd-prepare rc 1).
-    # Rollback: previous generation (pin 81); a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 83: v261128051818.0.0 (sequence 153; hausnetz main bcbc5013; annotated tag). Since 82: the Inbox shows
+    # scan results (HNET-635; release HNET-638); tests, a QA script, version/history data. Host-inert against 82: web/src/app.ts only;
+    # no Go, nix/, flake, dependency, capability manifest (1a85d9dd…) or acceptance-script change (OPS-751).
+    # Rollback: previous generation (pin 82); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=d09257ee24011f5408c92ccfa5b9d1f0b5f27968";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=bcbc5013126c1e4c27db21a8ed4de63cb8927cd8";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
