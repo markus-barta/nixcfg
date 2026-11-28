@@ -25,6 +25,8 @@ NEW_DIGEST = "sha256:" + "b" * 64
 PIN = {"version": NEW, "digest": NEW_DIGEST}
 TAG_SHA = "c" * 40
 MAIN_SHA = "d" * 40
+T125_MODES = [*(f"transactions-{n}" for n in range(1, 5)), "mutants", "coverage"]
+T125_JOBS = {"pharos-hausnetz-cd-" + mode for mode in T125_MODES}
 
 
 def compose(version=OLD, digest=OLD_DIGEST, service="aeon", image="aeon"):
@@ -411,28 +413,75 @@ class WorkflowFixtures(unittest.TestCase):
         self.assertEqual(job["if"], "always()")
         shards = {name for name in self.workflow["jobs"] if name.startswith("pharos-contracts-")}
         self.assertEqual(len(shards), 4)
-        required = shards | {"pharos-hausnetz-cd"}
+        required = shards | T125_JOBS
         self.assertEqual(set(job["needs"]), required)
         step, = job["steps"]
         self.assertEqual(step["env"]["CONTRACT_RESULTS"], "${{ join(needs.*.result, ' ') }}")
-        # Execute the actual gate for every possible terminal result tuple.
+        # Exercise every terminal tuple in one Bash process. Forking once per
+        # tuple would turn 4^10 cases into a CI bottleneck. Wrap its one exit
+        # as a function return; retain the actual comparison and branch body.
         import itertools
-        for results in itertools.product(("success", "failure", "cancelled", "skipped"), repeat=len(required)):
-            result = subprocess.run(["bash", "-e", "-c", step["run"]],
-                                    env={"CONTRACT_RESULTS": " ".join(results)}, capture_output=True)
-            self.assertEqual(result.returncode == 0, all(value == "success" for value in results), results)
+        self.assertEqual(step["run"].count("exit 1"), 1)
+        script = "assert_jobs() {\n" + step["run"].replace("exit 1", "return 1") + "\n}\n" + r'''
+checked=0
+while IFS='|' read -r expected CONTRACT_RESULTS; do
+  if assert_jobs >/dev/null; then actual=0; else actual=1; fi
+  if [ "$actual" != "$expected" ]; then
+    printf 'wrong verdict %s for %s\n' "$actual" "$CONTRACT_RESULTS" >&2
+    exit 1
+  fi
+  checked=$((checked + 1))
+done
+printf 'validated=%s\n' "$checked"
+'''
+        with tempfile.TemporaryFile(mode="w+") as inputs:
+            for results in itertools.product(("success", "failure", "cancelled", "skipped"), repeat=len(required)):
+                expected = 0 if all(value == "success" for value in results) else 1
+                inputs.write(str(expected) + "|" + " ".join(results) + "\n")
+            # Missing/extra needs must fail even when all supplied jobs pass.
+            inputs.write("1|" + " ".join(["success"] * (len(required) - 1)) + "\n")
+            inputs.write("1|" + " ".join(["success"] * (len(required) + 1)) + "\n")
+            inputs.seek(0)
+            result = subprocess.run(["bash", "-e", "-c", script], stdin=inputs,
+                                    capture_output=True, text=True, timeout=420)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), f"validated={4 ** len(required) + 2}")
+        # Also execute the unmodified exit path for success and each distinct
+        # one-job failure/cancellation/skip, without the function wrapper.
+        for index in range(len(required)):
+            for status in ("success", "failure", "cancelled", "skipped"):
+                results = ["success"] * len(required)
+                results[index] = status
+                result = subprocess.run(["bash", "-e", "-c", step["run"]],
+                                        env={"CONTRACT_RESULTS": " ".join(results)}, capture_output=True)
+                self.assertEqual(result.returncode == 0, status == "success", results)
 
-    def test_hausnetz_cd_has_one_dedicated_required_budget(self):
+    def test_hausnetz_cd_modes_have_unique_required_budgets(self):
         jobs = self.workflow["jobs"]
-        job = jobs["pharos-hausnetz-cd"]
-        self.assertEqual(job["timeout-minutes"], 45)
-        self.assertIn("pharos-hausnetz-cd", jobs["pharos-rollout"]["needs"])
-        owners = [name for name, config in jobs.items()
+        owners = [(name, step["run"]) for name, config in jobs.items()
                   for step in config.get("steps", [])
                   if "tests/T125-hausnetz-cd.sh" in step.get("run", "")]
-        self.assertEqual(owners, ["pharos-hausnetz-cd"])
-        self.assertNotIn("hausnetz-input", str(job))
-        self.assertNotIn("continue-on-error", str(job))
+        self.assertEqual(len(owners), len(T125_MODES))
+        for mode in T125_MODES:
+            name = "pharos-hausnetz-cd-" + mode
+            job = jobs[name]
+            self.assertEqual(job["name"], "Pharos hausnetz CD contracts — " + mode)
+            self.assertEqual(job["timeout-minutes"], 25)
+            self.assertNotIn("needs", job, "T125 modes, including coverage, must run independently")
+            self.assertIn(name, jobs["pharos-rollout"]["needs"])
+            expected_command = "bash tests/T125-hausnetz-cd.sh " + mode
+            if mode != "coverage":
+                expected_command = 'nix-shell -p bash git python3 just --run "' + expected_command + '"'
+            self.assertEqual([owner for owner, command in owners if command == expected_command], [name])
+            if mode == "coverage":
+                self.assertEqual(len(job["steps"]), 3)
+                self.assertEqual(job["steps"][2]["run"], "bash tests/T125-hausnetz-cd.sh coverage")
+                self.assertFalse(any("uses" in step for step in job["steps"][2:]))
+            else:
+                self.assertEqual(job["steps"][2]["uses"], "./.github/actions/pharos-nix")
+            self.assertNotIn("secrets.", str(job))
+            self.assertNotIn("hausnetz-input", str(job))
+            self.assertNotIn("continue-on-error", str(job))
 
     def test_shards_keep_job_local_prerequisites(self):
         shards = [self.workflow["jobs"][name]["steps"]

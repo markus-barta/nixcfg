@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 # OPS-705: entirely offline, bounded PATH-fake transactions; never a Nix build.
 set -euo pipefail
+mode=${1:-all}
+if [ "$#" -gt 1 ]; then
+  printf 'usage: %s [transactions|transactions-[1-4]|mutants|coverage]\n' "$0" >&2
+  exit 2
+fi
+case "$mode" in
+all | transactions | transactions-[1-4] | mutants | coverage) ;;
+*)
+  printf 'usage: %s [transactions|transactions-[1-4]|mutants|coverage]\n' "$0" >&2
+  exit 2
+  ;;
+esac
 started=$SECONDS
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 phase_started=$SECONDS
@@ -8,22 +20,29 @@ phase_done() {
   printf 'T125 phase %s: %s seconds\n' "$1" "$((SECONDS - phase_started))"
   phase_started=$SECONDS
 }
-python3 -B "$repo/tests/test_hausnetz_cd_adapter.py"
-phase_done adapter-tests
-python3 -B "$repo/tests/test_hausnetz_cd_adapter.py" --mutants
-phase_done adapter-mutants
-python3 -B "$repo/tests/test_hsb0_deploy_lock.py"
-phase_done deploy-lock-tests
-python3 -B "$repo/tests/test_hausnetz_cd.py"
-phase_done transaction-cases
-python3 -B "$repo/tests/test_hausnetz_cd.py" --mutants
-phase_done transaction-mutants
-python3 -B "$repo/tests/test_hausnetz_cd_mutant_pool.py"
-phase_done mutant-pool-controls
-for source in "$repo/modules/hausnetz-cd/default.nix" "$repo/hosts/mbp2607/hausnetz-cd.nix" "$repo/hosts/csb1/hausnetz-cd-alert.nix" "$repo/hosts/mbp2607/ci-vm.nix"; do
-  nix-instantiate --parse "$source" >/dev/null
-done
-nix-instantiate --eval --strict --json "$repo/tests/hausnetz-cd-eval.nix" | python3 -c '
+if [ "$mode" = all ] || [ "$mode" = coverage ]; then
+  python3 -B "$repo/tests/test_hausnetz_cd_shards.py"
+  phase_done shard-coverage
+fi
+case "$mode" in
+transactions-[1-4])
+  python3 -B "$repo/tests/test_hausnetz_cd.py" --shard "${mode##*-}"
+  phase_done transaction-shard
+  ;;
+esac
+if [ "$mode" = all ] || [ "$mode" = transactions ] || [ "$mode" = transactions-1 ]; then
+  python3 -B "$repo/tests/test_hausnetz_cd_adapter.py"
+  phase_done adapter-tests
+  python3 -B "$repo/tests/test_hsb0_deploy_lock.py"
+  phase_done deploy-lock-tests
+  if [ "$mode" != transactions-1 ]; then
+    python3 -B "$repo/tests/test_hausnetz_cd.py"
+    phase_done transaction-cases
+  fi
+  for source in "$repo/modules/hausnetz-cd/default.nix" "$repo/hosts/mbp2607/hausnetz-cd.nix" "$repo/hosts/csb1/hausnetz-cd-alert.nix" "$repo/hosts/mbp2607/ci-vm.nix"; do
+    nix-instantiate --parse "$source" >/dev/null
+  done
+  nix-instantiate --eval --strict --json "$repo/tests/hausnetz-cd-eval.nix" | python3 -c '
 import json, sys
 c = json.load(sys.stdin)
 e, o = c["executorDefaults"], c["orchestratorDefaults"]
@@ -97,6 +116,15 @@ for name in ("executorRunner", "orchestratorRunner"):
     compile(c[name]["entrypoint"], name, "exec")
 print("T125 Nix module contracts: safe module defaults, live host opt-ins, packaged adapter, selected Nix passed")
 '
-phase_done nix-checks
-printf 'T125 hausnetz CD: offline transactions and mutants passed\n'
+  phase_done nix-checks
+fi
+if [ "$mode" = all ] || [ "$mode" = mutants ]; then
+  python3 -B "$repo/tests/test_hausnetz_cd_adapter.py" --mutants
+  phase_done adapter-mutants
+  python3 -B "$repo/tests/test_hausnetz_cd.py" --mutants
+  phase_done transaction-mutants
+  python3 -B "$repo/tests/test_hausnetz_cd_mutant_pool.py"
+  phase_done mutant-pool-controls
+fi
+printf 'T125 hausnetz CD: %s passed\n' "$mode"
 printf 'T125 elapsed: %s seconds\n' "$((SECONDS - started))"

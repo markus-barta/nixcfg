@@ -82,18 +82,57 @@ Offline executor/orchestrator transactions use fixture Git repositories and
 PATH fakes for SSH, systemd, Nix, HTTP, switching and notifications. No network,
 NixOS evaluation/build or fleet access. Each core safety contract also runs
 against a guard-removal mutant that must fail. This `T*.sh` entry is included
-by the general runner above and the dedicated `pharos-hausnetz-cd` CI job
-(45-minute timeout). The always-run `Pharos fleet release compatibility` check
-requires this job and all four contract shards to succeed, including when a
-job fails, is cancelled or is skipped.
+by the general runner above. With no argument it runs every phase. CI splits
+it across four transaction jobs, one mutant job and one cheap coverage job.
+Each has a 25-minute timeout and retains the pin-only success path:
 
-Transaction cases stay sequential. Transaction mutants run in a pool
-of four workers, each with its own temporary source tree and subprocess. Output
-stays in case order; survivors, invalid runs, worker exceptions and the existing
-45-second per-mutant timeout fail the suite. The 14 adapter mutants stay
-sequential because their baseline takes only 14 seconds. T125 also exercises
-surviving, crashing, timed-out and invalid pool controls through the real
-`--mutants` entry point, and prints elapsed seconds for every phase.
+```bash
+bash tests/T125-hausnetz-cd.sh transactions-1  # shard 1, adapter, deploy lock, Nix checks
+bash tests/T125-hausnetz-cd.sh transactions-2  # shard 2 (also transactions-3 and transactions-4)
+bash tests/T125-hausnetz-cd.sh mutants         # adapter mutants, pooled mutants, controls
+bash tests/T125-hausnetz-cd.sh coverage        # no Nix setup, independent of shard runs
+```
+
+The always-run `Pharos fleet release compatibility` check requires
+`pharos-hausnetz-cd-transactions-1` through `-4`,
+`pharos-hausnetz-cd-mutants` and `pharos-hausnetz-cd-coverage` plus all four
+contract shards to succeed. A failed, cancelled or skipped job fails the check.
+The aggregate contract tests every terminal-result combination.
+
+Transaction assignment is SHA256 of the fully qualified class/method name
+modulo four (one-based); discovery includes every local unittest class. Each
+shard runs sequentially in one Python process. Coverage compares their union
+with an independent unittest inventory, rejects missing and duplicated cases,
+and checks assignment across discovery orders, hash seeds and processes. New
+cases inherit the same rule. The coverage job runs without waiting for shards.
+The local `transactions` mode still runs all transaction phases. CI sizing
+uses a conservative 2.5x local wall-time projection, targeting at most six
+minutes locally (15 minutes projected), plus checkout and Nix/cache setup.
+These jobs need no private inputs: their only real Nix evaluation is a local
+expression with stubbed inputs, guarded by T113's standalone-job checks.
+
+Transaction cases stay sequential. Transaction mutants run in a pool of four
+workers, each with its own temporary source tree and subprocess. Mutants whose
+target is listed in `TIMING_WINDOW_TARGETS` run sequentially after the pool:
+these tests use short deadlines or process-handshake windows that CPU contention
+could otherwise turn into false kills. The same failure handling applies to
+both groups; the final count includes every selected case exactly once.
+
+Pooled output stays in case order; survivors, invalid runs, worker exceptions
+and the `MUTANT_TIMEOUT_SECONDS = 120` subprocess cap fail the suite. The 14
+adapter mutants stay sequential with their existing 20-second cap. T125 injects
+surviving, crashing, timed-out and invalid
+controls at `check_mutant` through the real `--mutants` CLI dispatcher. The timeout
+control checks the production `timeout=120` argument before exercising a real
+subprocess with a short fixture cap. A separate must-fail test proves that
+removing or raising the production cap fails that check. Each adapter and
+transaction mutant prints elapsed seconds in its killed line; T125 also prints
+every phase duration.
+
+Child-lifecycle fixtures check the actual cancellation outcome: success must
+stop the descendant group and clear ownership; denied cleanup must retain the
+exact ownership record even if the group exits just afterward. This avoids
+racing a second liveness probe against asynchronous process termination.
 
 ## CI guest cgroup delegation (T126 / OPS-719)
 
@@ -226,8 +265,8 @@ python3 -m unittest discover -s tests -p 'test_aeon_pin_gate.py' -v
 
 ## Pharos shared public Nix cache (OPS-453)
 
-The four contract shards and the dedicated hausnetz CD job use
-`.github/actions/pharos-nix` immediately after
+The four contract shards, four hausnetz transaction jobs and dedicated mutant
+job use `.github/actions/pharos-nix` immediately after
 diff classification. It installs Nix without downloading a mutable channel,
 restores one shared store snapshot, verifies the public nixpkgs source against
 `flake.lock`'s NAR hash, and sets `NIX_PATH` to that same source for `nix-shell`.
@@ -247,8 +286,10 @@ save. This boundary matters: T38 subsequently puts a private source in that
 runner's store. Never move the snapshot after tests or replace it with an
 action that saves the final store. The other contract jobs restore the same public
 snapshot without competing uploads. Existing private-key cleanup, exact
-pin-only classification and T33's exactly-once guard remain in place. The
-always-run aggregate requires all five contract jobs to succeed.
+pin-only classification and T33's exactly-once guard remain in place (one
+invocation per T125 CI mode in its dedicated job). The
+always-run aggregate requires all ten contract jobs to succeed, including the
+independent coverage job (which needs no Nix setup).
 
 The brief supplies a 19.9 runner-minute baseline and a 23% M1 increase:
 

@@ -3955,24 +3955,40 @@ class TestCD(unittest.TestCase):
                     controller.wait(timeout=3)
 
     def test_controller_normal_and_exception_exit_cancel_children(self):
-        from common import controller_children, child_process, child_group_alive, run
+        from common import controller_children, child_process, child_group_alive, run, cancel_child
         record = self.f.root / "owned-children.json"
         pidfile = self.f.root / "normal-child-pid"
         adapter = self.f.root / "normal-adapter.py"
         adapter.write_text("import subprocess,sys\nfrom pathlib import Path\n"
-                           "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(10)'],"
+                           "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],"
                            "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
                            + "Path(" + repr(str(pidfile)) + ").write_text(str(child.pid))\n")
-        with controller_children(record):
-            run(sys.executable, [str(adapter)])
-        # If cancellation is denied by the host, the record must survive
-        # until the descendant exits; forgetting it would permit overlap.
-        if record.exists():
-            entries = json.loads(record.read_text())
-            self.assertEqual(len(entries), 1)
-            self.assertTrue(child_group_alive(entries[0]))
+        cancellations = []
+        def cancel_normal(process):
+            cancelled = cancel_child(process)
+            cancellations.append((process.pid, cancelled))
+            return cancelled
         child = None
         try:
+            with mock.patch("common.cancel_child", side_effect=cancel_normal):
+                with controller_children(record):
+                    run(sys.executable, [str(adapter)])
+            self.assertEqual(len(cancellations), 1)
+            pid, cancelled = cancellations[0]
+            entry = {"pid": pid, "pgid": pid}
+            if cancelled:
+                self.assertFalse(record.exists(), "successful cancellation must clear ownership")
+                deadline = time.monotonic() + 3
+                while child_group_alive(entry) and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertFalse(child_group_alive(entry), "successful cancellation must stop descendants")
+            else:
+                # A restricted host can deny KILL just as the group exits.
+                # Require ownership after denial, without racing a second
+                # liveness probe against asynchronous process termination.
+                self.assertTrue(record.exists(), "denied cancellation must retain exact ownership")
+                self.assertEqual(json.loads(record.read_text()), [entry],
+                                 "denied cancellation must retain exact ownership")
             with self.assertRaisesRegex(RuntimeError, "fixture exception"), controller_children(record):
                 with child_process([sys.executable, "-c", "import time; time.sleep(30)"]) as child:
                     self.assertTrue(record.exists())
@@ -4943,6 +4959,57 @@ class TestAlertSender(unittest.TestCase):
         self.assertIn("./hausnetz-cd-alert.nix", (REPO / "hosts/csb1/configuration.nix").read_text())
 
 
+# These targets assert short deadlines or process-handshake windows. Run all
+# mutants targeting them sequentially after the pool so CPU contention cannot
+# turn an unrelated timing assertion into a false kill.
+TIMING_WINDOW_TARGETS = frozenset({
+    "test_once_requires_both_flags_and_refuses_live_pending",
+    "test_acceptance_orphan_pipe_timeout_rolls_back",
+    "test_timeout_pipe_from_escaped_descendant_is_bounded",
+    "test_controller_term_and_int_kill_descendant_group",
+    "test_release_detached_from_controller_timeout",
+})
+
+# CI runners are budgeted at 2.5x local wall time. The longest measured mutant
+# took ~28s locally; 120s leaves room for ~70s in CI while bounding every child.
+MUTANT_TIMEOUT_SECONDS = 120
+TRANSACTION_SHARDS = 4
+
+
+def check_mutant(case):
+    started = time.monotonic()
+    label, file, edits, test = case
+    with tempfile.TemporaryDirectory(prefix="t125-mutant-", dir="/tmp") as temporary:
+        source = Path(temporary)
+        for path in SOURCE.glob("*"):
+            if path.suffix in {".py", ".sh"}:
+                shutil.copyfile(path, source / path.name)
+        for path in (REPO / "tests/fixtures/hausnetz-cd-command.py", REPO / "hosts/csb1/hausnetz-cd-alert.py"):
+            shutil.copyfile(path, source / path.name)
+        text = (source / file).read_text()
+        for before, after in edits:
+            if text.count(before) != 1:
+                raise AssertionError("Mutant no longer matches exactly once: " + label)
+            text = text.replace(before, after, 1)
+        (source / file).write_text(text)
+        target = test if "." in test else "TestCD." + test
+        result = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()), target],
+                                env=dict(os.environ, HAUSNETZ_CD_SOURCE=source.name),
+                                capture_output=True, text=True, timeout=MUTANT_TIMEOUT_SECONDS, check=False)
+        if result.returncode == 0:
+            raise AssertionError("SURVIVED guard-removal mutant: " + label)
+        # Do not count a syntax/import/fixture setup failure as a killed
+        # mutant. The selected behavior assertion itself must fail.
+        if "FAIL: " not in result.stderr:
+            raise AssertionError("Invalid mutant run: " + label + "\n" + result.stderr)
+        elapsed = time.monotonic() - started
+        timed_label = f"{label} ({elapsed:.3f}s)"
+        if label.startswith(("OPS752", "OPS753")):
+            assertion = next(line for line in result.stderr.splitlines() if line.startswith("AssertionError:"))
+            return timed_label + " — " + assertion
+        return timed_label
+
+
 def mutants(only=None, start_after=None):
     # Run the same behavioral assertions against real source copies. A zero
     # exit means a guard-removal survived and this entire test must fail.
@@ -5399,64 +5466,60 @@ def mutants(only=None, start_after=None):
     if start_after is not None:
         cases = cases[[case[0] for case in cases].index(start_after) + 1:]
 
-    def check_mutant(case):
-        label, file, edits, test = case
-        with tempfile.TemporaryDirectory(prefix="t125-mutant-", dir="/tmp") as temporary:
-            source = Path(temporary)
-            for path in SOURCE.glob("*"):
-                if path.suffix in {".py", ".sh"}:
-                    shutil.copyfile(path, source / path.name)
-            for path in (REPO / "tests/fixtures/hausnetz-cd-command.py", REPO / "hosts/csb1/hausnetz-cd-alert.py"):
-                shutil.copyfile(path, source / path.name)
-            text = (source / file).read_text()
-            for before, after in edits:
-                if text.count(before) != 1:
-                    raise AssertionError("Mutant no longer matches exactly once: " + label)
-                text = text.replace(before, after, 1)
-            (source / file).write_text(text)
-            target = test if "." in test else "TestCD." + test
-            result = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()), target],
-                                    env=dict(os.environ, HAUSNETZ_CD_SOURCE=source.name),
-                                    capture_output=True, text=True, timeout=45, check=False)
-            if result.returncode == 0:
-                raise AssertionError("SURVIVED guard-removal mutant: " + label)
-            # Do not count a syntax/import/fixture setup failure as a killed
-            # mutant. The selected behavior assertion itself must fail.
-            if "FAIL: " not in result.stderr:
-                raise AssertionError("Invalid mutant run: " + label + "\n" + result.stderr)
-            if label.startswith(("OPS752", "OPS753")):
-                assertion = next(line for line in result.stderr.splitlines() if line.startswith("AssertionError:"))
-                return label + " — " + assertion
-            return label
     # map yields in case order and re-raises every worker exception. A
-    # survivor, invalid run or 45-second subprocess timeout fails the CLI.
+    # survivor, invalid run or per-mutant subprocess timeout fails the CLI.
+    pooled = [case for case in cases if case[3] not in TIMING_WINDOW_TARGETS]
+    sequential = [case for case in cases if case[3] in TIMING_WINDOW_TARGETS]
     with ThreadPoolExecutor(max_workers=4) as workers:
-        for result in workers.map(check_mutant, cases):
+        for result in workers.map(check_mutant, pooled):
             print("must-fail mutant killed: " + result, flush=True)
+    print(f"T125: {len(pooled)} pooled mutants killed; {len(sequential)} timing-window mutants next", flush=True)
+    for case in sequential:
+        print("must-fail mutant killed: " + check_mutant(case), flush=True)
     print("T125: " + str(len(cases)) + " guard-removal mutants killed", flush=True)
 
 
-def parallel_cases():
-    names = unittest.defaultTestLoader.getTestCaseNames(TestCD)
-    groups = [names[index::4] for index in range(4)]
-    def check_group(group):
-        return subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()),
-                               *("TestCD." + name for name in group)],
-                              capture_output=True, text=True, timeout=600, check=False)
-    with ThreadPoolExecutor(max_workers=4) as workers:
-        results = list(workers.map(check_group, groups))
-    for result in results:
-        print(result.stdout, end="", flush=True)
-        print(result.stderr, end="", file=sys.stderr, flush=True)
-    if any(result.returncode for result in results):
-        raise SystemExit("T125: transaction shard failed")
-    print("T125: " + str(len(names)) + " transaction cases passed (4 bounded subprocesses)", flush=True)
+def transaction_names():
+    """Discover every local TestCase, including future classes and methods."""
+    return sorted(
+        f"{name}.{method}"
+        for name, cls in globals().items()
+        if isinstance(cls, type) and issubclass(cls, unittest.TestCase)
+        and cls.__module__ == __name__
+        for method in unittest.defaultTestLoader.getTestCaseNames(cls)
+    )
+
+
+def transaction_shard(name):
+    """One-based assignment, independent of discovery order and Python hash seed."""
+    return int.from_bytes(hashlib.sha256(name.encode("utf-8")).digest(), "big") % TRANSACTION_SHARDS + 1
+
+
+def shard_names(shard):
+    if shard not in range(1, TRANSACTION_SHARDS + 1):
+        raise ValueError("invalid transaction shard")
+    return [name for name in transaction_names() if transaction_shard(name) == shard]
+
+
+def run_transaction_shard(shard):
+    names = shard_names(shard)
+    if not names:
+        raise SystemExit("T125: empty transaction shard")
+    print(f"T125: transaction shard {shard}/{TRANSACTION_SHARDS}: {len(names)} cases", flush=True)
+    # One process, standard unittest runner: no threads or concurrent cases.
+    suite = unittest.defaultTestLoader.loadTestsFromNames(names, module=sys.modules[__name__])
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    raise SystemExit(0 if result.wasSuccessful() else 1)
+
+
+def main():
+    if sys.argv[1:] == ["--mutants"]:
+        mutants()
+    elif sys.argv[1:2] == ["--shard"] and len(sys.argv) == 3:
+        run_transaction_shard(int(sys.argv[2]))
+    else:
+        unittest.main(verbosity=2)
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["--mutants"]:
-        mutants()
-    elif sys.argv[1:] == ["--parallel"]:
-        parallel_cases()
-    else:
-        unittest.main(verbosity=2)
+    main()

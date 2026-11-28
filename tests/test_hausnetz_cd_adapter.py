@@ -528,6 +528,7 @@ def mutants():
         ("SIGTERM remote kill", "acceptance-adapter.py", 'self.command(self.ssh("kill"), timeout=1)', 'None', "test_sigterm_remote_kill_and_stop", 1),
     ]
     for name, filename, before, after, test, count in cases:
+        started = time.monotonic()
         with tempfile.TemporaryDirectory(prefix="t125-adapter-", dir="/tmp") as tmp:
             source = Path(tmp)
             for path in SOURCE.glob("*.py"):
@@ -543,7 +544,7 @@ def mutants():
             if result.returncode == 0 or "FAIL: " not in result.stderr:
                 raise AssertionError("survived or invalid mutant: " + name + "\n" + result.stderr)
             assertion = next(line for line in result.stderr.splitlines() if line.startswith("AssertionError:"))
-            print("must-fail adapter mutant killed: " + name + " — " + assertion, flush=True)
+            print(f"must-fail adapter mutant killed: {name} ({time.monotonic() - started:.3f}s) — {assertion}", flush=True)
 
 
 if __name__ == "__main__":
