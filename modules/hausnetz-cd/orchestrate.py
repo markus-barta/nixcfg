@@ -543,14 +543,14 @@ def finish(config, state, result):
                     ("rollback succeeded" if result.get("rollback") == "succeeded" else "no switch"))
         retryable_stop = True
         if result.get("switched"):
-            pair = {"main": result["nixcfg_rev"], "running": running, "candidate": result["hausnetz_rev"]}
+            pair = {"run_key": key}
             counter = state.get("post_switch_infra", {})
             count = counter.get("count", 0) if all(counter.get(k) == v for k, v in pair.items()) else 0
             counter = state["post_switch_infra"] = {**pair, "count": count + 1}
             if counter["count"] >= 2:
                 retryable_stop = False
                 result.update(status="failed", reason="acceptance_infrastructure_failed_after_switch_twice")
-                queue_alarm(config, state, key + "-infra-manual", result,
+                queue_alarm(config, state, key + "-infra-manual-" + result["run_id"], result,
                             "acceptance infrastructure failed after switch twice; manual")
     if stop_caused:
         state["operator_stopped_revisions"] = (list(dict.fromkeys(
@@ -1028,6 +1028,8 @@ def tick_owned(config, child_record):
             state["failed"] = [rev for rev in state["failed"] if rev != target]
             state["attempted"] = {key: entry for key, entry in state["attempted"].items()
                                   if not matches_attempt(key)}
+            if matches_attempt(state.get("post_switch_infra", {}).get("run_key", "")):
+                state.pop("post_switch_infra", None)
             state.pop("evaluated", None)
             state.setdefault("failed_cleared", []).append({"at": now(), "rev": target, "reason": config["clear_reason"]})
             state["failed_cleared"] = state["failed_cleared"][-200:]
@@ -1248,7 +1250,7 @@ def tick_owned(config, child_record):
             return
         if config["mode"] == "live":
             counter = state.get("post_switch_infra", {})
-            if counter.get("candidate") != expected:
+            if counter.get("run_key") != key:
                 state.pop("post_switch_infra", None)
             if not startup_preflight(config, state):
                 return

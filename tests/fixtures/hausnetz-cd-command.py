@@ -395,8 +395,11 @@ elif command == "bootctl":
 elif command == "acceptance" and args[:1] == ["--preflight"]:
     event("acceptance-preflight", args=args)
     assert args == ["--preflight", "http://fixture.invalid"]
-    print(json.dumps({"ok": not scenario.get("acceptance_preflight_busy")}))
-    raise SystemExit(75 if scenario.get("acceptance_preflight_busy") else 0)
+    busy = scenario.get("acceptance_preflight_busy")
+    if isinstance(busy, list):
+        busy = busy[min(occurrence("acceptance-preflight") - 1, len(busy) - 1)]
+    print(json.dumps({"ok": not busy}))
+    raise SystemExit(75 if busy else 0)
 elif command == "acceptance" and args == ["--release"]:
     event("acceptance-release", args=args)
     print('{"ok":true}')

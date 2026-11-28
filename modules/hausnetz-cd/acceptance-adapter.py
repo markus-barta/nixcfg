@@ -191,7 +191,8 @@ class Adapter:
             self.remote_active = True
             with bundle.open("rb") as data:
                 rc, stdout = self.command(self.ssh("run", rev, url, version, caps,
-                                                  str(self.config["timeout"])), stdin=data,
+                                                  str(self.config["timeout"]),
+                                                  str(time.time() + self.deadline - time.monotonic())), stdin=data,
                                           timeout=self.config["budget"], chatter=True, checker_transport=True)
         value = None
         infra = None

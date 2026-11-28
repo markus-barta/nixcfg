@@ -2496,8 +2496,7 @@ class TestCD(unittest.TestCase):
     def test_post_switch_infra_new_pair_resets_counter(self):
         from orchestrate import finish
         state = copy.deepcopy(self.f.live_state)
-        state["post_switch_infra"] = {"main":"b"*40, "running":self.f.old,
-                                      "candidate":"c"*40, "count":1}
+        state["post_switch_infra"] = {"run_key":self.f.old_hnet + "-" + "c"*40, "count":1}
         result = {**self.pending_record(), "status":"failed", "reason":"acceptance_failed_or_timeout",
                   "switched":True, "rollback":"succeeded", "acceptance_infra_unavailable":True,
                   "checker_verdict":"infra_unavailable"}
@@ -2506,6 +2505,46 @@ class TestCD(unittest.TestCase):
             finish(self.f.orchestrator, state, result)
         self.assertEqual(state["post_switch_infra"]["count"], 1)
         self.assertFalse(state["failed"])
+
+    def test_post_switch_infra_cap_survives_moving_main(self):
+        self.f.scenario.update(acceptance_exit=75, acceptance_output=json.dumps({
+            "schema":"hausnetz-cd.acceptance-adapter.v1", "ok":False,
+            "infra":"unavailable", "reason":"guest_unavailable"}))
+        self.f.tick("live")
+        self.assertEqual(self.f.state()["post_switch_infra"]["count"], 1)
+        previous_main = self.f.new
+        self.f.pin(self.f.new_hnet, 3)
+        self.f.new = self.f.commit(self.f.repo)
+        self.assertNotEqual(self.f.new, previous_main)
+        self.f.tick()
+        self.assertEqual(self.f.state()["post_switch_infra"]["count"], 2)
+        self.assertEqual(self.f.terminal()["status"], "failed")
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertNotIn("disabled", self.f.state())
+        self.f.tick()
+        self.assertEqual(len(self.f.events("switch")), 4)
+        alarms = [e for e in self.f.events("mailbox") if
+                  "acceptance infrastructure failed after switch twice; manual" in e["text"]]
+        self.assertEqual(len(alarms), 2)  # one manual alarm, two recipients
+
+    def test_clear_failed_resets_post_switch_infra_cap(self):
+        self.test_two_post_switch_infra_failures_tombstone()
+        self.f.tick(args=("--clear-failed", self.f.new_hnet, "--reason", "inspected infrastructure"))
+        self.assertNotIn("post_switch_infra", self.f.state())
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "acceptance_infra_unavailable")
+        self.assertEqual(self.f.state()["post_switch_infra"]["count"], 1)
+        self.assertFalse(self.f.state()["failed"])
+        self.assertFalse(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        state = self.f.state()
+        state["evaluated"]["at"] -= 1801
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "failed")
+        self.assertEqual(self.f.state()["post_switch_infra"]["count"], 2)
+        alarms = [e for e in self.f.events("mailbox") if
+                  "acceptance infrastructure failed after switch twice; manual" in e["text"]]
+        self.assertEqual(len(alarms), 4)  # a fresh manual alarm after operator clear
 
     def test_checker_fail_is_not_infra_even_with_infra_marker(self):
         from orchestrate import finish
@@ -4260,11 +4299,65 @@ class TestCD(unittest.TestCase):
         self.assertTrue(self.f.events("start"))
 
     def test_release_detached_from_controller_timeout(self):
-        from orchestrate import acceptance_release
-        with mock.patch("orchestrate.subprocess.Popen") as spawn:
-            acceptance_release(self.f.orchestrator)
-        self.assertEqual(spawn.call_args.args[0], [str(self.f.bin / "acceptance"), "--release"])
-        self.assertTrue(spawn.call_args.kwargs["start_new_session"])
+        release = self.f.root / "release.py"
+        release.write_text('import os,sys,time\nfrom pathlib import Path\n'
+                           'root = Path(__file__).parent\n'
+                           'assert sys.argv[1:] == ["--release"]\n'
+                           '(root / "release-ready").write_text(str(os.getpid()))\n'
+                           'while not (root / "controller-killed").exists(): time.sleep(0.02)\n'
+                           '(root / "release-done").touch()\n')
+        config = {**self.f.orchestrator, "acceptance_command": [sys.executable, str(release),
+                  "{trusted_rev}", "{url}", "{version}", "{caps_sha256}"]}
+        code = ('import sys,json,time\nsys.path.insert(0, sys.argv[1])\n'
+                'from orchestrate import acceptance_release\n'
+                'acceptance_release(json.loads(sys.argv[2]))\ntime.sleep(20)\n')
+        controller = subprocess.Popen([sys.executable, "-B", "-c", code, str(SOURCE), json.dumps(config)],
+                                      env=self.f.env, start_new_session=True)
+        ready, done = self.f.root / "release-ready", self.f.root / "release-done"
+        try:
+            deadline = time.monotonic() + 5
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(ready.exists())
+            os.killpg(controller.pid, signal.SIGTERM)
+            controller.wait(timeout=3)
+            (self.f.root / "controller-killed").touch()
+            deadline = time.monotonic() + 2
+            while not done.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(done.exists(), "release died with the controller process group")
+        finally:
+            if controller.poll() is None:
+                os.killpg(controller.pid, signal.SIGKILL)
+            controller.wait(timeout=3)
+            if ready.exists():
+                try:
+                    os.kill(int(ready.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def test_backup_ready_preflight_can_fail_after_startup(self):
+        self.f.scenario["acceptance_preflight_busy"] = [False, True]
+        self.f.executor["backup_ack_timeout"] = 0.8
+        self.f.tick("live")
+        self.assertEqual(len(self.f.events("acceptance-preflight")), 2)
+        self.assertEqual(self.f.terminal()["status"], "acceptance_infra_unavailable")
+        self.assertFalse(self.f.events("switch"))
+        self.assertFalse(self.f.events("acceptance"))
+        self.assertFalse(list(Path(self.f.executor["state_dir"]).glob("ack-[0-9a-f]*")))
+
+    def test_copy_export_deadline_guards(self):
+        from orchestrate import copy_export
+        result = {**self.pending_record(), "backup_ack_deadline":100,
+                  "export_sha256":"a"*64, "export_format":"json"}
+        for phase, readings in (("before export", [99.95, 99.95]), ("before ack", [99, 99.99])):
+            with self.subTest(phase=phase), mock.patch("orchestrate.time.time", side_effect=readings), \
+                    mock.patch("orchestrate.remote", return_value=b'{"devices":[]}') as remote, \
+                    mock.patch("orchestrate.parse_export", return_value=("json", "a"*64)):
+                copied = copy_export(self.f.orchestrator, result)
+            self.assertIs(copied, False)
+            actions = [call.args[1] for call in remote.call_args_list]
+            self.assertEqual(actions, [] if phase == "before export" else ["export"])
 
     def test_backup_preflight_budget_insufficient_withholds_ack(self):
         self.f.orchestrator["backup_preflight_budget"] = 100
@@ -5009,6 +5102,25 @@ def mutants(only=None, start_after=None):
          "test_infra_after_switch_rolls_back_retryable"),
     ])
     cases.extend([
+        ("OPS752 moving main resets infra cap", "orchestrate.py",
+         [('pair = {"run_key": key}', 'pair = {"run_key": key, "main": result["nixcfg_rev"]}')],
+         "test_post_switch_infra_cap_survives_moving_main"),
+        ("OPS752 clear failed leaves infra cap", "orchestrate.py",
+         [('if matches_attempt(state.get("post_switch_infra", {}).get("run_key", "")):\n                state.pop("post_switch_infra", None)',
+           'if False:\n                state.pop("post_switch_infra", None)')],
+         "test_clear_failed_resets_post_switch_infra_cap"),
+        ("OPS752 cleared cap alarm receipt reused", "orchestrate.py",
+         [('key + "-infra-manual-" + result["run_id"]', 'key + "-infra-manual"')],
+         "test_clear_failed_resets_post_switch_infra_cap"),
+        ("OPS752 backup ready preflight recheck removed", "orchestrate.py",
+         [('and acceptance_preflight(config))', 'and True)')],
+         "test_backup_ready_preflight_can_fail_after_startup"),
+        ("OPS752 copy export initial deadline guard removed", "orchestrate.py",
+         [('if deadline is not None and deadline - time.time() < fixture_limit(config, "backup_copy_budget", 25):',
+           'if False:')], "test_copy_export_deadline_guards"),
+        ("OPS752 copy export ack deadline guard removed", "orchestrate.py",
+         [('if deadline is not None and deadline - time.time() < fixture_limit(config, "backup_ack_margin", 15):',
+           'if False:')], "test_copy_export_deadline_guards"),
         ("OPS752 post-switch cap removed", "orchestrate.py",
          [('if counter["count"] >= 2:', 'if False:')], "test_two_post_switch_infra_failures_tombstone"),
         ("OPS752 checker verdict infra guard removed", "orchestrate.py",

@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 
 HOME = Path("/var/lib/ci-runners/hausnetz")
@@ -79,7 +80,10 @@ def main():
     if root.is_symlink():
         return 75
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    work = root / ("run-" + token)
+    resolved = os.path.normpath(root / ("run-" + token))
+    if not resolved.startswith(os.path.normpath(root) + os.sep):
+        return 75
+    work = Path(resolved)
     if mode == "kill":
         # mkdir covers cancellation before the main SSH command arrives.
         work.mkdir(mode=0o700, exist_ok=True)
@@ -95,9 +99,13 @@ def main():
                 except ProcessLookupError:
                     pass
         return 0
-    if mode != "run" or len(args) != 5:
+    if mode != "run" or len(args) != 6:
         return 75
-    rev, url, version, caps, timeout = args
+    rev, url, version, caps, timeout, deadline = args
+    # Share the adapter's wall-clock deadline across the SSH boundary. Setup
+    # and cold starts must leave the checker its full timeout plus exit grace.
+    timeout = float(timeout)
+    deadline = time.monotonic() + float(deadline) - time.time()
     prune(root)
     work.mkdir(mode=0o700, exist_ok=True)
     if work.is_symlink():
@@ -130,6 +138,8 @@ def main():
                 fcntl.flock(spawn, fcntl.LOCK_EX)
                 if (work / "cancelled").exists():
                     raise RuntimeError("cancelled")
+                if deadline - time.monotonic() < timeout + 5:
+                    raise RuntimeError("checker_budget_insufficient")
                 child = subprocess.Popen(["nix", "develop", "-c", "just", "acceptance", url, version, caps],
                                          cwd=checkout, stdout=subprocess.PIPE, stderr=sys.stderr,
                                          start_new_session=True, text=True)
@@ -137,7 +147,7 @@ def main():
             try:
                 print(json.dumps({"schema": "hausnetz-cd.checker-started.v1"}),
                       file=sys.__stdout__, flush=True)
-                stdout, _ = child.communicate(timeout=float(timeout))
+                stdout, _ = child.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
                 try:
                     os.killpg(child.pid, signal.SIGKILL)
@@ -169,8 +179,10 @@ def main():
     finally:
         if child is not None:
             try:
-                if child.poll() is None:
+                try:
                     os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 child.wait(timeout=1)
             except (OSError, subprocess.SubprocessError):
                 print("acceptance: child cleanup failed", file=sys.stderr)

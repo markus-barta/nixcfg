@@ -1061,8 +1061,9 @@ run-scoped lease under the controller cache's `acceptance/` directory. Successfu
 that leased VM through `ci-vm stop`, without `--force`. A failed/deferred stop
 retains the lease for recovery. A fresh host `ci-vm/acceptance-demand` stamp
 counts as active work for dispatcher idle detection and drain; release clears
-it before stopping. Crash residue expires after one hour. Explicit force and
-absolute uptime safety limits still apply. Do not remove leases to work around
+it before stopping. Crash residue expires after one hour. Explicit `--force` and
+the unknown-API uptime cap still apply while the stamp is active; the worker
+uptime cap is skipped. Do not remove leases to work around
 a busy guest.
 
 The controller runs startup preflight **before requesting attended ack** and

@@ -1,6 +1,7 @@
 """Offline adapter boundary tests: real local bundles, fake VM and checker."""
 
 import json
+import io
 import os
 from pathlib import Path
 import shutil
@@ -20,7 +21,10 @@ if override:
     import re
     if not re.fullmatch(r"t125-adapter-[A-Za-z0-9_-]+", override):
         raise ValueError("unsafe mutant")
-    SOURCE = Path("/tmp") / override
+    resolved = os.path.realpath(Path("/tmp") / override)
+    if not resolved.startswith(os.path.realpath("/tmp") + os.sep):
+        raise ValueError("unsafe mutant source")
+    SOURCE = Path(resolved)
 
 
 FAKE = r'''
@@ -84,6 +88,10 @@ elif name == 'nix':
     candidate = (root / 'candidate-rev').read_text()
     assert subprocess.run([str(root / 'real-git'), 'cat-file', '-e', candidate], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0, 'bundle included the candidate'
     (root / 'checker-pid').write_text(str(os.getpid()))
+    if scenario.get('orphan_after_exit'):
+        orphan = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(20)'],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        (root / 'orphan-pid').write_text(str(orphan.pid))
     if scenario.get('hang'):
         time.sleep(20)
     print('checker chatter')
@@ -348,6 +356,44 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(value["reason"], "checker_timeout")
         self.assertNotIn("infra", value)
 
+    def test_slow_setup_preserves_full_checker_budget(self):
+        code = (self.root / "guest.py").read_text().split('if __name__ == "__main__":')[0]
+        namespace = {"__name__":"fixture"}
+        exec(compile(code, "guest", "exec"), namespace)
+        # 91 of the 100 seconds are spent on setup. The 5-second checker and
+        # its 5-second exit margin no longer fit, so no marker may be emitted.
+        clock = mock.Mock()
+        clock.time.return_value = 1000
+        clock.monotonic.side_effect = [2000, 2091]
+        namespace["time"] = clock
+        argv = ["guest", "run", "a" * 32, *self.args, "5", "1100"]
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(sys, "stdin", mock.Mock(buffer=io.BytesIO(b"bundle"))), \
+                mock.patch.object(sys, "stdout", io.StringIO()), \
+                mock.patch.object(sys, "__stdout__", io.StringIO()) as transport, \
+                mock.patch("subprocess.check_output", side_effect=[self.rev + " refs/heads/trusted", "", "", self.rev, ""]), \
+                mock.patch("subprocess.Popen") as spawn:
+            status = namespace["main"]()
+        self.assertEqual(status, 75)
+        spawn.assert_not_called()
+        self.assertEqual(transport.getvalue(), "")
+
+    def test_exited_checker_leader_still_kills_descendants(self):
+        self.scenario["orphan_after_exit"] = True
+        result, value = self.run_adapter()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(value["ok"])
+        pid = int((self.root / "orphan-pid").read_text())
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.02)
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+
     def test_transport_expiry_after_start_is_fail(self):
         self.config["budget"] = 1.2
         self.scenario["transport_hang_after_start"] = True
@@ -466,6 +512,8 @@ class AdapterTests(unittest.TestCase):
 
 def mutants():
     cases = [
+        ("full checker budget after setup", "acceptance-guest.py", 'if deadline - time.monotonic() < timeout + 5:', 'if False:', "test_slow_setup_preserves_full_checker_budget", 1),
+        ("exited leader group cleanup", "acceptance-guest.py", 'if child is not None:\n            try:\n                try:\n                    os.killpg(child.pid, signal.SIGKILL)', 'if child is not None:\n            try:\n                try:\n                    if child.poll() is None:\n                        os.killpg(child.pid, signal.SIGKILL)', "test_exited_checker_leader_still_kills_descendants", 1),
         ("post-start timeout cleanup preserves FAIL", "acceptance-adapter.py", 'except (OSError, subprocess.SubprocessError):', 'except ():', "test_post_start_timeout_survives_transport_cleanup_error", 1),
         ("VM ownership", "acceptance-adapter.py", 'if markers:', 'if True:', "test_running_vm_not_owned", 1),
         ("candidate exclusion", "acceptance-adapter.py", 'rev + ":refs/heads/trusted"', '"HEAD:refs/heads/trusted"', "test_stopped_vm_bundle_and_single_json", 1),
