@@ -66,13 +66,13 @@
       url = "github:markus-barta/hostdash/7e4896dcedbe083db8aa96e82587e4da28c2c8cd";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 86: v261128105422.0.0 (sequence 156; hausnetz main bcdee321; annotated tag). Since 85: UX sweep 2 in
-    # Activity, Overview, Settings and the Inbox (HNET-643; web/src), new smoke baselines, a QA script, release data.
-    # Host-inert against 85: no Go, nix/, flake, dependency, capability-manifest or acceptance-checker change.
-    # Manual switch (OPS-765, release HNET-648; the CD go-live window moved to 11-29).
-    # Rollback: previous generation (pin 85); a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 87: v261128145301.0.0 (sequence 157; hausnetz main 694421c0; annotated tag). Since 86: Devices hide
+    # columns behind a count at the head's right end, connect handle on hover (HNET-647); Settings steppers, sort
+    # arrows and type remove as SVG icons (HNET-646); QA scripts, smoke baselines, release data. Host-inert against
+    # 86: no Go, nix/, flake, dependency, capability-manifest or acceptance-checker change. First attended CD run
+    # (OPS-767, release HNET-651). Rollback: previous generation (pin 86); a re-pin below 65 must drop homeAssistant.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=bcdee32176f77f69c13e65e39c14c6efbdbbfd7d";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=694421c035b9461fba848c89d40ff69bc8634731";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
