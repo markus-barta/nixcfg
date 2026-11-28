@@ -67,7 +67,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # HNET pin 83: v261128051818.0.0 (sequence 153; hausnetz main bcbc5013; annotated tag). Since 82: the Inbox shows
-    # scan results (HNET-638); tests, a QA script, version/history data. Host-inert against 82: web/src/app.ts only;
+    # scan results (HNET-635; release HNET-638); tests, a QA script, version/history data. Host-inert against 82: web/src/app.ts only;
     # no Go, nix/, flake, dependency, capability manifest (1a85d9dd…) or acceptance-script change (OPS-751).
     # Rollback: previous generation (pin 82); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
