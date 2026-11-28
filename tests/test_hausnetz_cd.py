@@ -1,12 +1,15 @@
 """Offline transactions and guard-removal mutants for OPS-705."""
 
 import copy
+from contextlib import redirect_stdout
+import io
 import fcntl
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
 import re
+import signal
 from pathlib import Path
 import shutil
 import subprocess
@@ -1283,7 +1286,7 @@ class TestCD(unittest.TestCase):
         self.manual()
         self.assertEqual(self.f.terminal()["reason"], "G3_escaped_closure_output")
 
-    def assert_no_delivery(self):
+    def assert_no_delivery(self, *, alarm_receipts=False):
         self.assertFalse(self.f.events("ticket"))
         self.assertFalse(self.f.events("start"))
         path = Path(self.f.orchestrator["state_file"])
@@ -1293,7 +1296,11 @@ class TestCD(unittest.TestCase):
             self.assertEqual(state["attempted"], {})
             self.assertEqual(state["reports"], {})
             self.assertIsNone(state["pending"])
-        self.assertFalse(list((path.parent / "hausnetz-cd-ledger").rglob("*.json")))
+        entries = list((path.parent / "hausnetz-cd-ledger").rglob("*.json"))
+        if alarm_receipts:
+            self.assertTrue(all(entry.parent.name == "alarms" for entry in entries))
+        else:
+            self.assertFalse(entries)
 
     def test_unchanged_pin_and_evidence_ssh_failure_across_two_commits(self):
         self.f.pin(self.f.old_hnet, 3)
@@ -1546,7 +1553,10 @@ class TestCD(unittest.TestCase):
         self.assertEqual([e["recipient"] for e in self.f.events("mailbox")], ["mac-lead", "lead"])
         self.assertEqual(len(self.f.events("secondary-telegram")), 1)
         self.assertFalse(self.f.events("ticket"))
-        self.assert_no_delivery()
+        self.assert_no_delivery(alarm_receipts=True)
+        self.assertEqual(len(list(ledger(self.f.orchestrator, "alarms", "unused").parent.glob("*.json"))), 1)
+        self.assertFalse(self.f.state()["pending_alarms"])
+        self.assertTrue(self.f.state()["pre_pair_failure"]["alarmed"])
         self.f.tick()
         self.assertNotIn("pre_pair_failure", self.f.state())
 
@@ -2088,8 +2098,10 @@ class TestCD(unittest.TestCase):
                 self.assertTrue(self.f.events("alarm-route-probe"))
                 self.assertTrue(all(e["kind"] == "alarm-route-probe" and e["text"] == ""
                                     and e["args"][-1] == "true" for e in self.f.events()))
-                self.assertFalse(Path(self.f.orchestrator["state_file"]).parent.exists())
-                self.assertFalse(Path(self.f.orchestrator["cache_dir"]).exists())
+                # Lock/child ownership directories may exist, but a refused
+                # probe must not create deployment state or leave a child.
+                self.assertFalse(Path(self.f.orchestrator["state_file"]).exists())
+                self.assertFalse((Path(self.f.orchestrator["state_file"]).parent / "controller-children.json").exists())
                 self.assertFalse(Path(self.f.executor["state_dir"]).exists())
 
     def test_rehearsal_route_failure_preserves_existing_state_without_reporting(self):
@@ -2290,7 +2302,7 @@ class TestCD(unittest.TestCase):
         for args in (("--clear-disable",), ("--clear-disable", "--reason", " "),
                      ("--clear-disable", "--reason", "reviewed", "--once", "--dry-run")):
             self.assertEqual(self.f.tick(args=args, expect_ok=False).returncode, 2)
-        self.f.tick(args=("--clear-disable", "--reason", "operator inspected recovery"))
+        self.f.tick(args=("--clear-disable", "--latch", "--reason", "operator inspected recovery"))
         self.assertNotIn("disabled", self.f.state())
         self.assertEqual(self.f.state()["failed"], [self.f.new_hnet])
         self.assertEqual(self.f.state()["disable_cleared"]["reason"], "operator inspected recovery")
@@ -2650,6 +2662,9 @@ class TestCD(unittest.TestCase):
         self.f.tick()
         self.assertEqual(len(self.f.events("mailbox")), 2)
         self.f.scenario["failed_units"] = ""
+        state = self.f.state()
+        state["evaluated"]["at"] -= 1801
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
         self.f.tick()
         self.assertEqual(self.f.terminal()["status"], "succeeded")
 
@@ -3290,6 +3305,1032 @@ class TestCD(unittest.TestCase):
         self.assertEqual(attempt.read_text(), '{"original":true}')
 
 
+    def pending_record(self, mode="live"):
+        return {"nixcfg_rev": self.f.new, "hausnetz_rev": self.f.new_hnet, "mode": mode,
+                "run_id": "a" * 32, "run_key": self.f.key, "phase": "executor",
+                "running_nixcfg_rev": self.f.old, "trusted_hausnetz_rev": self.f.old_hnet,
+                "expected_version": self.f.new_version, "manifest_sha256": self.f.manifest_sha,
+                "deadline": time.time() + 5}
+
+    def test_failed_units_captured_before_and_after_rollback(self):
+        for unavailable in (False, True):
+            with self.subTest(unavailable=unavailable), tempfile.TemporaryDirectory(prefix="t125-diag-") as tmp:
+                fixture = Fixture(Path(tmp))
+                token = "f" * 32
+                state = Path(fixture.executor["state_dir"])
+                fixture.write(state / ("ack-live-" + token), token)
+                fixture.write(state / ("ack-" + token), hashlib.sha256(b'{"devices":[]}').hexdigest())
+                fixture.run_id = token
+                observations = []
+                def failed(*, diagnostic=False):
+                    if not diagnostic:
+                        return []
+                    system = Path(fixture.executor["current_system"]).resolve()
+                    observations.append(system)
+                    if system == fixture.new_system:
+                        if unavailable:
+                            raise Manual("diagnostic_unavailable")
+                        return ["candidate.service"]
+                    return ["rollback.service"]
+                fixture.save()
+                try:
+                    with mock.patch.dict(os.environ, fixture.env), mock.patch("execute.failed_units", side_effect=failed), \
+                            mock.patch("execute.health", side_effect=[True, False, True]):
+                        error = None
+                        try:
+                            execute_transaction(fixture.executor, fixture.new, fixture.new_hnet, "live",
+                                                fixture.new_version, fixture.manifest_sha, fixture.old, token)
+                        except Exception as exc:
+                            error = exc
+                    self.assertIsNone(error, "diagnostic read failure must not interrupt rollback")
+                    result = fixture.result()
+                    self.assertEqual(observations, [fixture.new_system, fixture.old_system])
+                    self.assertEqual(result.get("failed_units_before_rollback"),
+                                     ["unavailable"] if unavailable else ["candidate.service"])
+                    self.assertEqual(result["failed_units_after_activation"], ["rollback.service"])
+                    self.assertEqual(result["rollback"], "succeeded")
+                    self.assertEqual(len(fixture.events("switch")), 2)
+                finally:
+                    fixture.stop()
+
+    def test_acceptance_decision_precedes_slow_alarm_retry(self):
+        pending = self.pending_record()
+        clock = [time.time()]
+        pending["deadline"] = clock[0] + 5
+        state = {**copy.deepcopy(self.f.live_state), "pending": pending,
+                 "pending_alarms": {"old": {"label": "OLD", "result": {}}}}
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.orchestrator["mode"] = "live"
+        decisions = []
+        def remote(_config, action, *_args, **kwargs):
+            if action == "acceptance":
+                decisions.append((kwargs["digest"], clock[0]))
+                return ""
+            self.assertEqual(action, "status")
+            return json.dumps({"unit_state": "active", "result": {
+                **pending, "schema": "inspr.pharos.guarded-deploy-result.v1",
+                "status": "running", "phase": "acceptance_ready"}})
+        def slow_retry(*_args):
+            clock[0] += 100  # failed routes can consume the entire window
+        with mock.patch("orchestrate.remote", side_effect=remote), \
+                mock.patch("orchestrate.acceptance", return_value="fail"), \
+                mock.patch("orchestrate.deliver_alarms", side_effect=slow_retry), \
+                mock.patch("orchestrate.time.time", side_effect=lambda: clock[0]), \
+                mock.patch("orchestrate.finish"):
+            tick(self.f.orchestrator)
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(decisions[0][0], "fail")
+        self.assertLess(decisions[0][1], pending["deadline"])
+
+    def test_pre_pair_alarm_is_durable_on_delivery_failure(self):
+        from orchestrate import pre_pair_failure, deliver_alarms
+        state = {**copy.deepcopy(self.f.live_state), "pre_pair_failure": {"since": 0, "alarmed": False}}
+        with mock.patch("orchestrate.alarm", return_value=False):
+            pre_pair_failure(self.f.orchestrator, state)
+        saved = self.f.state()
+        self.assertTrue(saved["pre_pair_failure"]["alarmed"])
+        self.assertEqual([e["label"] for e in saved.get("pending_alarms", {}).values()], ["CD PREFLIGHT UNAVAILABLE"])
+        with mock.patch("orchestrate.alarm", return_value=True) as alarm:
+            deliver_alarms(self.f.orchestrator, saved)
+        alarm.assert_called_once()
+        self.assertFalse(self.f.state()["pending_alarms"])
+
+    def test_vm_wait_alarm_is_durable_on_delivery_failure(self):
+        from orchestrate import deliver_alarms
+        state = {**copy.deepcopy(self.f.live_state),
+                 "vm_test_wait": {"rev": self.f.new_hnet, "since": 0, "alarmed": False}}
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.orchestrator["mode"] = "live"
+        self.f.save()
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.alarm", return_value=False), \
+                mock.patch("orchestrate.comment"), mock.patch("orchestrate.vm_test", return_value=("manual", "vm_test_missing")):
+            tick(self.f.orchestrator)
+        saved = self.f.state()
+        self.assertTrue(saved["vm_test_wait"]["alarmed"])
+        self.assertEqual([e["label"] for e in saved.get("pending_alarms", {}).values()], ["VM-TEST WAIT EXCEEDED"])
+        with mock.patch("orchestrate.alarm", return_value=True) as alarm:
+            deliver_alarms(self.f.orchestrator, saved)
+            deliver_alarms(self.f.orchestrator, saved)
+        alarm.assert_called_once()
+        self.assertFalse(self.f.state()["pending_alarms"])
+
+    def test_executor_preflight_backoff_tracks_main_and_running(self):
+        self.f.scenario["failed_units"] = "broken.service loaded failed failed Broken unit"
+        self.f.tick("live")
+        self.assertEqual(self.f.terminal()["status"], "preflight_refused")
+        count = len(self.f.events("prepare"))
+        self.f.tick()
+        self.assertEqual(len(self.f.events("prepare")), count)
+        self.assertEqual(len(self.f.events("start")), 1)
+        state = self.f.state()
+        self.assertEqual(state.get("evaluated", {}).get("running"), self.f.old)
+        tree = self.f.git(self.f.repo, "rev-parse", self.f.old + "^{tree}")
+        changed_running = self.f.git(self.f.repo, "commit-tree", tree, "-p", self.f.old, "-m", "alternate running baseline")
+        self.f.write(Path(self.f.executor["evidence_file"]), json.dumps({
+            "schema": "inspr.pharos.nix-deployment-evidence.v1", "source_revision": changed_running}))
+        import orchestrate
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.finish"), \
+                mock.patch("orchestrate.gate_g1", wraps=orchestrate.gate_g1) as gate:
+            tick(self.f.orchestrator)
+        self.assertEqual(gate.call_count, 1, "a changed running revision must bypass the refusal backoff")
+        self.assertEqual(gate.call_args.args[1], changed_running)
+        self.f.write(Path(self.f.executor["evidence_file"]), json.dumps({
+            "schema": "inspr.pharos.nix-deployment-evidence.v1", "source_revision": self.f.old}))
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.orchestrator["mode"] = "live"
+        self.f.advance("extra.nix", "main moved\n")
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.gate_g1", wraps=orchestrate.gate_g1) as gate:
+            tick(self.f.orchestrator)
+        self.assertEqual(gate.call_count, 1, "a new main must bypass the refusal backoff")
+
+    def test_pending_rehearsal_skips_route_probes(self):
+        pending = {**self.pending_record("rehearse"), "rehearsal": "A"}
+        state = {**copy.deepcopy(self.f.live_state), "pending": pending}
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.orchestrator.update(mode="rehearse", rehearsal="A", rehearsal_reason="inspect recovery")
+        with mock.patch("orchestrate.rehearsal_preflight") as probe, mock.patch("orchestrate.reconcile") as reconcile:
+            tick(self.f.orchestrator)
+        probe.assert_not_called()
+        reconcile.assert_called_once()
+
+    def test_operator_reasons_reject_with_exact_messages(self):
+        from orchestrate import operator_reason
+        cases = [("", " requires --reason <text>"), (" \t ", " requires --reason <text>"),
+                 ("x" * 501, " --reason must be at most 500 characters"),
+                 ("line\n", " --reason must contain no control characters"),
+                 ("tab\tinside", " --reason must contain no control characters"),
+                 ("nul\x00inside", " --reason must contain no control characters"),
+                 ("format\u202e", " --reason must contain no control characters")]
+        for command, argv in (("rehearse", ("rehearse", "--variant", "A")),
+                              ("--clear-disable", ("--clear-disable",)),
+                              ("--clear-failed", ("--clear-failed", self.f.new_hnet)),
+                              ("--disable", ("--disable",))):
+            for value, suffix in cases:
+                with self.subTest(command=command, value=repr(value)):
+                    message = command + suffix
+                    rejected = None
+                    try:
+                        operator_reason(value, command)
+                    except Manual as exc:
+                        rejected = str(exc)
+                    self.assertEqual(rejected, message)
+                    if "\x00" not in value:
+                        result = self.f.tick(args=(*argv, "--reason", value), expect_ok=False)
+                        self.assertEqual(result.returncode, 2)
+                        self.assertEqual(result.stderr.splitlines()[-1], "orchestrate: error: " + message)
+        self.assertFalse(self.f.events())
+        self.assertFalse(Path(self.f.orchestrator["state_file"]).exists())
+
+    def test_sysinit_reactivation_refuses_g3_and_rehearsal(self):
+        from execute import rehearsal_units
+        for function, text, reason in (
+                (gate_units, "would run sysinit-reactivation\nwould restart the following units: hausnetz.service", "G3_unrecognized_activation_output"),
+                (rehearsal_units, "would run sysinit-reactivation", "rehearsal_activation_not_empty")):
+            with self.subTest(function=function.__name__):
+                rejected = None
+                try:
+                    function(text)
+                except Manual as exc:
+                    rejected = str(exc)
+                self.assertEqual(rejected, reason)
+
+    def test_execute_dry_run_accepts_switch_inhibitor_stderr(self):
+        self.f.scenario.update(activation_stderr=True, activation=(
+            "Not checking switch inhibitors (action = dry-activate)\n"
+            "would stop the following units: hausnetz.service, polkit.service\n"
+            "would activate the configuration...\n"
+            "would reload the following units: dbus-broker.service\n"
+            "would start the following units: hausnetz.service, polkit.service"))
+        self.f.execute()
+        self.assertEqual(self.f.result()["status"], "dry-run")
+        self.assertEqual(self.f.result()["gates"]["G3"], "pass")
+        self.assertFalse(self.f.events("switch"))
+
+    def test_old_rehearsal_ticket_reason_is_last_and_null(self):
+        from orchestrate import log_line, reconcile
+        for missing in (True, False):
+            pending = {**self.pending_record("rehearse"), "rehearsal": "A"}
+            if not missing:
+                pending["rehearsal_reason"] = None
+            state = {**copy.deepcopy(self.f.live_state), "pending": pending}
+            response = {"unit_state": "inactive", "result": {**pending,
+                "schema": "inspr.pharos.guarded-deploy-result.v1", "status": "rolled_back",
+                "phase": "complete", "completed_at": "fixture"}}
+            with mock.patch("orchestrate.remote", return_value=json.dumps(response)), \
+                    mock.patch("orchestrate.comment") as comment:
+                reconcile(self.f.orchestrator, state)
+            line = comment.call_args.args[1]
+            self.assertTrue(line.startswith("TEST (no action): hausnetz-cd "))
+            self.assertTrue(line.endswith(" rehearsal_reason=null"), line)
+            self.assertEqual(line.count("rehearsal_reason="), 1)
+            self.assertTrue(log_line({**pending, "status": "rolled_back"}).endswith(" rehearsal_reason=null"))
+
+    def test_disable_works_while_tick_locked_and_survives_restart(self):
+        from orchestrate import disable_marker
+        directory = Path(self.f.orchestrator["cache_dir"])
+        directory.mkdir()
+        with (directory / "orchestrator.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = self.f.tick(args=("--disable", "--reason", "operator stop"))
+        self.assertIn("durable stop marker written", result.stdout)
+        marker = disable_marker(self.f.orchestrator)
+        self.assertEqual(marker.stat().st_mode & 0o777, 0o600)
+        value = json.loads(marker.read_text())
+        self.assertEqual(value["reason"], "operator stop")
+        self.assertIs(value["operator"], True)
+        import datetime
+        self.assertIsNotNone(datetime.datetime.fromisoformat(value["at"]).tzinfo)
+        for _ in range(2):
+            result = self.f.tick()  # each call launches a new controller
+            self.assertIn("operator stop set", result.stdout)
+            self.assertEqual(self.f.state()["operator_stop"]["reason"], "operator stop")
+            self.assertTrue(self.f.state().get("operator_stop", {}).get("operator"))
+        self.assertFalse(self.f.events(), "a stopped tick must do no external work or alarm")
+
+    def test_clear_disable_removes_marker_and_latch(self):
+        from orchestrate import disable_marker
+        self.f.tick(args=("--disable", "--reason", "operator stop"))
+        self.f.tick()
+        self.f.tick(args=("--clear-disable", "--reason", "OPS inspected recovery"))
+        self.assertFalse(disable_marker(self.f.orchestrator).exists())
+        self.assertNotIn("operator_stop", self.f.state())
+        self.assertNotIn("disabled", self.f.state())
+        self.assertEqual(self.f.state()["disable_cleared"]["reason"], "OPS inspected recovery")
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "dry-run")
+
+    def test_clear_disable_busy_is_explicit_after_five_seconds(self):
+        directory = Path(self.f.orchestrator["cache_dir"])
+        directory.mkdir()
+        with (directory / "orchestrator.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            started = time.monotonic()
+            result = self.f.tick(args=("--clear-disable", "--reason", "OPS inspected recovery"), expect_ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("busy: a tick holds the lock; retry", result.stderr)
+        self.assertGreaterEqual(time.monotonic() - started, 5)
+        self.assertLess(time.monotonic() - started, 7)
+
+    def test_disable_write_failure_is_explicit(self):
+        path = Path(self.f.orchestrator["state_file"]).parent
+        path.write_text("not a directory")
+        result = self.f.tick(args=("--disable", "--reason", "operator stop"), expect_ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not write durable disable marker", result.stderr)
+        self.assertFalse(self.f.events())
+
+    def test_malformed_disable_marker_fails_closed(self):
+        from orchestrate import disable_marker
+        self.f.write(disable_marker(self.f.orchestrator), "{broken json")
+        result = self.f.tick()
+        self.assertIn("malformed or unreadable operator disable marker; disabled (fail-closed)", result.stdout)
+        self.assertTrue(self.f.state().get("operator_stop", {}).get("operator"))
+        self.assertFalse(self.f.events())
+
+    def test_reconcile_operator_stop_refuses_live_and_dry_pass(self):
+        from orchestrate import reconcile, disable_marker
+        for mode in ("live", "dry-run"):
+            with self.subTest(mode=mode):
+                disable_marker(self.f.orchestrator).unlink(missing_ok=True)
+                pending = self.pending_record(mode)
+                pending["trial"] = mode == "dry-run"
+                state = {**copy.deepcopy(self.f.live_state), "pending": pending}
+                decisions, statuses = [], []
+                def stop():
+                    self.f.write(disable_marker(self.f.orchestrator), json.dumps({
+                        "operator": True, "at": "2026-11-27T17:30:34+00:00", "reason": "operator stop"}))
+                def remote(_config, action, *_args, **kwargs):
+                    if action == "acceptance":
+                        decisions.append(kwargs["digest"])
+                        return ""
+                    statuses.append(action)
+                    if mode == "dry-run":
+                        stop()  # the next poll must observe a newly written marker
+                    result = {**pending, "schema": "inspr.pharos.guarded-deploy-result.v1",
+                              "status": "running", "phase": "acceptance_ready" if mode == "live" else "build"}
+                    if len(statuses) > 1:
+                        result.update(status="failed", phase="complete", completed_at="fixture", rollback="succeeded")
+                    return json.dumps({"unit_state": "active", "result": result})
+                def accept(*_args):
+                    stop()  # stop arrived while the adapter was running
+                    return "pass"
+                with mock.patch("orchestrate.remote", side_effect=remote), \
+                        mock.patch("orchestrate.acceptance", side_effect=accept), mock.patch("orchestrate.comment"):
+                    reconcile(self.f.orchestrator, state)
+                self.assertNotIn("pass", decisions)
+                result = state["reports"][self.f.key]["result"]
+                self.assertTrue(result.get("operator_disabled"))
+                if mode == "live":
+                    self.assertIn("fail", decisions)
+                    self.assertEqual(result["rollback"], "succeeded")
+                else:
+                    self.assertEqual(result["status"], "operator_disabled")
+                    self.assertEqual(len(statuses), 1)
+                self.assertIsNone(state["pending"])
+
+    def test_live_child_blocks_tick_and_queues_one_persistent_alarm(self):
+        from orchestrate import deliver_alarms
+        record = Path(self.f.orchestrator["state_file"]).parent / "controller-children.json"
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        try:
+            self.f.write(record, json.dumps([{"pid": child.pid, "pgid": child.pid}]))
+            result = self.f.tick()
+            self.assertEqual(result.stdout.strip(), "hausnetz-cd: tick skipped; earlier controller child still alive")
+            self.assertFalse(self.f.events())
+            state = self.f.state()
+            state["child_blocked"]["since"] -= 1801
+            self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+            from orchestrate import queue_alarm
+            with mock.patch("orchestrate.alarm", return_value=False), \
+                    mock.patch("orchestrate.queue_alarm", wraps=queue_alarm) as queue:
+                tick(self.f.orchestrator)
+                tick(self.f.orchestrator)
+            self.assertEqual(queue.call_count, 1, "one queued alarm per continuous child-block episode")
+            state = self.f.state()
+            self.assertTrue(state["child_blocked"]["alarmed"])
+            self.assertEqual(len(state["pending_alarms"]), 1)
+            self.assertEqual(next(iter(state["pending_alarms"].values()))["label"], "CD CHILD STILL ALIVE")
+            with mock.patch.dict(os.environ, self.f.env):
+                deliver_alarms(self.f.orchestrator, state)
+            self.assertEqual(json.loads(record.read_text()), [{"pid": child.pid, "pgid": child.pid}])
+            self.f.tick()
+            self.assertEqual(len(self.f.events("mailbox")), 2)
+            self.assertFalse(self.f.events("start"))
+        finally:
+            child.terminate()
+            child.wait(timeout=3)
+
+    def test_stale_child_record_clears_and_tick_proceeds(self):
+        record = Path(self.f.orchestrator["state_file"]).parent / "controller-children.json"
+        child = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+        child.wait(timeout=3)
+        self.f.write(record, json.dumps([{"pid": child.pid, "pgid": child.pid}]))
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "dry-run")
+        self.assertFalse(record.exists())
+        from common import child_group_alive
+        if os.getpgid(os.getpid()) != os.getpid():
+            self.assertFalse(child_group_alive({"pid": os.getpid(), "pgid": os.getpid()}),
+                             "a live PID in the wrong group is a stale record")
+
+    def test_controller_term_and_int_kill_descendant_group(self):
+        from common import child_group_alive
+        script = self.f.root / "child-controller.py"
+        adapter = self.f.root / "child-adapter.py"
+        pidfile = self.f.root / "adapter-pids"
+        record = self.f.root / "child-record.json"
+        adapter.write_text("import os,signal,subprocess,sys,time\nfrom pathlib import Path\n"
+                           "signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
+                           "child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(60)'])\n"
+                           + "Path(" + repr(str(pidfile)) + ").write_text(str(os.getpid())+' '+str(child.pid))\n"
+                           "time.sleep(60)\n")
+        script.write_text("import sys\nsys.path.insert(0," + repr(str(SOURCE)) + ")\n"
+                          "from common import controller_children,run\n"
+                          "with controller_children(" + repr(str(record)) + "):\n"
+                          "    run(sys.executable,[" + repr(str(adapter)) + "],timeout=60)\n")
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            pidfile.unlink(missing_ok=True)
+            controller = subprocess.Popen([sys.executable, "-B", str(script)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            pgid = None
+            try:
+                deadline = time.monotonic() + 5
+                while not pidfile.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(pidfile.exists())
+                pgid = int(pidfile.read_text().split()[0])
+                controller.send_signal(sig)
+                _out, error = controller.communicate(timeout=5)
+                self.assertEqual(controller.returncode, 128 + sig, error)
+                deadline = time.monotonic() + 3
+                while child_group_alive({"pid": pgid, "pgid": pgid}) and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertFalse(child_group_alive({"pid": pgid, "pgid": pgid}), "controller exit must kill the entire child group")
+                self.assertFalse(record.exists())
+            finally:
+                if pgid:
+                    try:
+                        os.killpg(pgid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                if controller.poll() is None:
+                    controller.kill()
+                    controller.wait(timeout=3)
+
+    def test_controller_normal_and_exception_exit_cancel_children(self):
+        from common import controller_children, child_process, child_group_alive, run
+        record = self.f.root / "owned-children.json"
+        pidfile = self.f.root / "normal-child-pid"
+        adapter = self.f.root / "normal-adapter.py"
+        adapter.write_text("import subprocess,sys\nfrom pathlib import Path\n"
+                           "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(10)'],"
+                           "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
+                           + "Path(" + repr(str(pidfile)) + ").write_text(str(child.pid))\n")
+        with controller_children(record):
+            run(sys.executable, [str(adapter)])
+        # If cancellation is denied by the host, the record must survive
+        # until the descendant exits; forgetting it would permit overlap.
+        if record.exists():
+            entries = json.loads(record.read_text())
+            self.assertEqual(len(entries), 1)
+            self.assertTrue(child_group_alive(entries[0]))
+        child = None
+        try:
+            with self.assertRaisesRegex(RuntimeError, "fixture exception"), controller_children(record):
+                with child_process([sys.executable, "-c", "import time; time.sleep(30)"]) as child:
+                    self.assertTrue(record.exists())
+                    raise RuntimeError("fixture exception")
+            self.assertIsNotNone(child.returncode)
+            self.assertFalse(child_group_alive({"pid": child.pid, "pgid": child.pid}))
+        finally:
+            if child is not None and child.poll() is None:
+                child.kill()
+                child.wait(timeout=3)
+            if pidfile.exists():
+                try:
+                    os.kill(int(pidfile.read_text()), signal.SIGKILL)
+                except OSError:
+                    pass
+
+    def test_controller_signal_during_child_registration_cleans_group(self):
+        import common
+        record = self.f.root / "registration-child.json"
+        original = common.atomic_json
+        entries = []
+        def interrupt_registration(path, value):
+            original(path, value)
+            if path == record and value:
+                entries.extend(value)
+                signal.raise_signal(signal.SIGTERM)
+        code = None
+        with mock.patch("common.atomic_json", side_effect=interrupt_registration):
+            try:
+                with common.controller_children(record):
+                    common.run(sys.executable, ["-c", "import time; time.sleep(30)"])
+            except SystemExit as exc:
+                code = exc.code
+        self.assertEqual(code, 143)
+        self.assertEqual(len({entry["pid"] for entry in entries}), 1)
+        with self.assertRaises(ProcessLookupError):
+            os.getpgid(entries[0]["pid"])
+        if record.exists():
+            # Restricted hosts can deny KILL after TERM reaps the leader;
+            # retaining that ownership is the fail-closed outcome.
+            self.assertEqual(json.loads(record.read_text()), [entries[0]])
+
+    def test_operator_stop_real_live_executor_rolls_back(self):
+        from orchestrate import disable_marker
+        adapter = self.f.root / "stop-during-acceptance.py"
+        marker = disable_marker(self.f.orchestrator)
+        adapter.write_text("import json\nfrom pathlib import Path\n"
+                           + "Path(" + repr(str(marker)) + ").write_text(json.dumps({"
+                           "'operator':True,'at':'2026-11-27T17:30:34+00:00','reason':'operator stop'}))\n"
+                           "print('{\"ok\":true}')\n")
+        self.f.orchestrator["acceptance_command"] = [sys.executable, str(adapter), "{trusted_rev}", "{url}",
+                                                      "{version}", "{caps_sha256}"]
+        self.f.tick("live")
+        result = self.f.terminal()
+        self.assertTrue(result.get("operator_disabled"))
+        self.assertEqual(result["acceptance"], "fail")
+        self.assertEqual(result["rollback"], "succeeded")
+        self.assertEqual(len(self.f.events("switch")), 2)
+        self.assertEqual(result["checker_verdict"], "pass")
+        self.assertFalse(self.f.state()["failed"])
+        self.assertFalse(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertEqual(Path(self.f.executor["current_system"]).resolve(), self.f.old_system)
+        self.assertTrue(self.f.state().get("operator_stop", {}).get("operator"))
+        self.assertFalse(any("CD DISABLED" in e["text"] for e in self.f.events("mailbox")))
+
+    def operator_stop(self):
+        from orchestrate import disable_marker
+        self.f.write(disable_marker(self.f.orchestrator), json.dumps({
+            "operator": True, "at": "2026-11-27T17:30:34+00:00", "reason": "operator stop"}))
+
+    def test_stop_before_backup_never_acks_or_switches(self):
+        import orchestrate
+        self.f.orchestrator["mode"] = "live"
+        self.f.executor["backup_ack_timeout"] = 1
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(self.f.live_state))
+        self.f.save()
+        original = orchestrate.remote
+        actions = []
+        def remote(config, action, *args, **kwargs):
+            actions.append(action)
+            value = original(config, action, *args, **kwargs)
+            if action == "start":
+                self.operator_stop()  # before the executor can reach backup_ready
+            return value
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.remote", side_effect=remote):
+            tick(self.f.orchestrator)
+        result = self.f.terminal()
+        self.assertTrue(result.get("operator_disabled"))
+        self.assertEqual(result["reason"], "backup_copy_not_acknowledged")
+        self.assertEqual(result["rollback"], "not_required")
+        self.assertNotIn("ack", actions)
+        self.assertNotIn("export", actions)
+        self.assertFalse(list(Path(self.f.executor["state_dir"]).glob("ack-" + result["run_id"])))
+        self.assertFalse(self.f.events("switch"))  # executor's switched=False path
+        self.assertEqual(Path(self.f.executor["current_system"]).resolve(), self.f.old_system)
+        self.assertFalse(self.f.state()["attempted"])
+        self.assertFalse(self.f.state()["failed"])
+
+    def test_stop_preserves_latch_and_clears_only_operator(self):
+        latch = {"at": "fixture", "reason": "rollback_failed", "run_id": "b" * 32, "alarmed": True}
+        state = {**copy.deepcopy(self.f.live_state), "disabled": latch}
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        self.f.tick(args=("--disable", "--reason", "operator stop"))
+        self.f.tick()
+        self.assertEqual(self.f.state()["disabled"], latch)
+        result = self.f.tick(args=("--clear-disable", "--reason", "inspected operator stop"))
+        self.assertIn("cleared operator stop", result.stdout)
+        self.assertEqual(self.f.state()["disabled"], latch)
+        self.assertNotIn("operator_stop", self.f.state())
+        refused = self.f.tick(args=("--clear-disable", "--reason", "wrong clear"), expect_ok=False)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("--latch", refused.stderr)
+        result = self.f.tick(args=("--clear-disable", "--latch", "--reason", "inspected safety latch"))
+        self.assertIn("cleared safety latch", result.stdout)
+        self.assertNotIn("disabled", self.f.state())
+
+    def test_rollback_failure_while_stopped_sets_safety_latch(self):
+        from orchestrate import merge_disable, finish
+        self.operator_stop()
+        state = copy.deepcopy(self.f.live_state)
+        merge_disable(self.f.orchestrator, state)
+        result = {**self.pending_record(), "status": "rollback_failed", "rollback": "failed",
+                  "reason": "candidate_failed", "rollback_reason": "rollback_health_failed", "operator_disabled": True}
+        with mock.patch("orchestrate.report"):
+            finish(self.f.orchestrator, state, result)
+        self.assertEqual(state["disabled"]["run_id"], result["run_id"])
+        self.assertEqual(state["disabled"]["reason"], "rollback_health_failed")
+        self.assertFalse(state["disabled"]["alarmed"])
+        self.assertIn("operator_stop", state)
+        self.assertIn(self.f.key, state["attempted"])
+        self.assertIn(self.f.new_hnet, state["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+
+    def test_checker_fail_then_stop_keeps_failed_target(self):
+        import orchestrate
+        self.f.orchestrator["mode"] = "live"
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(self.f.live_state))
+        self.f.save()
+        original = orchestrate.remote
+        def remote(config, action, *args, **kwargs):
+            value = original(config, action, *args, **kwargs)
+            if action == "acceptance" and kwargs["digest"] == "fail":
+                self.operator_stop()  # checker FAIL is already decided and sent
+            return value
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.remote", side_effect=remote), \
+                mock.patch("orchestrate.acceptance", return_value="fail"):
+            tick(self.f.orchestrator)
+        result = self.f.terminal()
+        self.assertTrue(result.get("operator_disabled"))
+        self.assertEqual(result["checker_verdict"], "fail")
+        self.assertEqual(result["rollback"], "succeeded")
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+
+    def test_health_failure_stop_during_rollback_keeps_failed_target(self):
+        import orchestrate
+        self.f.orchestrator["mode"] = "live"
+        self.f.executor["health_timeout"] = 2
+        self.f.scenario.update(health_fail=True, rollback_delay=1)
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(self.f.live_state))
+        self.f.save()
+        original = orchestrate.remote
+        def remote(config, action, *args, **kwargs):
+            value = original(config, action, *args, **kwargs)
+            if action == "status" and (json.loads(value).get("result") or {}).get("phase") == "rollback":
+                self.operator_stop()
+            return value
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.remote", side_effect=remote):
+            tick(self.f.orchestrator)
+        result = self.f.terminal()
+        self.assertTrue(result.get("operator_disabled"))
+        self.assertEqual(result["reason"], "expected_health_failed")
+        self.assertEqual(result["rollback"], "succeeded")
+        self.assertIn(self.f.new_hnet, self.f.state()["failed"])
+        self.assertTrue(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+
+    def test_stop_after_start_same_main_refused_new_main_retries(self):
+        self.test_stop_before_backup_never_acks_or_switches()
+        first = self.f.terminal()
+        self.f.tick(args=("--clear-disable", "--reason", "inspect stopped backup"))
+        self.f.tick()
+        refusal = self.f.terminal()
+        self.assertEqual(refusal["reason"], "revision_already_attempted")
+        self.assertFalse(self.f.state()["failed"])
+        self.assertFalse(self.f.state()["attempted"])
+        self.assertFalse(ledger(self.f.orchestrator, "failed", self.f.new_hnet).exists())
+        self.assertEqual(self.f.state()["reports"][self.f.key]["result"]["run_id"], first["run_id"])
+        self.assertNotEqual(first["run_id"], refusal["run_id"])
+        self.f.pin(self.f.new_hnet, 3)
+        self.f.new = self.f.commit(self.f.repo)
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "succeeded")
+        self.assertEqual(len(self.f.events("switch")), 1)
+        self.assertEqual(len(self.f.state()["reports"]), 3)
+
+    def test_stop_during_copy_export_withholds_ack(self):
+        import orchestrate
+        self.f.orchestrator["mode"] = "live"
+        self.f.executor["backup_ack_timeout"] = 1
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(self.f.live_state))
+        self.f.save()
+        original = orchestrate.remote
+        actions = []
+        def remote(config, action, *args, **kwargs):
+            actions.append(action)
+            value = original(config, action, *args, **kwargs)
+            if action == "export":
+                self.operator_stop()  # backup_ready guard passed; ack has not begun
+            return value
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.remote", side_effect=remote):
+            tick(self.f.orchestrator)
+        self.assertIn("export", actions)
+        self.assertNotIn("ack", actions)
+        self.assertEqual(self.f.terminal()["reason"], "backup_copy_not_acknowledged")
+        self.assertFalse(self.f.events("switch"))
+
+    def test_clear_child_replacement_before_unlink_is_preserved(self):
+        from orchestrate import clear_child
+        record = Path(self.f.orchestrator["state_file"]).parent / "controller-children.json"
+        original_read = Path.read_bytes
+        for identical in (False, True):
+            with self.subTest(identical=identical):
+                self.f.write(record, "[]")
+                replacement = record.with_name("replacement.json")
+                replacement.write_text("[]" if identical else '[{"pid":1,"pgid":1}]')
+                replacement_inode = replacement.stat().st_ino
+                reads = []
+                def read(path):
+                    value = original_read(path)
+                    if path == record:
+                        reads.append(path)
+                        if len(reads) == 2:
+                            replacement.replace(record)  # after content comparison read
+                    return value
+                with mock.patch.object(Path, "read_bytes", read):
+                    with self.assertRaisesRegex(Manual, "record changed"):
+                        clear_child(self.f.orchestrator, "verified dead")
+                self.assertTrue(record.exists())
+                self.assertEqual(record.stat().st_ino, replacement_inode)
+                self.assertFalse(record.with_name("child-cleared.json").exists())
+
+    def test_clear_child_unlinks_before_attribution(self):
+        import orchestrate
+        record = Path(self.f.orchestrator["state_file"]).parent / "controller-children.json"
+        self.f.write(record, "[]")
+        original = orchestrate.atomic_json
+        def write(path, value):
+            self.assertFalse(record.exists())
+            original(path, value)
+        with mock.patch("orchestrate.atomic_json", side_effect=write):
+            orchestrate.clear_child(self.f.orchestrator, "verified dead")
+
+    def test_stopped_latched_tick_reports_once_and_drops_ack_alarm(self):
+        from orchestrate import queue_alarm
+        pending = self.pending_record()
+        state = {**copy.deepcopy(self.f.live_state), "disabled": {"alarmed": True}}
+        state["reports"][self.f.key] = {"result": {**pending, "status": "failed"},
+                                       "ticket": False, "alarm": False, "order": 1}
+        queue_alarm(self.f.orchestrator, state, pending["run_id"] + "-awaiting-ack", pending,
+                    "awaiting attended ack")
+        self.operator_stop()
+        with mock.patch("orchestrate.alarm", return_value=True) as alarm, \
+                mock.patch("orchestrate.comment", side_effect=Manual("offline")) as comment:
+            tick(self.f.orchestrator)
+        self.assertEqual(comment.call_count, 1)
+        self.assertEqual(self.f.state()["reports"][self.f.key]["ticket_attempts"], 1)
+        self.assertFalse(self.f.state()["pending_alarms"])
+        self.assertEqual(alarm.call_count, 0)
+
+    def test_retried_pair_preserves_report_and_outbox(self):
+        from orchestrate import finish
+        state = copy.deepcopy(self.f.live_state)
+        result = {**self.pending_record(), "status": "operator_disabled", "operator_disabled": True}
+        with mock.patch("orchestrate.comment", side_effect=Manual("offline")):
+            finish(self.f.orchestrator, state, result)
+            original_report = copy.deepcopy(state["reports"][self.f.key])
+            original_outbox = ledger(self.f.orchestrator, "outbox", self.f.key).read_bytes()
+            finish(self.f.orchestrator, state, {**result, "run_id": "b" * 32})
+        self.assertEqual(state["reports"][self.f.key], original_report)
+        self.assertEqual(ledger(self.f.orchestrator, "outbox", self.f.key).read_bytes(), original_outbox)
+        self.assertEqual(len(state["reports"]), 2)
+        self.assertTrue(ledger(self.f.orchestrator, "outbox", self.f.key + "-" + "b" * 32).exists())
+
+    def test_operator_stopped_rehearsal_logs_without_aborted_alarm(self):
+        from orchestrate import finish
+        state = copy.deepcopy(self.f.live_state)
+        result = {**self.pending_record("rehearse"), "status": "rehearsal_aborted", "rehearsal": "A",
+                  "operator_disabled": True, "reason": "operator_disabled", "rollback": "not_required"}
+        output = io.StringIO()
+        with mock.patch("orchestrate.comment"), mock.patch("orchestrate.alarm") as alarm, redirect_stdout(output):
+            finish(self.f.orchestrator, state, result)
+        self.assertEqual(alarm.call_count, 0)
+        self.assertIn("rehearsal stopped by operator", output.getvalue())
+
+    def test_clear_absent_safety_latch_is_explicit(self):
+        result = self.f.tick(args=("--clear-disable", "--latch", "--reason", "inspect latch"))
+        self.assertIn("no safety latch set", result.stdout)
+        self.assertNotIn("cleared safety latch", result.stdout)
+
+    def test_alarm_failed_delivery_retries_while_stopped(self):
+        from orchestrate import queue_alarm, deliver_alarms
+        state = copy.deepcopy(self.f.live_state)
+        state["reports"][self.f.key] = {"result": {**self.pending_record(), "status": "failed"},
+                                       "ticket": False, "alarm": False, "order": 1}
+        queue_alarm(self.f.orchestrator, state, "rollback-failure", self.pending_record(), "ROLLBACK FAILED")
+        with mock.patch("orchestrate.alarm", return_value=False) as alarm:
+            deliver_alarms(self.f.orchestrator, state)
+        self.assertEqual(alarm.call_count, 1)
+        self.assertIn("rollback-failure", self.f.state()["pending_alarms"])
+        self.operator_stop()
+        with mock.patch("orchestrate.alarm", return_value=True) as alarm, mock.patch("orchestrate.report") as report:
+            tick(self.f.orchestrator)
+        self.assertEqual(alarm.call_count, 1)
+        self.assertFalse(self.f.state()["pending_alarms"])
+        self.assertEqual(report.call_count, 1)
+        self.assertFalse(self.f.events("start"))
+
+    def test_stopped_pair_retries_after_clear(self):
+        from orchestrate import start_pending
+        pending = self.pending_record("dry-run")
+        state = {**copy.deepcopy(self.f.live_state), "pending": pending}
+        self.operator_stop()
+        with mock.patch("orchestrate.report"):
+            started = start_pending(self.f.orchestrator, state)
+        self.assertFalse(started)
+        self.assertEqual(state["reports"][self.f.key]["result"]["status"], "operator_disabled")
+        self.assertFalse(state["attempted"])
+        self.assertFalse(ledger(self.f.orchestrator, "attempted", self.f.key).exists())
+        self.f.tick(args=("--clear-disable", "--reason", "resume stopped pair"))
+        self.f.tick()
+        self.assertEqual(self.f.terminal()["status"], "dry-run")
+        self.assertTrue(self.f.events("start"))
+
+    def test_start_pending_checks_stop_before_remote_work(self):
+        from orchestrate import start_pending
+        state = {**copy.deepcopy(self.f.live_state), "pending": self.pending_record()}
+        self.operator_stop()
+        with mock.patch("orchestrate.remote") as remote, mock.patch("orchestrate.report"):
+            result = start_pending(self.f.orchestrator, state)
+        self.assertFalse(result)
+        self.assertEqual(remote.call_count, 0)
+        self.assertIsNone(state["pending"])
+
+    def test_stop_before_attended_request_sends_no_ack_alarm(self):
+        import orchestrate
+        self.attended_setup()
+        self.f.orchestrator["mode"] = "live"
+        self.f.save()
+        original = orchestrate.gate_g2
+        def prepared(*args):
+            result = original(*args)
+            self.operator_stop()  # lands during preparation, before requesting ack
+            return result
+        with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.gate_g2", side_effect=prepared), \
+                mock.patch("orchestrate.queue_alarm", wraps=orchestrate.queue_alarm) as queue:
+            tick(self.f.orchestrator)
+        self.assertEqual(self.f.terminal()["status"], "operator_disabled")
+        self.assertFalse(self.f.events("start"))
+        self.assertFalse(any("awaiting attended ack" in e["text"] for e in self.f.events("mailbox")))
+        self.assertFalse(any(call.args[4] == "awaiting attended ack" for call in queue.call_args_list))
+
+    def test_rehearsal_stop_after_preflight_never_starts(self):
+        config = {**self.f.orchestrator, "mode": "rehearse", "rehearsal": "A", "rehearsal_reason": "fixture stop"}
+        with mock.patch("orchestrate.rehearsal_preflight", side_effect=lambda *_: self.operator_stop()), \
+                mock.patch("orchestrate.remote") as remote, mock.patch("orchestrate.evidence", return_value=self.f.old), \
+                mock.patch("orchestrate.reconcile"):
+            tick(config)
+        self.assertEqual(remote.call_count, 0)
+        self.assertIn("operator_stop", self.f.state())
+        self.assertIsNone(self.f.state()["pending"])
+
+    def test_pending_rehearsal_stop_before_switch_and_after_switch(self):
+        from orchestrate import reconcile
+        for switched in (False, True):
+            pending = {**self.pending_record("rehearse"), "rehearsal": "A"}
+            state = {**copy.deepcopy(self.f.live_state), "pending": pending}
+            self.operator_stop()
+            decisions = []
+            def remote(_config, action, *_args, **kwargs):
+                if action == "acceptance":
+                    decisions.append(kwargs["digest"])
+                    return ""
+                result = {**pending, "schema": "inspr.pharos.guarded-deploy-result.v1",
+                          "status": "rolled_back" if switched else "rehearsal_aborted", "phase": "complete",
+                          "completed_at": "fixture", "rollback": "succeeded" if switched else "not_required"}
+                return json.dumps({"unit_state": "inactive", "result": result})
+            with mock.patch("orchestrate.remote", side_effect=remote), mock.patch("orchestrate.report"):
+                reconcile(self.f.orchestrator, state)
+            self.assertEqual(decisions, ["fail"])
+            self.assertTrue(state["reports"][self.f.key]["result"].get("operator_disabled"))
+            self.assertEqual(state["reports"][self.f.key]["result"]["rollback"], "succeeded" if switched else "not_required")
+
+    def test_rehearsal_executor_honors_pre_switch_stop(self):
+        token, one_shot = "c" * 32, "d" * 32
+        self.f.run_id = token
+        directory = Path(self.f.executor["state_dir"])
+        self.f.write(directory / ("rehearsal-token-" + token), one_shot)
+        self.f.write(directory / ("acceptance-" + token), "fail")
+        self.f.scenario["activation"] = ""
+        self.f.save()
+        with mock.patch.dict(os.environ, self.f.env):
+            execute_transaction(self.f.executor, self.f.old, self.f.old, "rehearse", self.f.old_version,
+                                self.f.manifest_sha, self.f.old, token, rehearsal="A", one_shot=one_shot)
+        result = self.f.result()
+        self.assertEqual(result["reason"], "operator_disabled")
+        self.assertEqual(result["rollback"], "not_required")
+        self.assertFalse(self.f.events("switch"))
+
+    def test_child_block_episodes_each_alarm_once_and_reset_on_early_returns(self):
+        record = Path(self.f.orchestrator["state_file"]).parent / "controller-children.json"
+        for stopped in (False, True):
+            self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps({
+                **copy.deepcopy(self.f.live_state), "evaluated": {"main": self.f.new, "running": self.f.old, "at": time.time()}}))
+            if stopped:
+                self.operator_stop()
+            alarm_ids = []
+            for episode in range(2):
+                self.f.write(record, "malformed")
+                self.f.tick()
+                state = self.f.state()
+                self.assertFalse(state["child_blocked"]["alarmed"])
+                state["child_blocked"]["since"] -= 1801
+                self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+                with mock.patch("orchestrate.alarm", return_value=False):
+                    tick(self.f.orchestrator)
+                    tick(self.f.orchestrator)
+                state = self.f.state()
+                alarm_ids.append(state["child_blocked"]["alarm_id"])
+                self.assertTrue(state["child_blocked"]["alarmed"])
+                # Drain delivery first: the subsequent backoff/operator return
+                # must persist the reset even when no other save is needed.
+                from orchestrate import deliver_alarms
+                with mock.patch("orchestrate.alarm", return_value=True):
+                    deliver_alarms(self.f.orchestrator, state)
+                record.unlink()
+                with mock.patch.dict(os.environ, self.f.env), mock.patch("orchestrate.alarm", return_value=True):
+                    tick(self.f.orchestrator)
+                self.assertNotIn("child_blocked", self.f.state())
+            self.assertNotEqual(*alarm_ids)
+            if stopped:
+                self.f.tick(args=("--clear-disable", "--reason", "fixture resume"))
+
+    def test_clear_child_dead_alive_malformed_and_force(self):
+        record = Path(self.f.orchestrator["state_file"]).parent / "controller-children.json"
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        try:
+            self.f.write(record, json.dumps([{"pid": child.pid, "pgid": child.pid}]))
+            for args in (("--clear-child", "--reason", "inspect"),
+                         ("--clear-child", "--force", "--pgid", str(child.pid), "--reason", "inspect")):
+                result = self.f.tick(args=args, expect_ok=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("pid=" + str(child.pid) + " pgid=" + str(child.pid), result.stderr)
+                self.assertTrue(record.exists())
+            for args in (("--clear-disable", "--reason", "inspect"),
+                         ("--clear-failed", self.f.new_hnet, "--reason", "inspect")):
+                result = self.f.tick(args=args, expect_ok=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("child still alive", result.stderr)
+            self.f.write(record, "malformed")
+            result = self.f.tick(args=("--clear-child", "--reason", "inspect"), expect_ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("record malformed", result.stderr)
+            result = self.f.tick(args=("--clear-child", "--force", "--pgid", str(child.pid), "--reason", "inspect"), expect_ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("group alive", result.stderr)
+            self.assertTrue(record.exists())
+            # A malformed top-level record can still contain ownership data.
+            # Force must check that group as well as the operator-supplied one.
+            dead = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+            dead.wait(timeout=3)
+            self.f.write(record, json.dumps({"pid": "invalid", "pgid": child.pid}))
+            result = self.f.tick(args=("--clear-child", "--force", "--pgid", str(dead.pid), "--reason", "inspect"), expect_ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("group alive pgid=" + str(child.pid), result.stderr)
+            self.assertTrue(record.exists())
+        finally:
+            child.terminate()
+            child.wait(timeout=3)
+        self.f.write(record, json.dumps([{"pid": child.pid, "pgid": child.pid}]))
+        directory = Path(self.f.orchestrator["cache_dir"])
+        directory.mkdir(exist_ok=True)
+        with (directory / "orchestrator.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = self.f.tick(args=("--clear-child", "--reason", "verified dead child"))
+        self.assertIn("cleared dead child record", result.stdout)
+        self.assertFalse(record.exists())
+        self.assertEqual(json.loads(record.with_name("child-cleared.json").read_text())["reason"], "verified dead child")
+        self.f.write(record, "malformed")
+        self.f.tick(args=("--clear-child", "--force", "--pgid", str(child.pid), "--reason", "verified group gone"))
+        self.assertFalse(record.exists())
+
+    def test_clear_commands_refuse_blocking_child_and_malformed_alarm_is_accurate(self):
+        record = Path(self.f.orchestrator["state_file"]).parent / "controller-children.json"
+        self.f.write(record, "malformed")
+        for args in (("--clear-disable", "--reason", "inspect"),
+                     ("--clear-failed", self.f.new_hnet, "--reason", "inspect")):
+            result = self.f.tick(args=args, expect_ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("child record malformed", result.stderr)
+        state = self.f.state()
+        state["child_blocked"]["since"] -= 1801
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        with mock.patch("orchestrate.alarm", return_value=False):
+            tick(self.f.orchestrator)
+        self.assertEqual(next(iter(self.f.state()["pending_alarms"].values()))["label"], "CD CHILD RECORD MALFORMED")
+
+    def test_activation_exception_never_kills_group(self):
+        import common
+        process = mock.Mock(pid=12345, returncode=None, stdin=None, stdout=None, stderr=None)
+        process.communicate.side_effect = RuntimeError("activation fixture")
+        process.poll.return_value = None
+        with mock.patch("common.subprocess.Popen", return_value=process), mock.patch("common.cancel_child") as kill:
+            with self.assertRaisesRegex(RuntimeError, "activation fixture"):
+                common.run("switch-to-configuration", ["switch"], timeout=None)
+        self.assertEqual(kill.call_count, 0)
+        self.assertEqual(process.kill.call_count, 0)
+
+    def test_cancel_child_allows_three_second_term_grace(self):
+        import common
+        process = mock.Mock(pid=12345)
+        clock = [0.0]
+        def sleep(seconds):
+            clock[0] += seconds
+        signals = []
+        with mock.patch("common.time.monotonic", side_effect=lambda: clock[0]), \
+                mock.patch("common.time.sleep", side_effect=sleep), \
+                mock.patch("common.os.killpg", side_effect=lambda pgid, sig: signals.append((sig, clock[0]))):
+            common.cancel_child(process)
+        term = next(t for sig, t in signals if sig == signal.SIGTERM)
+        kill = next(t for sig, t in signals if sig == signal.SIGKILL)
+        self.assertGreaterEqual(kill - term, 3)
+        self.assertLessEqual(kill - term, 3.1)
+
+    def test_signal_before_popen_returns_is_deferred_until_registered(self):
+        import common
+        record = self.f.root / "spawn-children.json"
+        original = common.subprocess.Popen
+        spawned = []
+        def popen(*args, **kwargs):
+            child = original(*args, **kwargs)
+            spawned.append(child)
+            signal.raise_signal(signal.SIGTERM)
+            return child
+        code = None
+        try:
+            with mock.patch("common.subprocess.Popen", side_effect=popen):
+                try:
+                    with common.controller_children(record):
+                        common.run(sys.executable, ["-c", "import time; time.sleep(60)"])
+                except SystemExit as exc:
+                    code = exc.code
+            self.assertEqual(code, 143)
+            self.assertIsNotNone(spawned[0].poll(), "a signal during spawn must not orphan the child")
+            if record.exists():
+                self.assertEqual(json.loads(record.read_text()), [{"pid": spawned[0].pid, "pgid": spawned[0].pid}])
+        finally:
+            for child in spawned:
+                if child.poll() is None:
+                    child.kill()
+                    child.wait(timeout=3)
+
+    def test_malformed_latch_and_operator_cli_errors_are_explicit(self):
+        from orchestrate import merge_disable
+        state = {**copy.deepcopy(self.f.live_state), "disabled": "broken"}
+        with self.assertRaisesRegex(Manual, "invalid_disable_latch"):
+            merge_disable(self.f.orchestrator, state)
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        result = self.f.tick(expect_ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid safety latch", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        state = {**copy.deepcopy(self.f.live_state), "pending": self.pending_record()}
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        result = self.f.tick(args=("--clear-disable", "--reason", "inspect"), expect_ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cannot clear disable while a run is pending", result.stderr)
+        result = self.f.tick(args=("--reason", "orphan reason"), expect_ok=False)
+        self.assertIn("--reason requires", result.stderr)
+
+    def test_malformed_marker_logs_once_per_tick_despite_polling(self):
+        from orchestrate import disable_marker, merge_disable
+        self.f.write(disable_marker(self.f.orchestrator), "malformed")
+        state = {**copy.deepcopy(self.f.live_state), "pending": self.pending_record()}
+        self.f.write(Path(self.f.orchestrator["state_file"]), json.dumps(state))
+        def reconcile(config, state):
+            for _ in range(4):
+                self.assertTrue(merge_disable(config, state))
+            state["pending"] = None
+        for _ in range(2):
+            out = io.StringIO()
+            with redirect_stdout(out), mock.patch("orchestrate.reconcile", side_effect=reconcile):
+                tick(self.f.orchestrator)
+            self.assertEqual(out.getvalue().count("malformed or unreadable operator disable marker"), 1)
+
+
+
 class TestAlertSender(unittest.TestCase):
     def setUp(self):
         import types
@@ -3354,7 +4395,7 @@ class TestAlertSender(unittest.TestCase):
         self.assertIn("./hausnetz-cd-alert.nix", (REPO / "hosts/csb1/configuration.nix").read_text())
 
 
-def mutants():
+def mutants(only=None, start_after=None):
     # Run the same behavioral assertions against real source copies. A zero
     # exit means a guard-removal survived and this entire test must fail.
     cases = [
@@ -3430,7 +4471,7 @@ def mutants():
         ("rollback failure alarms", "orchestrate.py", [('alarm(config, entry["result"], entry["label"], pre_pair=entry.get("pre_pair", False))', 'False')], "test_rollback_failure_alarms_both_independent_paths"),
         ("host live enable gate", "execute.py", [('require(mode != "live" or config.get("allow_live") is True,', 'require(True,')], "test_live_disabled_on_host"),
         ("independent alert required", "orchestrate.py", [('require(config.get("secondary_telegram_command"),', 'require(True,')], "test_missing_independent_alert_refuses_live"),
-        ("agent disabled default", "orchestrate.py", [('if config.get("enabled") is not True:', 'if False:')], "test_disabled_agent_has_no_effect"),
+        ("agent disabled default", "orchestrate.py", [('if config.get("enabled") is not True and marker is None:', 'if False:')], "test_disabled_agent_has_no_effect"),
         ("build resource limit", "execute.py", [('"--max-jobs", "1", "--cores", "2"', '"--max-jobs", "4", "--cores", "8"')], "test_dry_run_success_and_limits"),
         ("G2 extra stdout", "common.py", [('value = strict_json(stdout)', 'value = json.JSONDecoder().raw_decode(stdout.decode())[0]')], "test_prepare_extra_stdout_is_manual"),
         ("G2 app timeout", "common.py", [('capture_output=True, timeout=600, check=False)', 'capture_output=True, timeout=None, check=False)')], "test_prepare_timeout_is_manual"),
@@ -3471,7 +4512,7 @@ def mutants():
         ("checker URL encoding", "common.py", [('quote(path, safe="/")', 'path')], "test_checker_url_encodes_path_and_refuses_controls"),
         ("checker path validation", "common.py", [('Path(repo).is_absolute() and all(c.isprintable() for c in path)', 'True')], "test_checker_url_encodes_path_and_refuses_controls"),
         ("fetch phase is distinct", "orchestrate.py", [('result["phase"] = "fetch"', 'pass')], "test_hausnetz_fetch_failure_is_distinct_and_retryable"),
-        ("fetch failures have no reservation", "orchestrate.py", [('if result["status"] not in {"fetch_failed", "vm_test_wait", "preflight_refused"} and not result.get("trial") and not result.get("rehearsal"):', 'if True:')], "test_hausnetz_fetch_failure_is_distinct_and_retryable"),
+        ("fetch failures have no reservation", "orchestrate.py", [('if not retryable_stop and result["status"] not in {"operator_disabled", "fetch_failed", "vm_test_wait", "preflight_refused"} and not result.get("trial") and not result.get("rehearsal"):', 'if True:')], "test_hausnetz_fetch_failure_is_distinct_and_retryable"),
         ("pre-pair six hour alarm", "orchestrate.py", [('>= 6 * 60 * 60', '>= 7 * 60 * 60')], "test_pre_pair_failure_alarms_once_after_six_hours_even_dry_run"),
         ("pre-pair alarms once", "orchestrate.py", [('failure["alarmed"] = True', 'failure["alarmed"] = False')], "test_pre_pair_failure_alarms_once_after_six_hours_even_dry_run"),
         ("cached unchanged main", "orchestrate.py", [('evaluated.get("main") == new', 'False')], "test_unchanged_tick_caches_evidence_until_thirty_minutes_or_main_moves"),
@@ -3498,7 +4539,7 @@ def mutants():
         ("test alarm never writes state", "orchestrate.py", [('"TEST (no action): CD ALARM", test=True)\n            return', '"TEST (no action): CD ALARM", test=True)\n            atomic_json(config["state_file"], {})\n            return')], "test_test_alarm_leaves_existing_state_and_deploy_paths_untouched"),
         ("test alarm never writes alarm file", "orchestrate.py", [('if not test:', 'if True:')], "test_test_alarm_leaves_existing_state_and_deploy_paths_untouched"),
         ("test alarm explicit only", "orchestrate.py", [('if args.test_alarm:', 'if True:')], "test_test_alarm_is_explicit_and_rejects_deployment_flags"),
-        ("test alarm cannot combine deploy flags", "orchestrate.py", [('bool(args.command), args.clear_disable, args.test_alarm, args.once or args.dry_run', 'bool(args.command), args.clear_disable, False, args.once or args.dry_run')], "test_test_alarm_is_explicit_and_rejects_deployment_flags"),
+        ("test alarm cannot combine deploy flags", "orchestrate.py", [('bool(args.command), args.clear_disable, args.clear_child, args.test_alarm, args.once or args.dry_run', 'bool(args.command), args.clear_disable, args.clear_child, False, args.once or args.dry_run')], "test_test_alarm_is_explicit_and_rejects_deployment_flags"),
         ("dry-run memory measurement", "execute.py", [('result["memory_peak_bytes"] = int(peak)', 'pass')], "test_dry_run_measures_memory_peak_into_status_and_ticket"),
         ("manual dry-run forced mode", "orchestrate.py", [('"enabled": True, "mode": "dry-run", "manual_dry_run": True', '"enabled": True, "manual_dry_run": True')], "test_disabled_once_dry_run_runs_full_chain_and_forces_mode"),
         ("manual dry-run requires both flags", "orchestrate.py", [('if args.once != args.dry_run:', 'if False:')], "test_once_requires_both_flags_and_refuses_live_pending"),
@@ -3522,7 +4563,7 @@ def mutants():
         ("shared inhibitor chatter removed for G3", "common.py", [('    "Not checking switch inhibitors (action = dry-activate)",\n', '')], "test_g3_real_activation_chatter_and_allowed_units_pass"),
         ("shared inhibitor chatter removed for rehearsal", "common.py", [('    "Not checking switch inhibitors (action = dry-activate)",\n', '')], "test_rehearsal_a_real_switch_and_rollback_without_changes"),
         ("G3 duplicates chatter without inhibitor", "common.py", [('line in DRY_ACTIVATE_CHATTER:', 'line in {"dry activating the configuration...", "would activate the configuration...", "would run sysinit-reactivation", "setting up /etc..."}:')], "test_g3_real_activation_chatter_and_allowed_units_pass"),
-        ("rehearsal reason not required", "orchestrate.py", [('    require(reason, "rehearse requires --reason <text>")', '    pass')], "test_rehearsal_requires_reason_before_any_work"),
+        ("rehearsal reason not required", "orchestrate.py", [('    require(reason, command + " requires --reason <text>")', '    pass')], "test_rehearsal_requires_reason_before_any_work"),
         ("rehearsal route preflight skipped", "orchestrate.py", [('        rehearsal_preflight(config)', '        pass')], "test_rehearsal_route_failure_refuses_before_state_or_token"),
         ("csb1 sender bounds message", "hausnetz-cd-alert.py", [('len(message) > 2048', 'False')], "TestAlertSender.test_sender_rejects_bad_inputs_without_logging_credentials"),
         ("alarm uses release ticket", "orchestrate.py", [('return ["-t", ticket]', 'return ["-t", config["release_ticket"]]')], "test_alarm_ticket_is_separate_from_release_ticket_on_all_routes"),
@@ -3574,7 +4615,7 @@ def mutants():
 
     cases += [
         ("timeout descendant pipe wait unbounded", "common.py", [('process.communicate(timeout=1)', 'process.communicate()')], "test_timeout_pipe_from_escaped_descendant_is_bounded"),
-        ("timeout child process group missing", "common.py", [('start_new_session=True)', 'start_new_session=False)')], "test_acceptance_timeout_terms_adapter_before_kill"),
+        ("timeout child process group missing", "common.py", [('start_new_session=True, **kwargs)', 'start_new_session=False, **kwargs)')], "test_acceptance_timeout_terms_adapter_before_kill"),
         ("dry-run unknown latches silently", "orchestrate.py", [('result["status"] == "unknown" and result["mode"] != "dry-run"', 'result["status"] == "unknown"')], "test_dry_run_unknown_does_not_latch_or_alarm"),
         ("generation read unavailable but preflight continues", "orchestrate.py", [('generation = remote(config, "generation", new, run_id=uuid.uuid4().hex).strip()', 'generation = "system-1-link"')], "test_generation_failure_uses_six_hour_preflight_alarm"),
         ("alarm receipt despite total delivery outage", "orchestrate.py", [('if not alarm(config, entry["result"], entry["label"], pre_pair=entry.get("pre_pair", False)):', 'if False and not alarm(config, entry["result"], entry["label"], pre_pair=entry.get("pre_pair", False)):')], "test_alarm_all_routes_failed_remains_pending_and_retries"),
@@ -3585,6 +4626,158 @@ def mutants():
         ("unresolved rehearsal pin uses nixcfg revision", "orchestrate.py", [('if result.get("old_hausnetz_rev") else "unknown"', 'if result.get("old_hausnetz_rev") else result["nixcfg_rev"]')], "test_rehearsal_alarm_without_resolved_pin_is_unknown"),
         ("clear failed leaves failed tombstone", "orchestrate.py", [('if path.stem == target:\n                    path.unlink(missing_ok=True)', 'if path.stem == target:\n                    pass')], "test_clear_failed_requires_reason_and_allows_vm_test_retry"),
     ]
+
+    cases += [
+        ("OPS730 pre-rollback diagnostic removed", "execute.py",
+         [('result["failed_units_before_rollback"] = failed_units(diagnostic=True)', 'result["failed_units_before_rollback"] = []')],
+         "test_failed_units_captured_before_and_after_rollback"),
+        ("OPS730 child group cancellation removed", "common.py",
+         [('os.killpg(process.pid, signal.SIGTERM)', 'process.send_signal(signal.SIGTERM)'),
+          ('os.killpg(process.pid, signal.SIGKILL)', 'process.send_signal(signal.SIGKILL)')],
+         "test_controller_term_and_int_kill_descendant_group"),
+        ("OPS730 live child check removed", "orchestrate.py",
+         [('alive = any(child_group_alive(entry) for entry in children)', 'alive = False')],
+         "test_live_child_blocks_tick_and_queues_one_persistent_alarm"),
+        ("OPS730 alarm retry before acceptance decision", "orchestrate.py",
+         [('                remote(config, "acceptance", pending["nixcfg_rev"], run_id=pending["run_id"],\n'
+           '                       digest=pending["acceptance"])\n                deliver_alarms(config, state)',
+           '                deliver_alarms(config, state)\n'
+           '                remote(config, "acceptance", pending["nixcfg_rev"], run_id=pending["run_id"],\n'
+           '                       digest=pending["acceptance"])')],
+         "test_acceptance_decision_precedes_slow_alarm_retry"),
+        ("OPS730 preflight alarm sent directly", "orchestrate.py",
+         [('queue_alarm(config, state, key,\n'
+           '                    {"mode": config["mode"], "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",\n'
+           '                     "reason": "source_or_running_evidence_unavailable_6h"},\n'
+           '                    "CD PREFLIGHT UNAVAILABLE", pre_pair=True)',
+           'alarm(config, {"mode": config["mode"], "nixcfg_rev": "unknown", "hausnetz_rev": "unknown",\n'
+           '               "reason": "source_or_running_evidence_unavailable_6h"},\n'
+           '      "CD PREFLIGHT UNAVAILABLE", pre_pair=True)')],
+         "test_pre_pair_alarm_is_durable_on_delivery_failure"),
+        ("OPS730 vm-test alarm sent directly", "orchestrate.py",
+         [('queue_alarm(config, state, alarm_id, result, "VM-TEST WAIT EXCEEDED")',
+           'alarm(config, result, "VM-TEST WAIT EXCEEDED")')],
+         "test_vm_wait_alarm_is_durable_on_delivery_failure"),
+        ("OPS730 executor preflight backoff removed", "orchestrate.py",
+         [('        if running:\n            state["evaluated"]', '        if False:\n            state["evaluated"]')],
+         "test_executor_preflight_backoff_tracks_main_and_running"),
+        ("OPS730 pending rehearsal probes routes", "orchestrate.py",
+         [('        if state["pending"]:\n            if state["pending"].get("phase") == "awaiting_ack"',
+           '        if state["pending"]:\n            rehearsal_preflight(config)\n            if state["pending"].get("phase") == "awaiting_ack"')],
+         "test_pending_rehearsal_skips_route_probes"),
+        ("OPS730 operator reason empty check removed", "orchestrate.py",
+         [('require(reason, command + " requires --reason <text>")', 'pass')],
+         "test_operator_reasons_reject_with_exact_messages"),
+        ("OPS730 operator reason length check removed", "orchestrate.py",
+         [('require(len(value) <= 500, command + " --reason must be at most 500 characters")', 'pass')],
+         "test_operator_reasons_reject_with_exact_messages"),
+        ("OPS730 operator reason control check removed", "orchestrate.py",
+         [('require(all(unicodedata.category(c) not in {"Cc", "Cf", "Cs", "Zl", "Zp"} for c in value),\n'
+           '            command + " --reason must contain no control characters")', 'pass')],
+         "test_operator_reasons_reject_with_exact_messages"),
+        ("OPS730 sysinit reactivation allowed", "common.py",
+         [('    "setting up /etc...",', '    "would run sysinit-reactivation", "setting up /etc...",')],
+         "test_sysinit_reactivation_refuses_g3_and_rehearsal"),
+        ("OPS730 tick ignores operator stop marker", "orchestrate.py",
+         [('        merge_disable(config, state)\n        if child_record.exists():',
+           '        pass\n        if child_record.exists():')],
+         "test_disable_works_while_tick_locked_and_survives_restart"),
+        ("OPS730 reconcile passes despite operator stop", "orchestrate.py",
+         [('                if merge_disable(config, state):\n                    pending.update(acceptance="fail", operator_disabled=True)',
+           '                if False:\n                    pending.update(acceptance="fail", operator_disabled=True)')],
+         "test_reconcile_operator_stop_refuses_live_and_dry_pass"),
+    ]
+    cases += [
+        ("R2 stopped backup copy still runs", "orchestrate.py",
+         [('if not pending.get("operator_disabled") and not merge_disable(config, state):', 'if True:')],
+         "test_stop_before_backup_never_acks_or_switches"),
+        ("R2 operator merge overwrites safety latch", "orchestrate.py",
+         [('state["operator_stop"] = {**marker, "operator": True}', 'state["disabled"] = {**marker, "operator": True}')],
+         "test_stop_preserves_latch_and_clears_only_operator"),
+        ("R2 stopped alarm retry removed", "orchestrate.py",
+         [('            if ("disabled" not in state and\n                    (not state["pending"] or state["pending"].get("phase") == "awaiting_ack")):\n                deliver_alarms(config, state)',
+           '            if ("disabled" not in state and\n                    (not state["pending"] or state["pending"].get("phase") == "awaiting_ack")):\n                pass')],
+         "test_alarm_failed_delivery_retries_while_stopped"),
+        ("R2 activation exception kills group", "common.py",
+         [('if timeout is not None and not cancelled and CHILD_RECORD is None and process.poll() is None:',
+           'if not cancelled and CHILD_RECORD is None and process.poll() is None:')],
+         "test_activation_exception_never_kills_group"),
+        ("R2 reconcile top stop removed", "orchestrate.py",
+         [('            operator_disabled = merge_disable(config, state)', '            operator_disabled = False')],
+         "test_reconcile_operator_stop_refuses_live_and_dry_pass"),
+        ("R2 start pending stop removed", "orchestrate.py",
+         [('    if merge_disable(config, state):\n        finish(config, state, {**pending,',
+           '    if False:\n        finish(config, state, {**pending,')],
+         "test_start_pending_checks_stop_before_remote_work"),
+        ("R2 rehearsal start stop removed", "orchestrate.py",
+         [('            if merge_disable(config, state):\n                return\n            running = evidence',
+           '            if False:\n                return\n            running = evidence')],
+         "test_rehearsal_stop_after_preflight_never_starts"),
+        ("R2 malformed marker fails open", "orchestrate.py",
+         [('return {"operator": True, "at": now(), "reason": "invalid_operator_disable_marker"}', 'return None')],
+         "test_malformed_disable_marker_fails_closed"),
+        ("R2 clear disable leaves marker", "orchestrate.py",
+         [('                disable_marker(config).unlink(missing_ok=True)', '                pass')],
+         "test_clear_disable_removes_marker_and_latch"),
+        ("R2 child pgid equality removed", "common.py",
+         [('if os.getpgid(pid) == pgid:', 'if os.getpgid(pid):')],
+         "test_stale_child_record_clears_and_tick_proceeds"),
+        ("R2 stale child unlink removed", "orchestrate.py",
+         [('            child_record.unlink()', '            pass')],
+         "test_stale_child_record_clears_and_tick_proceeds"),
+        ("R2 once only child alarm removed", "orchestrate.py",
+         [('time.time() - blocked["since"] > 30 * 60 and not blocked["alarmed"]:',
+           'time.time() - blocked["since"] > 30 * 60:')],
+         "test_live_child_blocks_tick_and_queues_one_persistent_alarm"),
+        ("R2 signal registration deferral removed", "common.py",
+         [('if CHILD_STARTING:', 'if False:')],
+         "test_signal_before_popen_returns_is_deferred_until_registered"),
+        ("R2 changed running backoff bypass removed", "orchestrate.py",
+         [('and (not evaluated.get("check_running") or evaluated.get("running") == old)', 'and True')],
+         "test_executor_preflight_backoff_tracks_main_and_running"),
+        ("R2 pre rollback diagnostic exception guard removed", "execute.py",
+         [('                try:\n                    result["failed_units_before_rollback"] = failed_units(diagnostic=True)\n                except Exception:\n                    result["failed_units_before_rollback"] = ["unavailable"]',
+           '                result["failed_units_before_rollback"] = failed_units(diagnostic=True)')],
+         "test_failed_units_captured_before_and_after_rollback"),
+        ("R2 stopped pair reserved forever", "orchestrate.py",
+         [('if not retryable_stop and result["status"] not in {"operator_disabled", "fetch_failed", "vm_test_wait", "preflight_refused"} and',
+           'if result["status"] not in {"fetch_failed", "vm_test_wait", "preflight_refused"} and')],
+         "test_stopped_pair_retries_after_clear"),
+        ("R2 attended ack requested while stopped", "orchestrate.py",
+         [('        if merge_disable(config, state):\n            finish(config, state, {**pending,',
+           '        if False:\n            finish(config, state, {**pending,')],
+         "test_stop_before_attended_request_sends_no_ack_alarm"),
+        ("R2 child block episode reset not saved", "orchestrate.py",
+         [('        if state.pop("child_blocked", None) is not None:\n            save_state(config, state)',
+           '        state.pop("child_blocked", None)')],
+         "test_child_block_episodes_each_alarm_once_and_reset_on_early_returns"),
+        ("R2 rehearsal executor ignores stop", "execute.py",
+         [('require(not decision.exists() or decision.read_text().strip() != "fail", "operator_disabled")', 'pass')],
+         "test_rehearsal_executor_honors_pre_switch_stop"),
+        ("R2 cancellation grace shortened", "common.py",
+         [('deadline = time.monotonic() + 3', 'deadline = time.monotonic() + 0.1')],
+         "test_cancel_child_allows_three_second_term_grace"),
+    ]
+    cases += [
+        ("R3 any operator stop skips real failure tombstones", "orchestrate.py",
+         [('retryable_stop = stop_caused or stopped_revision_refusal',
+           'retryable_stop = bool(result.get("operator_disabled")) or stopped_revision_refusal')],
+         "test_rollback_failure_while_stopped_sets_safety_latch"),
+        ("R3 never skip stopped target tombstones", "orchestrate.py",
+         [('retryable_stop = stop_caused or stopped_revision_refusal', 'retryable_stop = False')],
+         "test_stop_before_backup_never_acks_or_switches"),
+        ("R3 checker verdict ignored", "orchestrate.py",
+         [('result.get("checker_verdict") != "fail"', 'True')],
+         "test_checker_fail_then_stop_keeps_failed_target"),
+        ("R3 copy_export marker recheck removed", "orchestrate.py",
+         [('if read_disable(config) is None:\n        remote(config, "ack",',
+           'if True:\n        remote(config, "ack",')],
+         "test_stop_during_copy_export_withholds_ack"),
+    ]
+    if only is not None:
+        cases = [case for case in cases if case[0].startswith(only)]
+    if start_after is not None:
+        cases = cases[[case[0] for case in cases].index(start_after) + 1:]
 
     def check_mutant(case):
         label, file, edits, test = case
