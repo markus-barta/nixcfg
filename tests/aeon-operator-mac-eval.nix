@@ -5,6 +5,7 @@
   publicSource,
   selfRev,
   enabled ? null,
+  doctrineEnabled ? null,
   legacy ? false,
   modulePath ? ../modules/uzumaki/agent-kernel.nix,
 }:
@@ -75,7 +76,9 @@ let
         };
       }
     ]
-    ++ lib.optional (enabled != null) { inspr.aeonOperatorMac.enable = enabled; };
+    # The same pinned integration also exercises OPS-754 without a host build.
+    ++ lib.optional (enabled != null) { inspr.aeonOperatorMac.enable = enabled; }
+    ++ lib.optional (doctrineEnabled != null) { inspr.doctrineCopies.enable = doctrineEnabled; };
   };
   cfg = evaluated.config;
 in
@@ -92,4 +95,8 @@ assert lib.assertMsg (lib.all (a: a.assertion) cfg.assertions) (
   ) cfg.home.file;
   activation = cfg.home.activation;
   inherit (cfg.inspr.agent-kernel) markerHarnesses;
+  inherit (cfg.inspr.agent-kernel) harnesses;
+  kernelSources = map toString (
+    [ cfg.inspr.agent-kernel.source ] ++ cfg.inspr.agent-kernel.extraSources
+  );
 }
