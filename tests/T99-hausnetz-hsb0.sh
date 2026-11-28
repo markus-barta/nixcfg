@@ -228,7 +228,7 @@ assert 'location / {' not in vhost  # only the included app snippet owns the roo
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in vhost
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in Path('modules/files/hostdash-nginx.conf').read_text()
 
-pin = '3df1b5ba332c81e1bde71a59e5c9c4545db01019'  # HNET pin 81 (v261127164749.0.0); repo in inspr-at
+pin = 'd09257ee24011f5408c92ccfa5b9d1f0b5f27968'  # HNET pin 82 (v261128042859.0.0); repo in inspr-at
 assert f'git+ssh://git@github.com/inspr-at/hausnetz?rev={pin}' in Path('flake.nix').read_text()
 lock = json.loads(Path('flake.lock').read_text())
 assert lock['nodes'][lock['root']]['inputs']['hausnetz'] == 'hausnetz'
@@ -237,9 +237,9 @@ assert node['inputs'] == {'nixpkgs': ['nixpkgs']}
 for source in ('locked', 'original'):
     assert node[source]['type'] == 'git' and node[source]['rev'] == pin
     assert node[source]['url'] == 'ssh://git@github.com/inspr-at/hausnetz'
-assert node['locked']['narHash'] == 'sha256-iWNKhUQe8HYLghpS2Rfy9kGM08jnvdQtUkQdDJp11yU='
-assert node['locked']['lastModified'] == 1795798160
-assert node['locked']['revCount'] == 2006  # git rev-list --count of the pin (pin 80: 1999 + 7)
+assert node['locked']['narHash'] == 'sha256-4CAz2tYxs4tZJQrB6M5wSFB+IaxjdXHk8ZQoIfcIpD4='
+assert node['locked']['lastModified'] == 1795841264
+assert node['locked']['revCount'] == 2046  # git rev-list --count of the pin (pin 81: 2006 + 40)
 imports = [p for p in Path('hosts').rglob('*.nix') if 'inputs.hausnetz.nixosModules.default' in p.read_text()]
 assert imports == [Path('hosts/hsb0/configuration.nix')], imports
 
