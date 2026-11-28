@@ -9,6 +9,11 @@
 # tool default is not a routing decision. A hit is fixed by rewriting to a role
 # (AGENTS-DOMAIN-DEV.md § model choice by role), never by an exemption.
 #
+# One exception, decided by Markus (Desk question 6760740f, 2026-11-28,
+# OPS-754): the two operator agreement texts that inspr.doctrineCopies
+# installs are his own wording, copied verbatim, and they name the review
+# chain by model. They are exempt by exact path, nothing else is.
+#
 # Surfaces: the lint recurses with `grep -r`, which does NOT descend symlinks —
 # and BSD grep (macOS) skips even a symlink named on the command line, GNU grep
 # follows it. `.claude/commands` is a symlink to `+agents/commands`, whose
@@ -68,5 +73,14 @@ if [ "${covered}" -eq 0 ]; then
 fi
 
 bash "${lint}" --self-test
-bash "${lint}" --lint "${repo}" "${surfaces[@]}"
+operator_texts=(modules/uzumaki/personal-agreements.md modules/uzumaki/builder-home-agreements.md)
+exempt=()
+for text in "${operator_texts[@]}"; do
+  [ -f "${text}" ] || {
+    echo "T88: exempt operator text ${text} no longer exists (drop it)" >&2
+    exit 1
+  }
+  exempt+=(--exempt "${text}")
+done
+bash "${lint}" --lint "${repo}" "${exempt[@]}" "${surfaces[@]}"
 echo "T88 ok (${covered} command file(s) linted as regular files, ${skipped} private not checked out)"
