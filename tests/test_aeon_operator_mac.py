@@ -231,7 +231,8 @@ print("T129: default/explicit OFF match legacy exactly; enabled inventory and mi
 with tempfile.TemporaryDirectory(prefix="ops737-mutants-", dir=REPO / "tests") as temporary:
     root = Path(temporary)
     original = (REPO / "modules/uzumaki/aeon-operator-mac.nix").read_text()
-    wrapper = (REPO / "modules/uzumaki/agent-kernel.nix").read_text()
+    wrapper = (REPO / "modules/uzumaki/agent-kernel.nix").read_text().replace(
+        "./doctrine-copies.nix", str(REPO / "modules/uzumaki/doctrine-copies.nix"))
     private_source = str(REPO / "modules/uzumaki/agent-kernel-private.md")
     (root / "aeon-operator-mac.nix").write_text(original.replace("./agent-kernel-private.md", private_source))
     marker_mutant = wrapper.replace(

@@ -5,8 +5,10 @@
   publicSource,
   selfRev,
   enabled ? null,
+  doctrineEnabled ? null,
   legacy ? false,
   modulePath ? ../modules/uzumaki/agent-kernel.nix,
+  hostHome ? null,
 }:
 let
   lib = (import (nixpkgs + "/lib")).extend (
@@ -75,21 +77,52 @@ let
         };
       }
     ]
-    ++ lib.optional (enabled != null) { inspr.aeonOperatorMac.enable = enabled; };
+    # The same pinned integration also exercises OPS-754 without a host build.
+    ++ lib.optional (enabled != null) { inspr.aeonOperatorMac.enable = enabled; }
+    ++ lib.optional (doctrineEnabled != null) { inspr.doctrineCopies.enable = doctrineEnabled; }
+    # Evaluate the real host's option definitions with the pinned module system.
+    # Omit its infrastructure imports and ignore unrelated undeclared HM options;
+    # lazy evaluation never demands packages, secrets, or activation derivations.
+    ++ lib.optional (hostHome != null) (
+      { config, ... }:
+      {
+        config = {
+          _module.check = false;
+        }
+        // builtins.removeAttrs (import hostHome {
+          inherit
+            config
+            inputs
+            lib
+            pkgs
+            ;
+        }) [ "imports" ];
+      }
+    );
   };
   cfg = evaluated.config;
 in
-assert lib.assertMsg (lib.all (a: a.assertion) cfg.assertions) (
-  lib.concatStringsSep "\n" (map (a: a.message) (lib.filter (a: !a.assertion) cfg.assertions))
-);
-{
-  files = lib.mapAttrs (
-    _: file:
-    file
-    // lib.optionalAttrs (file ? source) {
-      source = toString file.source;
-    }
-  ) cfg.home.file;
-  activation = cfg.home.activation;
-  inherit (cfg.inspr.agent-kernel) markerHarnesses;
-}
+if hostHome != null then
+  {
+    doctrineEnabled = cfg.inspr.doctrineCopies.enable;
+    operatorEnabled = cfg.inspr.aeonOperatorMac.enable;
+  }
+else
+  assert lib.assertMsg (lib.all (a: a.assertion) cfg.assertions) (
+    lib.concatStringsSep "\n" (map (a: a.message) (lib.filter (a: !a.assertion) cfg.assertions))
+  );
+  {
+    files = lib.mapAttrs (
+      _: file:
+      file
+      // lib.optionalAttrs (file ? source) {
+        source = toString file.source;
+      }
+    ) cfg.home.file;
+    activation = cfg.home.activation;
+    inherit (cfg.inspr.agent-kernel) markerHarnesses;
+    inherit (cfg.inspr.agent-kernel) harnesses;
+    kernelSources = map toString (
+      [ cfg.inspr.agent-kernel.source ] ++ cfg.inspr.agent-kernel.extraSources
+    );
+  }
