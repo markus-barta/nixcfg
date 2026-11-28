@@ -59,11 +59,11 @@
       url = "github:markus-barta/joedesk/dad48e07f331562164da192106d2d11645b3c074";
       flake = false;
     };
-    # HOSTD-80: DE/EN language switch on every board, shared localStorage key hostdash.lang,
-    # German texts for hsb9 (hostdash #28). Before: HOSTD-79 hsb9 Fernsehaufnahmen tile (#27),
+    # HOSTD-83: 2026 glass-LED board on every board, evidence-only status claims (hostdash #30).
+    # Before: HOSTD-80 DE/EN switch (#28), HOSTD-79 hsb9 Fernsehaufnahmen tile (#27),
     # HOSTD-75 boards reconciled with nixcfg (#26) + HOSTD-37 (#23).
     hostdash = {
-      url = "github:markus-barta/hostdash/7e4896dcedbe083db8aa96e82587e4da28c2c8cd";
+      url = "github:markus-barta/hostdash/efa4e6661901f6b75d1215442db499fefff593c3";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # HNET pin 86: v261128105422.0.0 (sequence 156; hausnetz main bcdee321; annotated tag). Since 85: UX sweep 2 in
